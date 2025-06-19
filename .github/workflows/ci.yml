@@ -30,7 +30,7 @@ jobs:
         run:  apt-get install -y rsync
 
       - name: Deploy to aliyun server
-        uses: easingthemes/ssh-deploy@main
+        uses: AEnterprise/rsync-deploy@v1.0
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avzr --delete'
