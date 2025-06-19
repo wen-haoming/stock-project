@@ -1,6 +1,15 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
 
@@ -9,8 +18,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies and build
-        run: |
-          cd web
-          npm install
-          npm run build  # 修正为正确命令
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./web
+
+      - name: Build
+        run: npm run build
+        working-directory: ./web
