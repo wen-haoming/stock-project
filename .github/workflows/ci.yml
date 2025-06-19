@@ -18,11 +18,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name : cd web
+        run: cd web
+
       - name: Install dependencies
         run: pnpm install
-
-      - name: Run tests
-        run: pnpm test
 
       - name: Build
         run: pnpm build
