@@ -18,12 +18,23 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Add pnpm
+        run: npm install pnpm -g && pnpm -v
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v2
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ matrix.node-version }}-nodeModules-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.node-version }}-nodeModules-
+
       - name: Install dependencies
-        run: npm install
+        run: pnpm install
         working-directory: ./web
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
         working-directory: ./web
 
       - name: Deploy to aliyun server        # 为 step 指定一个名称，将会在 github action 的控制台中显示
@@ -31,7 +42,8 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}  #这个是阿里云的私钥
           ARGS: "-avzr --delete"
-          SOURCE: "./web/dist"
+          SOURCE: "./dist"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
           REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
           TARGET: "/web"       #被部署的服务器路径 
+          EXCLUDE: "/dist/, /node_modules/"
