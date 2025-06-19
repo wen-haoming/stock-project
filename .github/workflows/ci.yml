@@ -32,9 +32,9 @@ jobs:
       - name: Deploy to aliyun server
         uses: AEnterprise/rsync-deploy@v1.0
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          ARGS: '-avzr --delete'
-          SOURCE: "./dist"
-          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-          REMOTE_USER: ${{ secrets.REMOTE_USER }}
-          TARGET: "/web"
+          DEPLOY_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          ARGS: "-e -c -r --delete"
+          SOURCE: "./web/dist/"
+          SERVER_IP: ${{ secrets.REMOTE_HOST }}
+          USERNAME: ${{ secrets.REMOTE_USER }}
+          FOLDER: "./web/dist/"
