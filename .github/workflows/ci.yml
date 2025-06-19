@@ -26,14 +26,15 @@ jobs:
         run: npm run build
         working-directory: ./web
 
-      - name: Deploy to aliyun server        # 为 step 指定一个名称，将会在 github action 的控制台中显示
-        uses: easingthemes/ssh-deploy@main      #可以访问的仓库，实现的上传服务器步骤被封装在此action
+      - name: Install rsync
+        run:  apt-get install -y rsync
+
+      - name: Deploy to aliyun server
+        uses: easingthemes/ssh-deploy@main
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}  #这个是阿里云的私钥
-          # ARGS: "-avzr --delete"
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avzr --delete'
           SOURCE: "./dist"
-          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
-          REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
-          TARGET: "/web"       #被部署的服务器路径 
-          # EXCLUDE: "/dist/, /node_modules/"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/web"
