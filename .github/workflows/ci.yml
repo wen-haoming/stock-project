@@ -18,23 +18,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Add pnpm
-        run: npm install pnpm -g && pnpm -v
-      - name: Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v2
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ matrix.node-version }}-nodeModules-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.node-version }}-nodeModules-
-
       - name: Install dependencies
-        run: pnpm install
+        run: npm install
         working-directory: ./web
 
       - name: Build
-        run: pnpm run build
+        run: npm run build
         working-directory: ./web
 
       - name: Deploy to aliyun server        # 为 step 指定一个名称，将会在 github action 的控制台中显示
