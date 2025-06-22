@@ -31,4 +31,4 @@ jobs:
             cd /server
             chmod +x ./server
             killall server || true
-            nohup ./server > /dev/null 2>&1 &
+            nohup ./main > /dev/null 2>&1 &
