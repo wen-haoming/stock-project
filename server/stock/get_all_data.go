@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -119,7 +120,7 @@ func processRawData(rawData []StockSpotDataRaw) []StockSpotData {
 	return processedData
 }
 
-func fetchAllStockData(market string) ([]StockSpotData, error) {
+func fetchAllStockData(market string, pn int, pz int) ([]StockSpotData, error) {
 	marketMap := map[string]string{
 		"sh":  "m:1+t:2",                                           // 上证A股
 		"sz":  "m:0+t:6",                                           // 深证A股
@@ -133,64 +134,69 @@ func fetchAllStockData(market string) ([]StockSpotData, error) {
 	}
 
 	url := "https://82.push2.eastmoney.com/api/qt/clist/get"
-	var allData []StockSpotData
-	pn := 1
-	pz := 500 // page size
 
-	for {
-		req, _ := http.NewRequest("GET", url, nil)
-		q := req.URL.Query()
-		q.Add("pn", fmt.Sprintf("%d", pn))
-		q.Add("pz", fmt.Sprintf("%d", pz))
-		q.Add("po", "1")
-		q.Add("np", "1")
-		q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-		q.Add("fltt", "2")
-		q.Add("invt", "2")
-		q.Add("fid", "f12")
-		q.Add("fs", fs)
-		q.Add("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152")
-		req.URL.RawQuery = q.Encode()
+	req, _ := http.NewRequest("GET", url, nil)
+	q := req.URL.Query()
+	q.Add("pn", fmt.Sprintf("%d", pn))
+	q.Add("pz", fmt.Sprintf("%d", pz))
+	q.Add("po", "1")
+	q.Add("np", "1")
+	q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
+	q.Add("fltt", "2")
+	q.Add("invt", "2")
+	q.Add("fid", "f12")
+	q.Add("fs", fs)
+	q.Add("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152")
+	req.URL.RawQuery = q.Encode()
 
-		client := &http.Client{Timeout: time.Second * 10}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to make request: %w", err)
-		}
-		defer resp.Body.Close()
+	client := &http.Client{Timeout: time.Second * 10}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response body: %w", err)
-		}
-
-		var spotResponse EastmoneySpotResponse
-		if err := json.Unmarshal(body, &spotResponse); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w. Response body: %s", err, string(body))
-		}
-
-		if spotResponse.Data == nil || len(spotResponse.Data.Diff) == 0 {
-			break // No more data
-		}
-
-		processedData := processRawData(spotResponse.Data.Diff)
-		allData = append(allData, processedData...)
-
-		if len(allData) >= spotResponse.Data.Total {
-			break
-		}
-		pn++
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return allData, nil
+	var spotResponse EastmoneySpotResponse
+	if err := json.Unmarshal(body, &spotResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w. Response body: %s", err, string(body))
+	}
+
+	if spotResponse.Data == nil || len(spotResponse.Data.Diff) == 0 {
+		return nil, nil // No data available
+	}
+
+	return processRawData(spotResponse.Data.Diff), nil
 }
 
+// GetAllData handles the HTTP request for stock data
 func GetAllData(c *gin.Context) {
 	market := c.DefaultQuery("market", "all")
-	data, err := fetchAllStockData(market)
+	page := c.DefaultQuery("page", "1")
+	pageSize := c.DefaultQuery("pageSize", "500")
+
+	// Convert page and pageSize to integers with error handling
+	pageNum, err := strconv.Atoi(page)
+	if err != nil || pageNum < 1 {
+		pageNum = 1
+	}
+	pageSizeNum, err := strconv.Atoi(pageSize)
+	if err != nil || pageSizeNum < 1 || pageSizeNum > 500 {
+		pageSizeNum = 500
+	}
+
+	data, err := fetchAllStockData(market, pageNum, pageSizeNum)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, data)
+	c.JSON(http.StatusOK, gin.H{
+		"data":     data,
+		"page":     pageNum,
+		"pageSize": pageSizeNum,
+	})
 }
