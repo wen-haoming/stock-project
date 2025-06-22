@@ -120,7 +120,7 @@ func processRawData(rawData []StockSpotDataRaw) []StockSpotData {
 	return processedData
 }
 
-func fetchAllStockData(market string, pn int, pz int, code string, name string) ([]StockSpotData, int, error) {
+func fetchAllStockData(market string, pn int, pz int, code string, name string, kdjJ int) ([]StockSpotData, int, error) {
 	marketMap := map[string]string{
 		"sh":  "m:1+t:2",                                           // 上证A股
 		"sz":  "m:0+t:6",                                           // 深证A股
@@ -154,6 +154,17 @@ func fetchAllStockData(market string, pn int, pz int, code string, name string) 
 	if name != "" {
 		q.Add("f14", name)
 	}
+
+	if kdjJ != 0 {
+		// 如果 kdjJ 为正数，查找大于等于该值的股票
+		// 如果 kdjJ 为负数，查找小于等于该值的绝对值的股票
+		if kdjJ > 0 {
+			q.Add("f152", fmt.Sprintf(">=%d", kdjJ))
+		} else {
+			q.Add("f152", fmt.Sprintf("<=%d", -kdjJ))
+		}
+	}
+
 	q.Add("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152")
 	req.URL.RawQuery = q.Encode()
 
@@ -189,6 +200,8 @@ func GetAllData(c *gin.Context) {
 	pageSize := c.DefaultQuery("pageSize", "500")
 	code := c.Query("code")
 	name := c.Query("name")
+	kdjJ := c.Query("kdjJ") // 添加 kdjJ 参数
+
 	// Convert page and pageSize to integers with error handling
 	pageNum, err := strconv.Atoi(page)
 	if err != nil || pageNum < 1 {
@@ -199,7 +212,17 @@ func GetAllData(c *gin.Context) {
 		pageSizeNum = 500
 	}
 
-	data, total, err := fetchAllStockData(market, pageNum, pageSizeNum, code, name)
+	// 验证并转换 kdjJ 参数
+	var kdjJNum int
+	if kdjJ != "" {
+		kdjJNum, err = strconv.Atoi(kdjJ)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "kdjJ must be an integer"})
+			return
+		}
+	}
+
+	data, total, err := fetchAllStockData(market, pageNum, pageSizeNum, code, name, kdjJNum)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

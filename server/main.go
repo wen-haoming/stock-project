@@ -33,7 +33,7 @@ func setupRouter() *gin.Engine {
 
 	r.GET("/api/v1/stock/hist", stock.GetStockHist)
 	r.GET("/api/v1/stock/all", stock.GetAllData)
-
+	r.GET("/api/v1/stock/all_kdj", stock.GetAllData2)
 	// Authorized group (uses gin.BasicAuth() middleware)
 	// Same than:
 	// authorized := r.Group("/")
