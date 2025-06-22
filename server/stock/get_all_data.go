@@ -120,7 +120,7 @@ func processRawData(rawData []StockSpotDataRaw) []StockSpotData {
 	return processedData
 }
 
-func fetchAllStockData(market string, pn int, pz int) ([]StockSpotData, error) {
+func fetchAllStockData(market string, pn int, pz int, code string, name string) ([]StockSpotData, int, error) {
 	marketMap := map[string]string{
 		"sh":  "m:1+t:2",                                           // 上证A股
 		"sz":  "m:0+t:6",                                           // 深证A股
@@ -146,31 +146,40 @@ func fetchAllStockData(market string, pn int, pz int) ([]StockSpotData, error) {
 	q.Add("invt", "2")
 	q.Add("fid", "f12")
 	q.Add("fs", fs)
+
+	if code != "" {
+		q.Add("f12", code)
+	}
+
+	if name != "" {
+		q.Add("f14", name)
+	}
 	q.Add("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152")
 	req.URL.RawQuery = q.Encode()
 
 	client := &http.Client{Timeout: time.Second * 10}
+	fmt.Println(req)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return nil, 0, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, 0, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var spotResponse EastmoneySpotResponse
 	if err := json.Unmarshal(body, &spotResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w. Response body: %s", err, string(body))
+		return nil, 0, fmt.Errorf("failed to unmarshal response: %w. Response body: %s", err, string(body))
 	}
 
 	if spotResponse.Data == nil || len(spotResponse.Data.Diff) == 0 {
-		return nil, nil // No data available
+		return nil, 0, nil // No data available
 	}
 
-	return processRawData(spotResponse.Data.Diff), nil
+	return processRawData(spotResponse.Data.Diff), spotResponse.Data.Total, nil
 }
 
 // GetAllData handles the HTTP request for stock data
@@ -178,7 +187,8 @@ func GetAllData(c *gin.Context) {
 	market := c.DefaultQuery("market", "all")
 	page := c.DefaultQuery("page", "1")
 	pageSize := c.DefaultQuery("pageSize", "500")
-
+	code := c.Query("code")
+	name := c.Query("name")
 	// Convert page and pageSize to integers with error handling
 	pageNum, err := strconv.Atoi(page)
 	if err != nil || pageNum < 1 {
@@ -189,7 +199,7 @@ func GetAllData(c *gin.Context) {
 		pageSizeNum = 500
 	}
 
-	data, err := fetchAllStockData(market, pageNum, pageSizeNum)
+	data, total, err := fetchAllStockData(market, pageNum, pageSizeNum, code, name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -198,5 +208,6 @@ func GetAllData(c *gin.Context) {
 		"data":     data,
 		"page":     pageNum,
 		"pageSize": pageSizeNum,
+		"total":    total,
 	})
 }
