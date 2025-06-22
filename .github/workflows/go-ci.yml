@@ -23,7 +23,7 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}  #这个是阿里云的私钥
           ARGS: '-avzr'
-          SOURCE: "./server"
+          SOURCE: "./server/main"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
           REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
           TARGET: "/"       #被部署的服务器路径 
