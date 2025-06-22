@@ -26,7 +26,7 @@ jobs:
           SOURCE: "./server/server-go"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
           REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
-          TARGET: "/server/server-go"       #被部署的服务器路径 
+          TARGET: "/server"       #被部署的服务器路径 
           SCRIPT_AFTER: |
             cd /server
             chmod +x ./server-go
