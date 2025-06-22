@@ -1,0 +1,28 @@
+name: Go
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        working-directory: ./server
+        with:
+          go-version: '1.21.x'
+      - name: Install dependencies
+        run: go get .
+      - name: Build
+        run: go build
+      - name: Deploy to aliyun server        # 为 step 指定一个名称，将会在 github action 的控制台中显示
+        uses: easingthemes/ssh-deploy@main      #可以访问的仓库，实现的上传服务器步骤被封装在此action
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}  #这个是阿里云的私钥
+          # ARGS: "-avzr --delete"
+          ARGS: '-avzr --delete'
+          SOURCE: "./web/server"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
+          TARGET: "/server"       #被部署的服务器路径 
