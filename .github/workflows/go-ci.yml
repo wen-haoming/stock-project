@@ -16,7 +16,7 @@ jobs:
         run: go get .
       - name: Build
         working-directory: ./server
-        run: go build -o ./server-go
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./server-go
 
       - name: Deploy to aliyun server        # 为 step 指定一个名称，将会在 github action 的控制台中显示
         uses: easingthemes/ssh-deploy@main      #可以访问的仓库，实现的上传服务器步骤被封装在此action
@@ -26,9 +26,9 @@ jobs:
           SOURCE: "./server/server-go"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}    #阿里云的 ip
           REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
-          TARGET: "/server2"       #被部署的服务器路径 
+          TARGET: "/server"       #被部署的服务器路径 
           SCRIPT_AFTER: |
-            cd /server2
+            cd /server
             chmod +x ./server-go
             killall server-go || true
             nohup ./server-go > /dev/null 2>&1 &
