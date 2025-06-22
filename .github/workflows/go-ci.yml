@@ -28,7 +28,7 @@ jobs:
           REMOTE_USER: ${{ secrets.REMOTE_USER }}    #阿里云用户
           TARGET: "/server/server-go"       #被部署的服务器路径 
           SCRIPT_AFTER: |
-            cd /server/server-go
+            cd /server
             chmod +x ./server-go
             killall server-go || true
             nohup ./server-go > /dev/null 2>&1 &
