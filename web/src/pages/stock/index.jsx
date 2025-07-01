@@ -119,35 +119,32 @@ const columns = [
 ];
 
 export default function StockList() {
-
   return (
     <ProTable
       columns={columns}
       style={{width:'100%'}}
+      virtual
       request={async (params = {}) => {
         const { current, pageSize } = params;
-        
-        const { data } = await axios.get('/api/v1/stock/all', {
+        const res = await axios.get('/api/v1/stock/all', {
           params: {
             page: current,
             pageSize,
             code:params['代码'],
             name:params['名称'],
           },
+        }).then(res => {
+          return res.data
         });
         return {
-          data: data.data,
-          total: data.total,
+          data:res,
+          total: res.length,
           success: true,
         };
       }}
       scroll={{ x: 1000 }}
       rowKey="代码"
       search={true}
-      pagination={{
-        showQuickJumper: true,
-        showSizeChanger: true,
-      }}
       dateFormatter="string"
       toolbar={{
         title: '股票列表',
