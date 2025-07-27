@@ -7,6 +7,12 @@ const route = {
   path: '/',
   routes: [
     {
+      path: '/stock',
+      name: '首页',
+      icon: 'HomeOutlined',
+      component: './stock',
+    },
+    {
       path: '/frontend',
       name: '前端开发',
       icon: 'CodeOutlined',

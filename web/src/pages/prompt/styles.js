@@ -3,7 +3,8 @@ export const styles = {
   container: {
     padding: '24px',
     background: '#f0f2f5',
-    minHeight: '100vh'
+    minHeight: '100vh',
+    transition: 'background-color 0.3s ease'
   },
   content: {
     maxWidth: '1400px',
@@ -22,7 +23,8 @@ export const styles = {
   card: {
     height: '100%',
     display: 'flex',
-    flexDirection: 'column'
+    flexDirection: 'column',
+    transition: 'all 0.3s ease'
   },
   cardBody: {
     flex: 1,
@@ -69,7 +71,97 @@ export const styles = {
     lineHeight: '1.6',
     whiteSpace: 'pre-wrap',
     maxHeight: '400px',
-    overflow: 'auto'
+    overflow: 'auto',
+    transition: 'background-color 0.3s ease'
+  },
+  emptyContainer: {
+    marginTop: '100px'
+  }
+};
+
+// 暗黑模式样式配置
+export const darkStyles = {
+  container: {
+    padding: '24px',
+    background: '#141414',
+    minHeight: '100vh',
+    transition: 'background-color 0.3s ease'
+  },
+  content: {
+    maxWidth: '1400px',
+    margin: '0 auto'
+  },
+  pageTitle: {
+    marginBottom: '32px',
+    textAlign: 'center',
+    color: '#ffffff'
+  },
+  categorySection: {
+    marginBottom: '40px'
+  },
+  categoryTitle: {
+    marginBottom: '20px'
+  },
+  card: {
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    transition: 'all 0.3s ease',
+    background: '#1f1f1f',
+    border: '1px solid #303030'
+  },
+  cardBody: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column'
+  },
+  cardContent: {
+    flex: 1
+  },
+  cardTitle: {
+    marginBottom: 8,
+    color: '#ffffff'
+  },
+  cardDescription: {
+    fontSize: '14px',
+    marginBottom: 12,
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    color: '#d9d9d9'
+  },
+  cardTags: {
+    marginBottom: 12
+  },
+  cardAiRecommend: {
+    marginBottom: 12
+  },
+  cardUsage: {
+    fontSize: '12px',
+    marginBottom: 16,
+    fontStyle: 'italic',
+    color: '#8c8c8c'
+  },
+  cardActions: {
+    marginTop: 'auto'
+  },
+  previewModal: {
+    width: 800
+  },
+  previewContent: {
+    background: '#262626',
+    padding: '16px',
+    borderRadius: '6px',
+    fontFamily: 'monospace',
+    fontSize: '14px',
+    lineHeight: '1.6',
+    whiteSpace: 'pre-wrap',
+    maxHeight: '400px',
+    overflow: 'auto',
+    transition: 'background-color 0.3s ease',
+    color: '#d9d9d9',
+    border: '1px solid #434343'
   },
   emptyContainer: {
     marginTop: '100px'
@@ -91,4 +183,12 @@ export const themeColors = {
   backend: '#52c41a',
   uiDesign: '#722ed1',
   programmingRules: '#fa8c16'
+};
+
+// 暗黑模式主题色彩配置
+export const darkThemeColors = {
+  frontend: '#40a9ff',
+  backend: '#73d13d',
+  uiDesign: '#b37feb',
+  programmingRules: '#ffa940'
 }; 

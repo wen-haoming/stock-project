@@ -1,5 +1,5 @@
 import { ProTable } from '@ant-design/pro-components';
-import { useRequest } from 'ahooks';
+// import { useRequest } from 'ahooks';
 import axios from 'axios';
 
 const columns = [
@@ -142,7 +142,7 @@ export default function StockList() {
           success: true,
         };
       }}
-      scroll={{ x: 1000 }}
+      scroll={{ x: 1000,y:'calc(100vh - 50px)' }}
       rowKey="代码"
       search={true}
       dateFormatter="string"
