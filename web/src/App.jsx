@@ -7,10 +7,28 @@ const route = {
   path: '/',
   routes: [
     {
-      path: '/stock',
-      name: '股票数据',
-      icon: 'LineChartOutlined',
-      component: './stock',
+      path: '/frontend',
+      name: '前端开发',
+      icon: 'CodeOutlined',
+      component: './prompt',
+    },
+    {
+      path: '/backend',
+      name: '后端开发',
+      icon: 'ToolOutlined',
+      component: './prompt',
+    },
+    {
+      path: '/ui-design',
+      name: 'UI 设计',
+      icon: 'EyeOutlined',
+      component: './prompt',
+    },
+    {
+      path: '/programming-rules',
+      name: '编程规范',
+      icon: 'BugOutlined',
+      component: './prompt',
     },
   ],
 };
@@ -21,7 +39,7 @@ export default function App() {
   return (
     <ConfigProvider locale={zhCN}>
       <ProLayout
-        title="股票系统"
+        title="Prompt 模板库"
         location={location}
         route={route}
         style={{width:'100vw',height:'100vh'}}
