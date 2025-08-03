@@ -1,18 +1,19 @@
 import { useState, useMemo } from 'react';
 import { Empty } from 'antd';
 import { useLocation } from 'react-router-dom';
-import { promptData } from './config';
+import { promptCategories } from './prompts/loader';
 import { styles, darkStyles, themeColors, darkThemeColors } from './styles';
 import {
   PromptPreviewModal,
+  CodePreviewModal,
   CategorySection,
   DarkModeToggle
 } from './components';
 
-// 主页面组件
 const PromptPage = () => {
   const location = useLocation();
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [codePreviewVisible, setCodePreviewVisible] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('prompt-dark-mode');
@@ -29,9 +30,9 @@ const PromptPage = () => {
   // 过滤要显示的分类
   const displayCategories = useMemo(() => {
     if (!currentCategoryId) {
-      return promptData.categories; // 显示所有分类
+      return promptCategories; // 显示所有分类
     }
-    const category = promptData.categories.find(cat => cat.id === currentCategoryId);
+    const category = promptCategories.find(cat => cat.id === currentCategoryId);
     return category ? [category] : [];
   }, [currentCategoryId]);
 
@@ -40,39 +41,32 @@ const PromptPage = () => {
     setPreviewVisible(true);
   };
 
-
+  const handleCodePreview = (prompt) => {
+    const promptWithCode = prompt.hasCode && prompt.codeContent 
+      ? { ...prompt, content: prompt.codeContent }
+      : prompt;
+    setCurrentPrompt(promptWithCode);
+    setCodePreviewVisible(true);
+  };
 
   const handleCopy = (prompt) => {
     // 可以在这里添加复制统计等功能
     console.log('复制了提示词:', prompt.title);
   };
 
-  // 根据暗黑模式获取样式
   const currentStyles = isDarkMode ? darkStyles : styles;
   const currentThemeColors = isDarkMode ? darkThemeColors : themeColors;
-
-  // 切换暗黑模式
-  const toggleDarkMode = () => {
-    const newMode = !isDarkMode;
-    setIsDarkMode(newMode);
-    localStorage.setItem('prompt-dark-mode', JSON.stringify(newMode));
-  };
-
+ 
   return (
     <div style={currentStyles.container}>
       <div style={currentStyles.content}>
-        {/* 暗黑模式切换按钮 */}
-        <DarkModeToggle 
-          isDarkMode={isDarkMode}
-          onToggle={toggleDarkMode}
-        />
-
         {displayCategories.length > 0 ? (
           displayCategories.map(category => (
             <CategorySection
               key={category.id}
               category={category}
               onPreview={handlePreview}
+              onCodePreview={handleCodePreview}
               onCopy={handleCopy}
               currentStyles={currentStyles}
               currentThemeColors={currentThemeColors}
@@ -91,9 +85,16 @@ const PromptPage = () => {
           onClose={() => setPreviewVisible(false)}
           currentStyles={currentStyles}
         />
+
+        <CodePreviewModal
+          visible={codePreviewVisible}
+          prompt={currentPrompt}
+          onClose={() => setCodePreviewVisible(false)}
+          currentStyles={{ ...currentStyles, isDarkMode }}
+        />
       </div>
     </div>
   );
 };
 
-export default PromptPage; 
+export default PromptPage;

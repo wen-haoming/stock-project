@@ -5,6 +5,34 @@ import {
   EyeOutlined 
 } from '@ant-design/icons';
 
+// 分类配置
+export const categoryConfigs = {
+  frontend: {
+    id: 'frontend',
+    name: '前端开发',
+    icon: <CodeOutlined />,
+    color: '#1890ff'
+  },
+  backend: {
+    id: 'backend',
+    name: '后端开发',
+    icon: <ToolOutlined />,
+    color: '#52c41a'
+  },
+  'ui-design': {
+    id: 'ui-design',
+    name: 'UI 设计',
+    icon: <EyeOutlined />,
+    color: '#722ed1'
+  },
+  devops: {
+    id: 'devops',
+    name: 'DevOps',
+    icon: <CodeOutlined />,
+    color: '#13c2c2'
+  }
+};
+
 // 提示词数据配置
 export const promptData = {
   categories: [
@@ -18,26 +46,358 @@ export const promptData = {
           id: 'react-component',
           title: 'React 组件生成',
           description: '根据需求描述生成完整的 React 组件代码',
-          content: `请帮我创建一个 React 组件，要求如下：
-1. 组件名称：{componentName}
-2. 功能描述：{description}
-3. 需要包含的 props：{props}
-4. 样式要求：{style}
+          content: `import React, { useState } from 'react';
 
-请生成完整的组件代码，包括：
-- 组件定义
-- Props 类型定义
-- 样式实现
-- 使用示例`,
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  const increment = () => setCount(count + 1);
+  const decrement = () => setCount(count - 1);
+
+  return (
+    <div style={{ textAlign: 'center', padding: '20px' }}>
+      <h2>计数器组件</h2>
+      <div style={{ fontSize: '24px', margin: '20px 0' }}>
+        当前计数: {count}
+      </div>
+      <div>
+        <button 
+          onClick={decrement}
+          style={{ 
+            margin: '0 10px', 
+            padding: '10px 20px',
+            fontSize: '16px'
+          }}
+        >
+          减少
+        </button>
+        <button 
+          onClick={increment}
+          style={{ 
+            margin: '0 10px', 
+            padding: '10px 20px',
+            fontSize: '16px'
+          }}
+        >
+          增加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default Counter;`,
           aiRecommend: ['ChatGPT', 'Claude', 'Gemini'],
           tags: ['React', '组件', '代码生成'],
           usage: '用于快速生成 React 组件代码'
         },
         {
+          id: 'vue-component',
+          title: 'Vue 组件生成',
+          description: '生成 Vue 3 组件代码，支持 Composition API',
+          content: `<template>
+  <div class="todo-app">
+    <h2>待办事项</h2>
+    <div class="input-section">
+      <input 
+        v-model="newTodo" 
+        @keyup.enter="addTodo"
+        placeholder="输入待办事项..."
+        class="todo-input"
+      />
+      <button @click="addTodo" class="add-btn">添加</button>
+    </div>
+    <ul class="todo-list">
+      <li 
+        v-for="todo in todos" 
+        :key="todo.id"
+        :class="{ completed: todo.completed }"
+        class="todo-item"
+      >
+        <input 
+          type="checkbox" 
+          v-model="todo.completed"
+          class="todo-checkbox"
+        />
+        <span class="todo-text">{{ todo.text }}</span>
+        <button @click="removeTodo(todo.id)" class="delete-btn">删除</button>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script>
+import { ref } from 'vue'
+
+export default {
+  name: 'TodoApp',
+  setup() {
+    const todos = ref([])
+    const newTodo = ref('')
+
+    const addTodo = () => {
+      if (newTodo.value.trim()) {
+        todos.value.push({
+          id: Date.now(),
+          text: newTodo.value,
+          completed: false
+        })
+        newTodo.value = ''
+      }
+    }
+
+    const removeTodo = (id) => {
+      todos.value = todos.value.filter(todo => todo.id !== id)
+    }
+
+    return {
+      todos,
+      newTodo,
+      addTodo,
+      removeTodo
+    }
+  }
+}
+</script>
+
+<style scoped>
+.todo-app {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.input-section {
+  display: flex;
+  margin-bottom: 20px;
+}
+
+.todo-input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-right: 10px;
+}
+
+.add-btn {
+  padding: 10px 20px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.todo-list {
+  list-style: none;
+  padding: 0;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.todo-checkbox {
+  margin-right: 10px;
+}
+
+.todo-text {
+  flex: 1;
+}
+
+.completed .todo-text {
+  text-decoration: line-through;
+  color: #999;
+}
+
+.delete-btn {
+  padding: 5px 10px;
+  background: #ff4d4f;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+</style>`,
+          aiRecommend: ['ChatGPT', 'Claude', 'Gemini'],
+          tags: ['Vue', '组件', 'Composition API'],
+          usage: '快速生成 Vue 3 组件代码'
+        },
+        {
+          id: 'html-template',
+          title: 'HTML 模板生成',
+          description: '生成现代化的 HTML 页面模板',
+          content: `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>现代化网页模板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>欢迎使用</h1>
+            <p>这是一个现代化的网页模板</p>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <h2>功能特性</h2>
+                <p>响应式设计，支持各种设备屏幕尺寸。现代化的渐变背景和卡片式布局。</p>
+                <button class="button">了解更多</button>
+            </div>
+
+            <div class="card">
+                <h2>技术栈</h2>
+                <p>使用纯HTML、CSS和JavaScript构建，无需任何框架依赖，加载速度快。</p>
+                <button class="button">查看源码</button>
+            </div>
+
+            <div class="card">
+                <h2>设计理念</h2>
+                <p>简洁、现代、用户友好的设计理念，注重用户体验和视觉效果。</p>
+                <button class="button">设计指南</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 添加一些交互效果
+        document.addEventListener('DOMContentLoaded', function() {
+            const buttons = document.querySelectorAll('.button');
+            
+            buttons.forEach(button => {
+                button.addEventListener('click', function() {
+                    alert('按钮被点击了！');
+                });
+            });
+
+            // 添加滚动动画
+            const cards = document.querySelectorAll('.card');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            });
+
+            cards.forEach(card => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(card);
+            });
+        });
+    </script>
+</body>
+</html>`,
+          aiRecommend: ['ChatGPT', 'Claude'],
+          tags: ['HTML', 'CSS', '模板'],
+          usage: '生成现代化的HTML页面模板'
+        },
+        {
           id: 'css-layout',
           title: 'CSS 布局方案',
           description: '提供现代化的 CSS 布局解决方案',
-          content: `我需要实现以下布局效果：
+          content: `请帮我实现以下布局效果：
 1. 布局类型：{layoutType}
 2. 响应式要求：{responsive}
 3. 浏览器兼容性：{compatibility}
@@ -51,27 +411,6 @@ export const promptData = {
           aiRecommend: ['ChatGPT', 'Claude'],
           tags: ['CSS', '布局', '响应式'],
           usage: '解决复杂的 CSS 布局问题'
-        },
-        {
-          id: 'vue-component',
-          title: 'Vue 组件生成',
-          description: '生成 Vue 3 组件代码，支持 Composition API',
-          content: `请帮我创建一个 Vue 3 组件，要求如下：
-1. 组件名称：{componentName}
-2. 功能描述：{description}
-3. Props 定义：{props}
-4. 事件处理：{events}
-5. 样式要求：{style}
-
-请使用 Vue 3 Composition API 生成：
-- 组件结构
-- Props 和 emits 定义
-- 响应式数据
-- 生命周期钩子
-- 样式实现`,
-          aiRecommend: ['ChatGPT', 'Claude', 'Gemini'],
-          tags: ['Vue', '组件', 'Composition API'],
-          usage: '快速生成 Vue 3 组件代码'
         }
       ]
     },

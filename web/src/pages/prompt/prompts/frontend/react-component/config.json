@@ -1,0 +1,17 @@
+{
+  "id": "react-component",
+  "title": "React 组件生成",
+  "description": "根据需求描述生成完整的 React 组件代码",
+  "aiRecommend": ["ChatGPT", "Claude", "Gemini"],
+  "tags": ["React", "组件", "代码生成"],
+  "usage": "用于快速生成 React 组件代码",
+  "category": "frontend",
+  "hasCode": true,
+  "codeType": "react",
+  "createdAt": "2024-01-01",
+  "updatedAt": "2024-01-01",
+  "version": "1.0.0",
+  "author": "System",
+  "difficulty": "beginner",
+  "estimatedTime": "5-10分钟"
+} 

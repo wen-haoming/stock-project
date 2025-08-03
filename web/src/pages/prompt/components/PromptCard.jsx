@@ -1,10 +1,10 @@
 import React from 'react';
 import { Card, Button, Space, Tag, Typography, message } from 'antd';
-import { CopyOutlined, EyeOutlined } from '@ant-design/icons';
+import { CopyOutlined, EyeOutlined, CodeOutlined } from '@ant-design/icons';
 
 const { Title, Paragraph, Text } = Typography;
 
-const PromptCard = ({ prompt, onPreview, onCopy, currentStyles }) => {
+const PromptCard = ({ prompt, onPreview, onCodePreview, onCopy, currentStyles }) => {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(prompt.content);
@@ -14,6 +14,19 @@ const PromptCard = ({ prompt, onPreview, onCopy, currentStyles }) => {
       message.error('复制失败，请手动复制');
     }
   };
+
+  // 检测是否为代码类型
+  const isCodeType = (content) => {
+    return content.includes('import ') || 
+           content.includes('export ') || 
+           content.includes('<template>') || 
+           content.includes('function ') ||
+           content.includes('<html>') ||
+           content.includes('<!DOCTYPE html>');
+  };
+
+  // 检查是否有代码内容：优先检查codeFiles，然后检查content
+  const hasCodeContent = prompt.hasCode || isCodeType(prompt.content);
 
   return (
     <Card
@@ -71,6 +84,16 @@ const PromptCard = ({ prompt, onPreview, onCopy, currentStyles }) => {
           >
             预览
           </Button>
+          {hasCodeContent && (
+            <Button 
+              type="default" 
+              size="small" 
+              icon={<CodeOutlined />}
+              onClick={() => onCodePreview(prompt)}
+            >
+              代码预览
+            </Button>
+          )}
           <Button 
             size="small" 
             icon={<CopyOutlined />}

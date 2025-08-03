@@ -8,6 +8,9 @@ import 'antd/dist/reset.css'
 // import '@ant-design/pro-components/dist/components.css'
 import './index.css'
 
+console.log('PromptPage component:', PromptPage);
+console.log('StockList component:', StockList);
+
 createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
