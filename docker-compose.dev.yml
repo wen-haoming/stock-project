@@ -1,0 +1,17 @@
+version: '3.8'
+
+# 本地开发用：只启动 MongoDB
+# 使用方法: docker-compose -f docker-compose.dev.yml up -d
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: stock-mongo-dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_dev_data:/data/db
+    # 开发环境不设密码，简化连接
+
+volumes:
+  mongodb_dev_data:
