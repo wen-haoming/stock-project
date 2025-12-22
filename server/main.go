@@ -34,6 +34,8 @@ func setupRouter() *gin.Engine {
 	r.GET("/api/v1/stock/hist", stock.GetStockHist)
 	r.GET("/api/v1/stock/all", stock.GetAllData)
 	r.GET("/api/v1/stock/all_kdj", stock.GetAllData2)
+	r.GET("/api/v1/stock/detail", stock.GetStockDetail) // 详细数据接口，包含KDJ/MACD/板块
+	r.GET("/api/v1/stock/range", stock.GetRangeData)    // 区间涨幅统计接口
 	// Authorized group (uses gin.BasicAuth() middleware)
 	// Same than:
 	// authorized := r.Group("/")

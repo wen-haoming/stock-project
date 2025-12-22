@@ -1,63 +1,56 @@
-import { ProLayout } from '@ant-design/pro-components';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
+import { useState } from 'react'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Layout, Menu } from 'antd'
+import { BarChartOutlined } from '@ant-design/icons'
 
-const route = {
-  path: '/',
-  routes: [
-    {
-      path: '/stock',
-      name: '首页',
-      icon: 'HomeOutlined',
-      component: './stock',
-    },
-    {
-      path: '/frontend',
-      name: '前端开发',
-      icon: 'CodeOutlined',
-      component: './prompt',
-    },
-    {
-      path: '/backend',
-      name: '后端开发',
-      icon: 'ToolOutlined',
-      component: './prompt',
-    },
-    {
-      path: '/ui-design',
-      name: 'UI 设计',
-      icon: 'EyeOutlined',
-      component: './prompt',
-    },
-    {
-      path: '/programming-rules',
-      name: '编程规范',
-      icon: 'BugOutlined',
-      component: './prompt',
-    },
-  ],
-};
+const { Sider, Content } = Layout
 
-export default function App() {
-  const location = useLocation();
-  
+const menuItems = [
+  { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
+]
+
+function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
+
+  const currentPath = location.pathname === '/' ? '/range-stats' : location.pathname
+
   return (
-    <ConfigProvider locale={zhCN}>
-      <ProLayout
-        title="Prompt 模板库"
-        location={location}
-        route={route}
-        style={{width:'100vw',height:'100vh'}}
-        contentStyle={{padding:0}}
-        menuItemRender={(item, dom) => (
-          <Link to={item.path || '/'}>{dom}</Link>
-        )}
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        theme="dark"
       >
-        <div style={{flex:1,overflow:'auto'}}>
-          <Outlet />
+        <div style={{
+          height: 64,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          fontSize: collapsed ? 20 : 18,
+          fontWeight: 'bold',
+          borderBottom: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          {collapsed ? '📈' : '港股分析'}
         </div>
-      </ProLayout>
-    </ConfigProvider>
-  );
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[currentPath]}
+          items={menuItems}
+          onClick={({ key }) => navigate(key)}
+        />
+      </Sider>
+      <Layout>
+        <Content style={{ margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
+          <Outlet />
+        </Content>
+      </Layout>
+    </Layout>
+  )
 }
+
+export default App

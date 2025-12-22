@@ -1,27 +1,23 @@
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import App from './App'
-
-import PromptPage from './pages/prompt'
-import StockList from './pages/stock'
-import 'antd/dist/reset.css'
-// import '@ant-design/pro-components/dist/components.css'
+import { ConfigProvider } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
+import App from './App.jsx'
+import RangeStats from './pages/range-stats/index.jsx'
 import './index.css'
 
-console.log('PromptPage component:', PromptPage);
-console.log('StockList component:', StockList);
-
 createRoot(document.getElementById('root')).render(
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<App />}>
-          <Route path="/frontend" element={<PromptPage />} />
-          <Route path="/backend" element={<PromptPage />} />
-          <Route path="/ui-design" element={<PromptPage />} />
-          <Route path="/programming-rules" element={<PromptPage />} />
-          <Route path="/stock" element={<StockList />} />
-          <Route path="/" element={<PromptPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+  <StrictMode>
+    <ConfigProvider locale={zhCN}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<App />}>
+            <Route index element={<RangeStats />} />
+            <Route path="range-stats" element={<RangeStats />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ConfigProvider>
+  </StrictMode>,
 )
