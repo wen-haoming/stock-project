@@ -99,87 +99,97 @@ func fetchHKStockKline(symbol, startDate, endDate string) ([]HistData, error) {
 // 获取所有港股列表 (分页获取全部)
 func fetchAllHKStockList() ([]HKStockData, error) {
 	var allStocks []HKStockData
+
+	// 港股通 + 港股主板，需要分页获取
+	// b:DLMK0144 是港股通
+	// m:116+t:3,m:116+t:4,m:116+t:1,m:116+t:2 是港股主板
+	sources := []string{
+		"b:DLMK0144",  // 港股通（包含泡泡玛特等）
+		"m:116+t:3,m:116+t:4,m:116+t:1,m:116+t:2", // 港股主板
+	}
+
 	seenSymbols := make(map[string]bool)
 
-	page := 1
-	for {
-		url := "https://push2.eastmoney.com/api/qt/clist/get"
-		req, _ := http.NewRequest("GET", url, nil)
-		q := req.URL.Query()
-		q.Add("pn", strconv.Itoa(page))
-		q.Add("pz", "100") // 每页100条（API限制）
-		q.Add("po", "1")
-		q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-		q.Add("fltt", "2")
-		q.Add("invt", "2")
-		q.Add("fid", "f3")
-		q.Add("fs", "m:128") // 港股全部
-		q.Add("fields", "f2,f3,f8,f9,f12,f14,f20,f21,f23,f100")
-		req.URL.RawQuery = q.Encode()
+	for _, fs := range sources {
+		page := 1
+		for {
+			url := "https://push2.eastmoney.com/api/qt/clist/get"
+			req, _ := http.NewRequest("GET", url, nil)
+			q := req.URL.Query()
+			q.Add("pn", strconv.Itoa(page))
+			q.Add("pz", "500") // 每页500条
+			q.Add("po", "1")
+			q.Add("np", "1")
+			q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
+			q.Add("fltt", "2")
+			q.Add("invt", "2")
+			q.Add("fid", "f3")
+			q.Add("fs", fs)
+			q.Add("fields", "f2,f3,f8,f9,f12,f14,f20,f21,f23,f100")
+			req.URL.RawQuery = q.Encode()
 
-		client := &http.Client{Timeout: time.Second * 30}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		var response EastMoneyHKResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, err
-		}
-
-		if response.Data.Diff == nil || len(response.Data.Diff) == 0 {
-			break
-		}
-
-		diffLen := len(response.Data.Diff)
-		for _, raw := range response.Data.Diff {
-			// 跳过已存在的股票（去重）
-			if seenSymbols[raw.Symbol] {
-				continue
-			}
-			seenSymbols[raw.Symbol] = true
-
-			// 过滤掉窝轮、牛熊证等
-			// 港股正股代码一般是00001-09999（5位数，首位0-9）
-			// 窝轮牛熊证代码通常是10000以上
-			if len(raw.Symbol) != 5 {
-				continue
-			}
-			// 只保留00001-09999范围的股票
-			if raw.Symbol[0] != '0' {
-				continue
+			client := &http.Client{Timeout: time.Second * 30}
+			resp, err := client.Do(req)
+			if err != nil {
+				return nil, err
 			}
 
-			stock := HKStockData{
-				Symbol:         raw.Symbol,
-				Name:           raw.Name,
-				LatestPrice:    toFloatHK(raw.LatestPrice),
-				TotalMarketCap: toFloatHK(raw.TotalMarketCap),
-				CircMarketCap:  toFloatHK(raw.CircMarketCap),
-				PERatio:        toFloatHK(raw.PERatio),
-				PBRatio:        toFloatHK(raw.PBRatio),
-				TurnoverRate:   toFloatHK(raw.TurnoverRate),
-				Industry:       raw.Industry,
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				return nil, err
 			}
-			allStocks = append(allStocks, stock)
-		}
 
-		// 如果返回数量少于请求数量，说明已经是最后一页
-		if diffLen < 100 {
-			break
-		}
-		page++
+			var response EastMoneyHKResponse
+			if err := json.Unmarshal(body, &response); err != nil {
+				return nil, err
+			}
 
-		// 安全限制，最多获取200页（约2万只股票）
-		if page > 200 {
-			break
+			if response.Data.Diff == nil || len(response.Data.Diff) == 0 {
+				break
+			}
+
+			diffLen := len(response.Data.Diff)
+			for _, raw := range response.Data.Diff {
+				// 跳过已存在的股票（去重）
+				if seenSymbols[raw.Symbol] {
+					continue
+				}
+				seenSymbols[raw.Symbol] = true
+
+				// 过滤掉窝轮、牛熊证等（代码通常以1-6开头的5位数）
+				if len(raw.Symbol) != 5 {
+					continue
+				}
+				firstChar := raw.Symbol[0]
+				if firstChar < '0' || firstChar > '9' {
+					continue
+				}
+
+				stock := HKStockData{
+					Symbol:         raw.Symbol,
+					Name:           raw.Name,
+					LatestPrice:    toFloatHK(raw.LatestPrice),
+					TotalMarketCap: toFloatHK(raw.TotalMarketCap),
+					CircMarketCap:  toFloatHK(raw.CircMarketCap),
+					PERatio:        toFloatHK(raw.PERatio),
+					PBRatio:        toFloatHK(raw.PBRatio),
+					TurnoverRate:   toFloatHK(raw.TurnoverRate),
+					Industry:       raw.Industry,
+				}
+				allStocks = append(allStocks, stock)
+			}
+
+			// 如果返回数量少于请求数量，说明已经是最后一页
+			if diffLen < 500 {
+				break
+			}
+			page++
+
+			// 安全限制，最多获取20页
+			if page > 20 {
+				break
+			}
 		}
 	}
 
