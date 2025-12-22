@@ -56,55 +56,11 @@ type EastMoneyHKRaw struct {
 	Industry       string      `json:"f100"` // 所属行业
 }
 
-// EastMoneyHKDiff 支持数组和 map 两种格式的 diff 字段
-type EastMoneyHKDiff struct {
-	items []EastMoneyHKRaw
-}
-
-// UnmarshalJSON 自定义 JSON 解析，支持数组和 map 两种格式
-func (d *EastMoneyHKDiff) UnmarshalJSON(data []byte) error {
-	// 先尝试解析为数组
-	var arr []EastMoneyHKRaw
-	if err := json.Unmarshal(data, &arr); err == nil {
-		d.items = arr
-		return nil
-	}
-
-	// 如果数组解析失败，尝试解析为 map
-	var m map[string]EastMoneyHKRaw
-	if err := json.Unmarshal(data, &m); err != nil {
-		return err
-	}
-
-	// 将 map 转换为数组
-	d.items = make([]EastMoneyHKRaw, 0, len(m))
-	for _, v := range m {
-		d.items = append(d.items, v)
-	}
-	return nil
-}
-
-// ToSlice 返回数组格式的数据
-func (d *EastMoneyHKDiff) ToSlice() []EastMoneyHKRaw {
-	if d == nil {
-		return nil
-	}
-	return d.items
-}
-
-// Len 返回数据长度
-func (d *EastMoneyHKDiff) Len() int {
-	if d == nil {
-		return 0
-	}
-	return len(d.items)
-}
-
 // EastMoneyHKResponse 东方财富港股响应
 type EastMoneyHKResponse struct {
 	Data struct {
-		Total int             `json:"total"`
-		Diff  EastMoneyHKDiff `json:"diff"`
+		Total int                        `json:"total"`
+		Diff  map[string]EastMoneyHKRaw  `json:"diff"`
 	} `json:"data"`
 }
 
@@ -177,13 +133,13 @@ func fetchHKStockData(page, pageSize int, code, name string) ([]HKStockData, int
 		return nil, 0, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	if response.Data.Diff.Len() == 0 {
+	if response.Data.Diff == nil {
 		return nil, 0, nil
 	}
 
 	// 转换数据
 	var result []HKStockData
-	for _, raw := range response.Data.Diff.ToSlice() {
+	for _, raw := range response.Data.Diff {
 		// 过滤条件
 		if code != "" && !strings.Contains(raw.Symbol, code) {
 			continue
