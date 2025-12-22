@@ -104,7 +104,7 @@ func fetchAllHKStockList() ([]HKStockData, error) {
 	// b:DLMK0144 是港股通
 	// m:116+t:3,m:116+t:4,m:116+t:1,m:116+t:2 是港股主板
 	sources := []string{
-		"b:DLMK0144",  // 港股通（包含泡泡玛特等）
+		"b:DLMK0144", // 港股通（包含泡泡玛特等）
 		"m:116+t:3,m:116+t:4,m:116+t:1,m:116+t:2", // 港股主板
 	}
 
@@ -145,12 +145,12 @@ func fetchAllHKStockList() ([]HKStockData, error) {
 				return nil, err
 			}
 
-			if response.Data.Diff == nil || len(response.Data.Diff) == 0 {
+			if response.Data.Diff.Len() == 0 {
 				break
 			}
 
-			diffLen := len(response.Data.Diff)
-			for _, raw := range response.Data.Diff {
+			diffLen := response.Data.Diff.Len()
+			for _, raw := range response.Data.Diff.ToSlice() {
 				// 跳过已存在的股票（去重）
 				if seenSymbols[raw.Symbol] {
 					continue
@@ -200,10 +200,10 @@ func fetchAllHKStockList() ([]HKStockData, error) {
 func GetRangeData(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
-	minChangePct := c.DefaultQuery("min_change_pct", "0")  // 最小涨幅筛选
-	minMarketCap := c.DefaultQuery("min_market_cap", "0")  // 最小市值筛选（亿）
-	maxMarketCap := c.DefaultQuery("max_market_cap", "0")  // 最大市值筛选（亿），0表示不限
-	industryFilter := c.Query("industry")                   // 行业筛选
+	minChangePct := c.DefaultQuery("min_change_pct", "0") // 最小涨幅筛选
+	minMarketCap := c.DefaultQuery("min_market_cap", "0") // 最小市值筛选（亿）
+	maxMarketCap := c.DefaultQuery("max_market_cap", "0") // 最大市值筛选（亿），0表示不限
+	industryFilter := c.Query("industry")                 // 行业筛选
 
 	if startDate == "" || endDate == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date are required"})
