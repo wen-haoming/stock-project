@@ -129,16 +129,19 @@ pnpm dev
 
 ### 常用命令
 
-```bash
-# 后端热重载开发
-cd server && make dev
+# 启动 MongoDB
+cd /Users/wenhaoming/Desktop/stock-project
+docker compose -f docker-compose.dev.yml up -d
+
+# 启动后端（终端1）
+cd server && go run .
+
+# 启动前端（终端2）
+cd web && pnpm dev
 
 # 停止 MongoDB
 docker compose -f docker-compose.dev.yml down
 
-# 查看 MongoDB 数据
-docker exec -it stock-mongo-dev mongosh
-```
 
 ## 生产部署
 

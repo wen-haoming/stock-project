@@ -32,15 +32,21 @@ func setupRouter() *gin.Engine {
 	// 数据库状态API
 	r.GET("/api/v1/db/status", func(c *gin.Context) {
 		repo := db.NewStockRepository()
+		klineRepo := db.NewKlineRepository()
+
 		lastUpdate, err := repo.GetLastUpdateTime(c.Request.Context())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+
+		klineCount, _ := klineRepo.CountKlines(c.Request.Context())
+
 		c.JSON(http.StatusOK, gin.H{
 			"lastUpdate":    lastUpdate,
 			"isTradingTime": db.IsTradingTime(),
 			"isTradingDay":  db.IsTradingDay(),
+			"klineCount":    klineCount,
 		})
 	})
 
@@ -49,6 +55,13 @@ func setupRouter() *gin.Engine {
 		sched := scheduler.NewScheduler()
 		sched.ManualSync()
 		c.JSON(http.StatusOK, gin.H{"message": "Sync started"})
+	})
+
+	// 手动触发历史数据同步API
+	r.POST("/api/v1/db/sync-history", func(c *gin.Context) {
+		sched := scheduler.NewScheduler()
+		sched.ManualSyncHistory()
+		c.JSON(http.StatusOK, gin.H{"message": "History sync started"})
 	})
 
 	return r
@@ -63,6 +76,10 @@ func main() {
 		// 初始化索引
 		if err := db.InitIndexes(); err != nil {
 			log.Printf("Warning: Failed to init indexes: %v", err)
+		}
+		// 初始化K线索引
+		if err := db.InitKlineIndexes(); err != nil {
+			log.Printf("Warning: Failed to init kline indexes: %v", err)
 		}
 
 		// 启动定时任务调度器
