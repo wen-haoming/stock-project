@@ -1,0 +1,475 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { NavBar, Card, List, Tag, Selector, SpinLoading, Empty, InfiniteScroll, Popup, Button } from 'antd-mobile'
+import { FilterOutline } from 'antd-mobile-icons'
+import Canvas from '@antv/f2-react'
+import { Chart, Line, Axis, Tooltip, Area } from '@antv/f2'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import axios from 'axios'
+import dayjs from 'dayjs'
+
+// 颜色配置
+const upColor = '#ec5a5a'
+const downColor = '#47b262' 
+
+// 恒生指数配置
+const indexConfig = { secid: '100.HSI', name: '恒生指数' }
+
+// 日期区间预设
+const datePresets = [
+  { label: '近1周', value: 'week' },
+  { label: '近1月', value: 'month' },
+  { label: '近3月', value: '3month' },
+  { label: '近6月', value: '6month' },
+  { label: '近1年', value: 'year' },
+  { label: '今年以来', value: 'ytd' },
+  { label: 'AI浪潮(24.01-)', value: 'ai' },
+]
+
+// 市值筛选选项
+const marketCapOptions = [
+  { label: '不限', value: 'none' },
+  { label: '<50亿', value: 'small' },
+  { label: '50-200亿', value: 'medium' },
+  { label: '200-1000亿', value: 'large' },
+  { label: '>1000亿', value: 'xlarge' },
+]
+
+// 涨幅筛选选项
+const changePctOptions = [
+  { label: '≥30%', value: '30' },
+  { label: '≥50%', value: '50' },
+  { label: '≥60%', value: '60' },
+  { label: '≥80%', value: '80' },
+  { label: '≥100%', value: '100' },
+]
+
+// 根据预设值获取日期范围
+const getDateRangeByPreset = (preset) => {
+  const now = dayjs().subtract(1, 'day')
+  switch (preset) {
+    case 'week': return [dayjs().subtract(7, 'day'), now]
+    case 'month': return [dayjs().subtract(1, 'month'), now]
+    case '3month': return [dayjs().subtract(3, 'month'), now]
+    case '6month': return [dayjs().subtract(6, 'month'), now]
+    case 'year': return [dayjs().subtract(1, 'year'), now]
+    case 'ytd': return [dayjs().startOf('year'), now]
+    case 'ai': return [dayjs('2024-01-02'), now]
+    default: return [dayjs('2024-01-02'), now]
+  }
+}
+
+// 解析 K 线数据
+const parseKlineData = (rawData) => {
+  return rawData.map((item) => {
+    const fields = item.split(',')
+    return {
+      date: fields[0],
+      close: parseFloat(fields[2]),
+      open: parseFloat(fields[1]),
+    }
+  })
+}
+
+// 迷你 K 线图组件
+const MiniKlineChart = ({ data, dateRange }) => {
+  if (!data?.length) return null
+
+  // 根据日期范围过滤数据
+  const filteredData = useMemo(() => {
+    if (!dateRange?.[0] || !dateRange?.[1]) return data
+    const startStr = dateRange[0].format('YYYY-MM-DD')
+    const endStr = dateRange[1].format('YYYY-MM-DD')
+    return data.filter(d => d.date >= startStr && d.date <= endStr)
+  }, [data, dateRange])
+
+  if (!filteredData.length) return null
+
+  const startClose = filteredData[0]?.close || 0
+  const endClose = filteredData[filteredData.length - 1]?.close || 0
+  const changePct = startClose ? ((endClose - startClose) / startClose) * 100 : 0
+  const color = changePct >= 0 ? upColor : downColor
+
+  // 计算 Y 轴范围
+  const closes = filteredData.map(d => d.close)
+  const minClose = Math.min(...closes)
+  const maxClose = Math.max(...closes)
+  const padding = (maxClose - minClose) * 0.1
+  const yMin = Math.floor(minClose - padding)
+  const yMax = Math.ceil(maxClose + padding)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 'bold', color: '#333' }}>{indexConfig.name}</span>
+        <Tag color={changePct >= 0 ? 'danger' : 'success'} fill="solid" style={{ fontSize: 13 }}>
+          {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+        </Tag>
+      </div>
+      <div style={{ height: 120 }}>
+        <Canvas pixelRatio={window.devicePixelRatio}>
+          <Chart 
+            data={filteredData}
+            scale={{
+              close: { min: yMin, max: yMax, tickCount: 4 }
+            }}
+          >
+            <Axis field="date" tickCount={4} style={{ label: { fontSize: 10 } }} />
+            <Axis field="close" tickCount={4} style={{ label: { fontSize: 10 } }} />
+            <Area x="date" y="close" color={`l(90) 0:${color}40 1:${color}05`} />
+            <Line x="date" y="close" color={color} style={{ lineWidth: 1.5 }} />
+            <Tooltip showCrosshairs />
+          </Chart>
+        </Canvas>
+      </div>
+    </div>
+  )
+}
+
+// 股票列表项组件
+const StockItem = ({ stock, rank, onClick }) => (
+  <List.Item
+    onClick={onClick}
+    prefix={
+      <Tag
+        color={rank <= 3 ? 'danger' : rank <= 10 ? 'warning' : 'default'}
+        style={{ width: 28, textAlign: 'center', fontSize: 12 }}
+      >
+        {rank}
+      </Tag>
+    }
+    extra={
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: 14, fontWeight: 'bold', color: stock.changePct >= 0 ? upColor : downColor }}>
+          {stock.changePct >= 0 ? '+' : ''}{stock.changePct?.toFixed(1)}%
+        </div>
+        <div style={{ fontSize: 11, color: '#999' }}>
+          {stock.totalMarketCap ? `${(stock.totalMarketCap / 100000000).toFixed(0)}亿` : '-'}
+        </div>
+      </div>
+    }
+    description={
+      <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#999' }}>
+        <span>{stock.symbol}</span>
+        <span>现价: {stock.latestPrice?.toFixed(2)}</span>
+      </div>
+    }
+  >
+    <span style={{ fontWeight: 500 }}>{stock.name}</span>
+  </List.Item>
+)
+
+// 主组件
+export default function IndexMobile() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+  
+  const [datePreset, setDatePreset] = useState('ai')
+  const [dateRange, setDateRange] = useState(getDateRangeByPreset('ai'))
+  const [minChangePct, setMinChangePct] = useState('60')
+  const [marketCapFilter, setMarketCapFilter] = useState('none')
+  const [selectedIndustry, setSelectedIndustry] = useState('')
+  
+  const [loading, setLoading] = useState(false)
+  const [stockData, setStockData] = useState([])
+  const [industryStats, setIndustryStats] = useState([])
+  const [klineData, setKlineData] = useState([])
+  const [hasMore, setHasMore] = useState(false)
+  
+  const [filterVisible, setFilterVisible] = useState(false)
+  
+  const pageRef = useRef(1)
+  const totalRef = useRef(0)
+
+  // 获取 K 线数据
+  const fetchKlineData = useCallback(async () => {
+    try {
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${indexConfig.secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=20230101&end=${dayjs().format('YYYYMMDD')}`
+      const response = await axios.get(url)
+      const rawData = response.data?.data?.klines || []
+      setKlineData(parseKlineData(rawData))
+    } catch (error) {
+      console.error('获取 K 线数据失败:', error)
+    }
+  }, [])
+
+  // 获取市值范围
+  const getMarketCapRange = useCallback(() => {
+    switch (marketCapFilter) {
+      case 'small': return { min: 0, max: 50 }
+      case 'medium': return { min: 50, max: 200 }
+      case 'large': return { min: 200, max: 1000 }
+      case 'xlarge': return { min: 1000, max: 0 }
+      default: return { min: 0, max: 0 }
+    }
+  }, [marketCapFilter])
+
+  // 获取股票数据
+  const fetchStockData = useCallback(async (reset = false, industry = '') => {
+    if (loading) return
+    
+    setLoading(true)
+    try {
+      const capRange = getMarketCapRange()
+      const params = {
+        start_date: dateRange[0].format('YYYYMMDD'),
+        end_date: dateRange[1].format('YYYYMMDD'),
+        min_change_pct: parseInt(minChangePct),
+        min_market_cap: capRange.min,
+        max_market_cap: capRange.max,
+      }
+      if (industry) params.industry = industry
+      
+      const response = await axios.get('/api/v1/stock/range', { params })
+      const result = response.data
+      
+      if (result.data) {
+        if (reset) {
+          setStockData(result.data)
+          pageRef.current = 1
+        } else {
+          setStockData(prev => [...prev, ...result.data])
+        }
+        totalRef.current = result.total || 0
+        setHasMore(result.data.length >= 20)
+        if (!industry) setIndustryStats(result.industryStats || [])
+      }
+    } catch (error) {
+      console.error('获取股票数据失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [dateRange, minChangePct, getMarketCapRange, loading])
+
+  // 日期预设变化
+  const handleDatePresetChange = useCallback((value) => {
+    if (!value?.length) return
+    const preset = value[0]
+    setDatePreset(preset)
+    setDateRange(getDateRangeByPreset(preset))
+  }, [])
+
+  // 搜索
+  const handleSearch = useCallback(() => {
+    setSelectedIndustry('')
+    setFilterVisible(false)
+    fetchStockData(true, '')
+  }, [fetchStockData])
+
+  // 行业点击
+  const handleIndustryClick = useCallback((industry) => {
+    if (selectedIndustry === industry) {
+      setSelectedIndustry('')
+      fetchStockData(true, '')
+    } else {
+      setSelectedIndustry(industry)
+      fetchStockData(true, industry)
+    }
+  }, [selectedIndustry, fetchStockData])
+
+  // 打开详情 - 使用路由跳转
+  const handleStockClick = useCallback((stock) => {
+    navigate(`/stock/${stock.symbol}?name=${encodeURIComponent(stock.name)}`)
+  }, [navigate])
+
+  // 加载更多
+  const loadMore = async () => {
+    if (!hasMore || loading) return
+    pageRef.current += 1
+    await fetchStockData(false, selectedIndustry)
+  }
+
+  // 初始化
+  useEffect(() => {
+    fetchKlineData()
+    fetchStockData(true, '')
+  }, [])
+
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f5f5' }}>
+      {/* 顶部导航 */}
+      <NavBar
+        back={null}
+        right={
+          <Button
+            fill="none"
+            style={{ padding: 0 }}
+            onClick={() => setFilterVisible(true)}
+          >
+            <FilterOutline fontSize={20} />
+          </Button>
+        }
+        style={{ background: '#fff', borderBottom: '1px solid #eee' }}
+      >
+        港股区间涨幅
+      </NavBar>
+
+      {/* K 线图区域 */}
+      <Card style={{ margin: 8, borderRadius: 8 }}>
+        <MiniKlineChart data={klineData} dateRange={dateRange} />
+      </Card>
+
+      {/* 快捷筛选 */}
+      <Card style={{ margin: '0 8px 8px', borderRadius: 8, padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>区间:</span>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <Selector
+              options={datePresets}
+              value={[datePreset]}
+              onChange={handleDatePresetChange}
+              style={{
+                '--border-radius': '4px',
+                '--checked-color': '#1677ff',
+                '--checked-text-color': '#fff',
+                '--padding': '4px 8px',
+                fontSize: 11,
+              }}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅:</span>
+          <Selector
+            options={changePctOptions}
+            value={[minChangePct]}
+            onChange={(v) => v?.length && setMinChangePct(v[0])}
+            style={{
+              '--border-radius': '4px',
+              '--checked-color': '#1677ff',
+              '--checked-text-color': '#fff',
+              '--padding': '4px 8px',
+              fontSize: 11,
+            }}
+          />
+          <Button
+            color="primary"
+            size="small"
+            onClick={handleSearch}
+            loading={loading}
+            style={{ flexShrink: 0 }}
+          >
+            查询
+          </Button>
+        </div>
+      </Card>
+
+      {/* 行业分布 */}
+      {industryStats.length > 0 && (
+        <Card style={{ margin: '0 8px 8px', borderRadius: 8, padding: '8px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 'bold' }}>行业分布</span>
+            {selectedIndustry && (
+              <Tag
+                color="danger"
+                fill="outline"
+                style={{ fontSize: 10 }}
+                onClick={() => handleIndustryClick(selectedIndustry)}
+              >
+                {selectedIndustry} ✕
+              </Tag>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {industryStats.slice(0, 15).map((item) => (
+              <Tag
+                key={item.name}
+                color={selectedIndustry === item.name ? 'primary' : 'default'}
+                fill={selectedIndustry === item.name ? 'solid' : 'outline'}
+                style={{ fontSize: 10, padding: '2px 6px' }}
+                onClick={() => handleIndustryClick(item.name)}
+              >
+                {item.name}: {item.count}
+              </Tag>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* 股票列表 */}
+      <Card
+        style={{ flex: 1, margin: '0 8px 8px', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+        bodyStyle={{ flex: 1, overflow: 'auto', padding: 0 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
+          <span style={{ fontSize: 13, fontWeight: 'bold' }}>
+            涨幅榜 {dateRange[0]?.format('MM-DD')}~{dateRange[1]?.format('MM-DD')}
+          </span>
+          <Tag color="primary" fill="outline" style={{ fontSize: 11 }}>
+            共{totalRef.current}只
+          </Tag>
+        </div>
+        
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {loading && stockData.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
+              <SpinLoading color="primary" />
+            </div>
+          ) : stockData.length > 0 ? (
+            <List>
+              {stockData.map((stock, idx) => (
+                <StockItem
+                  key={stock.symbol}
+                  stock={stock}
+                  rank={idx + 1}
+                  onClick={() => handleStockClick(stock)}
+                />
+              ))}
+            </List>
+          ) : (
+            <Empty description="暂无数据，请点击查询" style={{ padding: 60 }} />
+          )}
+          
+          <InfiniteScroll loadMore={loadMore} hasMore={hasMore} threshold={100}>
+            {hasMore ? <SpinLoading /> : null}
+          </InfiniteScroll>
+        </div>
+      </Card>
+
+      {/* 筛选弹窗 */}
+      <Popup
+        visible={filterVisible}
+        onMaskClick={() => setFilterVisible(false)}
+        position="right"
+        bodyStyle={{ width: '80vw', maxWidth: 320 }}
+      >
+        <div style={{ padding: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 16 }}>筛选条件</div>
+          
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>日期区间</div>
+            <Selector
+              options={datePresets}
+              value={[datePreset]}
+              onChange={handleDatePresetChange}
+              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>最低涨幅</div>
+            <Selector
+              options={changePctOptions}
+              value={[minChangePct]}
+              onChange={(v) => v?.length && setMinChangePct(v[0])}
+              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>市值范围</div>
+            <Selector
+              options={marketCapOptions}
+              value={[marketCapFilter]}
+              onChange={(v) => v?.length && setMarketCapFilter(v[0])}
+              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
+            />
+          </div>
+          
+          <Button block color="primary" onClick={handleSearch} loading={loading}>
+            确定
+          </Button>
+        </div>
+      </Popup>
+    </div>
+  )
+}
