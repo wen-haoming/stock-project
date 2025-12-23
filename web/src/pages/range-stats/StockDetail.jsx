@@ -10,13 +10,11 @@ const { useBreakpoint } = Grid
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
 
-// 报告类型选项
+// 报告类型选项（港股通常只披露中报和年报）
 const reportTypeOptions = [
   { label: '全部', value: '' },
   { label: '年报', value: '4' },
   { label: '中报', value: '2' },
-  { label: '一季报', value: '1' },
-  { label: '三季报', value: '3' },
 ]
 
 // 财务指标配置

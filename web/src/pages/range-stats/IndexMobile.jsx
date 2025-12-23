@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { NavBar, Card, List, Tag, Selector, SpinLoading, Empty, InfiniteScroll, Popup, Button } from 'antd-mobile'
-import { FilterOutline } from 'antd-mobile-icons'
+import { Card, Tag, Selector, SpinLoading, Empty, InfiniteScroll, Button } from 'antd-mobile'
 import Canvas from '@antv/f2-react'
 import { Chart, Line, Axis, Tooltip, Area } from '@antv/f2'
 import { useSearchParams, useNavigate } from 'react-router-dom'
@@ -32,6 +31,7 @@ const marketCapOptions = [
   { label: '50-200亿', value: 'medium' },
   { label: '200-1000亿', value: 'large' },
   { label: '>1000亿', value: 'xlarge' },
+  { label: '>2000亿', value: 'xxlarge' },
 ]
 
 // 涨幅筛选选项
@@ -125,37 +125,39 @@ const MiniKlineChart = ({ data, dateRange }) => {
   )
 }
 
-// 股票列表项组件
+// 股票列表项组件 - 自定义紧凑布局
 const StockItem = ({ stock, rank, onClick }) => (
-  <List.Item
+  <div
     onClick={onClick}
-    prefix={
-      <Tag
-        color={rank <= 3 ? 'danger' : rank <= 10 ? 'warning' : 'default'}
-        style={{ width: 28, textAlign: 'center', fontSize: 12 }}
-      >
-        {rank}
-      </Tag>
-    }
-    extra={
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 14, fontWeight: 'bold', color: stock.changePct >= 0 ? upColor : downColor }}>
-          {stock.changePct >= 0 ? '+' : ''}{stock.changePct?.toFixed(1)}%
-        </div>
-        <div style={{ fontSize: 11, color: '#999' }}>
-          {stock.totalMarketCap ? `${(stock.totalMarketCap / 100000000).toFixed(0)}亿` : '-'}
-        </div>
-      </div>
-    }
-    description={
-      <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#999' }}>
-        <span>{stock.symbol}</span>
-        <span>现价: {stock.latestPrice?.toFixed(2)}</span>
-      </div>
-    }
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      padding: '8px 12px',
+      borderBottom: '1px solid #f0f0f0',
+      background: '#fff',
+    }}
   >
-    <span style={{ fontWeight: 500 }}>{stock.name}</span>
-  </List.Item>
+    <Tag
+      color={rank <= 3 ? 'danger' : rank <= 10 ? 'warning' : 'default'}
+      style={{ width: 22, textAlign: 'center', fontSize: 10, padding: '0 2px', flexShrink: 0 }}
+    >
+      {rank}
+    </Tag>
+    <div style={{ flex: 1, marginLeft: 8, minWidth: 0 }}>
+      <div style={{ fontWeight: 500, fontSize: 13 }}>{stock.name}</div>
+      <div style={{ fontSize: 10, color: '#999' }}>
+        {stock.symbol} · 现价: {stock.latestPrice?.toFixed(2)}
+      </div>
+    </div>
+    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+      <div style={{ fontSize: 13, fontWeight: 'bold', color: stock.changePct >= 0 ? upColor : downColor }}>
+        {stock.changePct >= 0 ? '+' : ''}{stock.changePct?.toFixed(1)}%
+      </div>
+      <div style={{ fontSize: 10, color: '#999' }}>
+        {stock.totalMarketCap ? `${(stock.totalMarketCap / 100000000).toFixed(0)}亿` : '-'}
+      </div>
+    </div>
+  </div>
 )
 
 // 主组件
@@ -163,10 +165,10 @@ export default function IndexMobile() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   
-  const [datePreset, setDatePreset] = useState('ai')
-  const [dateRange, setDateRange] = useState(getDateRangeByPreset('ai'))
+  const [datePreset, setDatePreset] = useState('ytd')
+  const [dateRange, setDateRange] = useState(getDateRangeByPreset('ytd'))
   const [minChangePct, setMinChangePct] = useState('60')
-  const [marketCapFilter, setMarketCapFilter] = useState('none')
+  const [marketCapFilter, setMarketCapFilter] = useState('xxlarge')
   const [selectedIndustry, setSelectedIndustry] = useState('')
   
   const [loading, setLoading] = useState(false)
@@ -174,8 +176,6 @@ export default function IndexMobile() {
   const [industryStats, setIndustryStats] = useState([])
   const [klineData, setKlineData] = useState([])
   const [hasMore, setHasMore] = useState(false)
-  
-  const [filterVisible, setFilterVisible] = useState(false)
   
   const pageRef = useRef(1)
   const totalRef = useRef(0)
@@ -199,6 +199,7 @@ export default function IndexMobile() {
       case 'medium': return { min: 50, max: 200 }
       case 'large': return { min: 200, max: 1000 }
       case 'xlarge': return { min: 1000, max: 0 }
+      case 'xxlarge': return { min: 2000, max: 0 }
       default: return { min: 0, max: 0 }
     }
   }, [marketCapFilter])
@@ -285,24 +286,7 @@ export default function IndexMobile() {
   }, [])
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f5f5' }}>
-      {/* 顶部导航 */}
-      <NavBar
-        back={null}
-        right={
-          <Button
-            fill="none"
-            style={{ padding: 0 }}
-            onClick={() => setFilterVisible(true)}
-          >
-            <FilterOutline fontSize={20} />
-          </Button>
-        }
-        style={{ background: '#fff', borderBottom: '1px solid #eee' }}
-      >
-        港股区间涨幅
-      </NavBar>
-
+    <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       {/* K 线图区域 */}
       <Card style={{ margin: 8, borderRadius: 8 }}>
         <MiniKlineChart data={klineData} dateRange={dateRange} />
@@ -327,12 +311,27 @@ export default function IndexMobile() {
             />
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅:</span>
           <Selector
             options={changePctOptions}
             value={[minChangePct]}
             onChange={(v) => v?.length && setMinChangePct(v[0])}
+            style={{
+              '--border-radius': '4px',
+              '--checked-color': '#1677ff',
+              '--checked-text-color': '#fff',
+              '--padding': '4px 8px',
+              fontSize: 11,
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>市值:</span>
+          <Selector
+            options={marketCapOptions}
+            value={[marketCapFilter]}
+            onChange={(v) => v?.length && setMarketCapFilter(v[0])}
             style={{
               '--border-radius': '4px',
               '--checked-color': '#1677ff',
@@ -385,11 +384,8 @@ export default function IndexMobile() {
         </Card>
       )}
 
-      {/* 股票列表 */}
-      <Card
-        style={{ flex: 1, margin: '0 8px 8px', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
-        bodyStyle={{ flex: 1, overflow: 'auto', padding: 0 }}
-      >
+      {/* 股票列表 - 平铺展示 */}
+      <Card style={{ margin: '0 8px 8px', borderRadius: 8 }} bodyStyle={{ padding: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
           <span style={{ fontSize: 13, fontWeight: 'bold' }}>
             涨幅榜 {dateRange[0]?.format('MM-DD')}~{dateRange[1]?.format('MM-DD')}
@@ -399,77 +395,29 @@ export default function IndexMobile() {
           </Tag>
         </div>
         
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          {loading && stockData.length === 0 ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
-              <SpinLoading color="primary" />
-            </div>
-          ) : stockData.length > 0 ? (
-            <List>
-              {stockData.map((stock, idx) => (
-                <StockItem
-                  key={stock.symbol}
-                  stock={stock}
-                  rank={idx + 1}
-                  onClick={() => handleStockClick(stock)}
-                />
-              ))}
-            </List>
-          ) : (
-            <Empty description="暂无数据，请点击查询" style={{ padding: 60 }} />
-          )}
-          
-          <InfiniteScroll loadMore={loadMore} hasMore={hasMore} threshold={100}>
-            {hasMore ? <SpinLoading /> : null}
-          </InfiniteScroll>
-        </div>
+        {loading && stockData.length === 0 ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
+            <SpinLoading color="primary" />
+          </div>
+        ) : stockData.length > 0 ? (
+          <div>
+            {stockData.map((stock, idx) => (
+              <StockItem
+                key={stock.symbol}
+                stock={stock}
+                rank={idx + 1}
+                onClick={() => handleStockClick(stock)}
+              />
+            ))}
+          </div>
+        ) : (
+          <Empty description="暂无数据，请点击查询" style={{ padding: 60 }} />
+        )}
+        
+        <InfiniteScroll loadMore={loadMore} hasMore={hasMore} threshold={100}>
+          {hasMore ? <SpinLoading /> : null}
+        </InfiniteScroll>
       </Card>
-
-      {/* 筛选弹窗 */}
-      <Popup
-        visible={filterVisible}
-        onMaskClick={() => setFilterVisible(false)}
-        position="right"
-        bodyStyle={{ width: '80vw', maxWidth: 320 }}
-      >
-        <div style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 16 }}>筛选条件</div>
-          
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>日期区间</div>
-            <Selector
-              options={datePresets}
-              value={[datePreset]}
-              onChange={handleDatePresetChange}
-              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
-            />
-          </div>
-          
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>最低涨幅</div>
-            <Selector
-              options={changePctOptions}
-              value={[minChangePct]}
-              onChange={(v) => v?.length && setMinChangePct(v[0])}
-              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
-            />
-          </div>
-          
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>市值范围</div>
-            <Selector
-              options={marketCapOptions}
-              value={[marketCapFilter]}
-              onChange={(v) => v?.length && setMarketCapFilter(v[0])}
-              style={{ '--border-radius': '4px', '--checked-color': '#1677ff', '--checked-text-color': '#fff' }}
-            />
-          </div>
-          
-          <Button block color="primary" onClick={handleSearch} loading={loading}>
-            确定
-          </Button>
-        </div>
-      </Popup>
     </div>
   )
 }

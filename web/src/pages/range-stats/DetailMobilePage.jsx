@@ -10,13 +10,11 @@ import dayjs from 'dayjs'
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
 
-// 报告类型选项
+// 报告类型选项（港股通常只披露中报和年报）
 const reportTypeOptions = [
   { label: '全部', value: '' },
   { label: '年报', value: '4' },
   { label: '中报', value: '2' },
-  { label: '一季报', value: '1' },
-  { label: '三季报', value: '3' },
 ]
 
 // 财务指标配置
@@ -145,14 +143,40 @@ const fetchFinanceData = async (symbol, reportType = '') => {
   }
 }
 
-// 获取股票基本信息
-const fetchStockInfo = async (symbol) => {
+// 获取股票基本信息（从东方财富实时行情）
+const fetchStockInfo = async (symbol, name = '') => {
   try {
-    const response = await axios.get(`/api/v1/stock/info/${symbol}`)
-    return response.data?.data || null
+    const secid = `116.${symbol}`
+    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f116,f117,f162,f167,f168,f169,f170`
+    const response = await axios.get(url)
+    const data = response.data?.data
+    
+    if (!data) return null
+    
+    return {
+      symbol: data.f57 || symbol,
+      name: data.f58 || name,
+      latestPrice: data.f43 / 1000, // 最新价（需要除以1000）
+      changePct: data.f170 / 100, // 涨跌幅
+      changeAmt: data.f169 / 1000, // 涨跌额
+      open: data.f46 / 1000, // 开盘价
+      high: data.f44 / 1000, // 最高价
+      low: data.f45 / 1000, // 最低价
+      preClose: data.f60 / 1000, // 昨收
+      volume: data.f47, // 成交量
+      amount: data.f48, // 成交额
+      totalMarketCap: data.f116, // 总市值
+      floatMarketCap: data.f117, // 流通市值
+      peRatio: data.f162 / 100, // 市盈率
+      pbRatio: data.f167 / 100, // 市净率
+      turnoverRate: data.f168 / 100, // 换手率
+      amplitude: data.f50 / 100, // 振幅
+      volumeRatio: data.f55 / 100, // 量比
+    }
   } catch (error) {
     console.error('获取股票信息失败:', error)
-    return null
+    // 如果获取失败，返回基础信息
+    return name ? { symbol, name } : null
   }
 }
 
@@ -359,7 +383,7 @@ export default function DetailMobilePage() {
       try {
         // 并行加载所有数据
         const [stockInfo, kline, finance] = await Promise.all([
-          fetchStockInfo(symbol),
+          fetchStockInfo(symbol, stockName),
           fetchStockKline(symbol),
           fetchFinanceData(symbol, ''),
         ])
@@ -369,8 +393,9 @@ export default function DetailMobilePage() {
         setFinanceData(finance)
         
         // 新闻使用股票名称搜索
-        if (stockInfo?.name || stockName) {
-          const news = await fetchStockNews(stockInfo?.name || stockName)
+        const newsName = stockInfo?.name || stockName
+        if (newsName) {
+          const news = await fetchStockNews(newsName)
           setStockNews(news)
         }
       } catch (error) {

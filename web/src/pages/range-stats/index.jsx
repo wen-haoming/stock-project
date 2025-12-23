@@ -73,7 +73,7 @@ const parseUrlParams = (searchParams) => {
     minChangePct: minPct ? parseFloat(minPct) : 60,
     marketCapMode: capMode || 'range',
     marketCapValue: capValue ? parseFloat(capValue) : null,
-    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 1000,
+    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 2000,
     maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 10000,
     selectedIndustry: industry || '',
     page: page ? parseInt(page) : 1,
