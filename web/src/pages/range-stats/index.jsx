@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import StockDetailDrawer from './StockDetailDrawer'
+import IndexMobile from './IndexMobile'
 
 const { RangePicker } = DatePicker
 const { useBreakpoint } = Grid
@@ -72,7 +73,7 @@ const parseUrlParams = (searchParams) => {
     minChangePct: minPct ? parseFloat(minPct) : 60,
     marketCapMode: capMode || 'range',
     marketCapValue: capValue ? parseFloat(capValue) : null,
-    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 1000,
+    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 2000,
     maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 10000,
     selectedIndustry: industry || '',
     page: page ? parseInt(page) : 1,
@@ -96,6 +97,19 @@ const rangePresets = [
 ]
 
 export default function RangeStats() {
+  const screens = useBreakpoint()
+  const isMobile = !screens.md
+
+  // 移动端使用专门的移动端组件
+  if (isMobile) {
+    return <IndexMobile />
+  }
+
+  return <RangeStatsPC />
+}
+
+// PC 端组件
+function RangeStatsPC() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initialParams = parseUrlParams(searchParams)
   const isInitialLoad = useRef(true)
@@ -129,8 +143,7 @@ export default function RangeStats() {
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedStock, setSelectedStock] = useState(null)
 
-  const screens = useBreakpoint()
-  const isMobile = !screens.md
+  const isMobile = false // PC 端固定为 false
 
   // 计算指数区间涨幅
   const calculateIndexChange = useCallback((startDate, endDate) => {
