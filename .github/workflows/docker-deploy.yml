@@ -6,7 +6,56 @@ on:
   workflow_dispatch:
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build server image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          file: ./server/Dockerfile
+          push: false
+          tags: stock-server:latest
+          outputs: type=docker,dest=/tmp/stock-server.tar
+
+      - name: Build web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: false
+          tags: stock-web:latest
+          outputs: type=docker,dest=/tmp/stock-web.tar
+
+      - name: Upload server image to server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          ARGS: '-avz'
+          SOURCE: "/tmp/stock-server.tar"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/tmp/"
+
+      - name: Upload web image to server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          ARGS: '-avz'
+          SOURCE: "/tmp/stock-web.tar"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/tmp/"
+
   deploy:
+    needs: build
     runs-on: ubuntu-latest
     
     steps:
@@ -27,7 +76,7 @@ jobs:
             echo "Creating project directory structure..."
             mkdir -p /stock-project/db || true
 
-      - name: Build and start containers on server
+      - name: Load images and start containers on server
         uses: easingthemes/ssh-deploy@main
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
@@ -37,23 +86,46 @@ jobs:
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/stock-project"
           SCRIPT_AFTER: |
-            echo "Building and starting containers..."
+            echo "Loading images and starting containers..."
             cd /stock-project || exit 1
             
             echo "Stopping old containers if exist..."
             docker compose down || true
             
-            echo "Building images..."
-            docker compose build --no-cache
+            echo "Loading server image..."
+            docker load -i /tmp/stock-server.tar || true
+            
+            echo "Loading web image..."
+            docker load -i /tmp/stock-web.tar || true
+            
+            echo "Removing temporary image files..."
+            rm -f /tmp/stock-server.tar /tmp/stock-web.tar || true
             
             echo "Starting containers..."
             docker compose up -d
             
             echo "Waiting for services to be ready..."
-            sleep 5
+            sleep 10
             
             echo "Checking service status..."
             docker compose ps
+            
+            echo "Checking container logs..."
+            echo "=== MongoDB logs ==="
+            docker compose logs --tail=20 mongodb || true
+            echo "=== Server logs ==="
+            docker compose logs --tail=30 server || true
+            echo "=== Web logs ==="
+            docker compose logs --tail=20 web || true
+            
+            echo "Testing server connectivity..."
+            docker exec stock-server wget -qO- http://localhost:8080/ping || echo "Server ping failed"
+            
+            echo "Testing network connectivity..."
+            docker exec stock-web wget -qO- http://server:8080/ping || echo "Network test failed"
+            
+            echo "Checking exposed ports..."
+            netstat -tlnp | grep -E ':(3000|8080|27017)' || ss -tlnp | grep -E ':(3000|8080|27017)' || true
             
             echo "Cleaning up unused images..."
             docker image prune -f
