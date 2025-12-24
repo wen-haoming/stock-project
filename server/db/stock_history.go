@@ -123,6 +123,52 @@ func (r *KlineRepository) CountKlines(ctx context.Context) (int64, error) {
 	return r.collection.CountDocuments(ctx, bson.M{})
 }
 
+// RangeResult 区间涨幅聚合结果
+type RangeResult struct {
+	Symbol     string  `bson:"_id"`
+	StartPrice float64 `bson:"startPrice"`
+	EndPrice   float64 `bson:"endPrice"`
+	StartDate  string  `bson:"startDate"`
+	EndDate    string  `bson:"endDate"`
+}
+
+// CalculateRangeByAggregation 使用聚合管道批量计算区间涨幅
+func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, startDate, endDate string) ([]RangeResult, error) {
+	pipeline := mongo.Pipeline{
+		// 1. 筛选日期范围
+		{{Key: "$match", Value: bson.M{
+			"date": bson.M{"$gte": startDate, "$lte": endDate},
+		}}},
+		// 2. 按日期排序
+		{{Key: "$sort", Value: bson.M{"date": 1}}},
+		// 3. 按股票分组，获取首尾价格
+		{{Key: "$group", Value: bson.M{
+			"_id":        "$symbol",
+			"startPrice": bson.M{"$first": "$close"},
+			"endPrice":   bson.M{"$last": "$close"},
+			"startDate":  bson.M{"$first": "$date"},
+			"endDate":    bson.M{"$last": "$date"},
+		}}},
+		// 4. 过滤掉起始价格为0的数据
+		{{Key: "$match", Value: bson.M{
+			"startPrice": bson.M{"$gt": 0},
+		}}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []RangeResult
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
 // InitKlineIndexes 初始化K线索引
 func InitKlineIndexes() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

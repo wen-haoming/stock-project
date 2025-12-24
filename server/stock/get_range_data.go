@@ -412,81 +412,75 @@ func formatDate(date string) string {
 	return date
 }
 
-// calculateRangeFromDB 从数据库K线数据计算区间涨幅
+// calculateRangeFromDB 从数据库K线数据计算区间涨幅（使用聚合管道优化）
 func calculateRangeFromDB(ctx context.Context, klineRepo *db.KlineRepository, startDate, endDate string) ([]db.RangeStockData, bool) {
-	// 获取所有有K线数据的股票
-	symbols, err := klineRepo.GetAllSymbols(ctx)
-	if err != nil || len(symbols) == 0 {
+	log.Printf("Calculating range from DB using aggregation: %s - %s", startDate, endDate)
+
+	// 使用聚合管道一次性计算所有股票的区间涨幅
+	rangeResults, err := klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate)
+	if err != nil {
+		log.Printf("Aggregation error: %v", err)
 		return nil, false
 	}
 
-	log.Printf("Calculating range for %d symbols from DB", len(symbols))
-
-	// 获取股票基本信息（用于市值等数据）
-	stockRepo := db.NewStockRepository()
-
-	var results []db.RangeStockData
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 50)
-
-	for _, symbol := range symbols {
-		wg.Add(1)
-		go func(sym string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			// 从数据库获取K线
-			klines, err := klineRepo.GetKlinesBySymbol(ctx, sym, startDate, endDate)
-			if err != nil || len(klines) < 2 {
-				return
-			}
-
-			startPrice := klines[0].Close
-			endPrice := klines[len(klines)-1].Close
-
-			if startPrice <= 0 {
-				return
-			}
-
-			changePct := (endPrice - startPrice) / startPrice * 100
-
-			// 获取股票基本信息
-			stockInfo, _ := stockRepo.GetStockBySymbol(ctx, sym)
-
-			rangeData := db.RangeStockData{
-				Symbol:     sym,
-				StartPrice: startPrice,
-				EndPrice:   endPrice,
-				ChangePct:  changePct,
-			}
-
-			if stockInfo != nil {
-				rangeData.Name = stockInfo.Name
-				rangeData.LatestPrice = stockInfo.LatestPrice
-				rangeData.TotalMarketCap = stockInfo.TotalMarketCap
-				rangeData.CircMarketCap = stockInfo.CircMarketCap
-				rangeData.PERatio = stockInfo.PERatio
-				rangeData.PBRatio = stockInfo.PBRatio
-				rangeData.TurnoverRate = stockInfo.TurnoverRate
-				rangeData.Industry = stockInfo.Industry
-			}
-
-			mu.Lock()
-			results = append(results, rangeData)
-			mu.Unlock()
-		}(symbol)
+	if len(rangeResults) == 0 {
+		log.Printf("No range results from aggregation")
+		return nil, false
 	}
 
-	wg.Wait()
+	log.Printf("Aggregation returned %d stocks", len(rangeResults))
+
+	// 批量获取股票基本信息
+	stockRepo := db.NewStockRepository()
+	stockMap := make(map[string]*db.Stock)
+
+	// 收集所有symbol
+	symbols := make([]string, 0, len(rangeResults))
+	for _, r := range rangeResults {
+		symbols = append(symbols, r.Symbol)
+	}
+
+	// 批量查询股票信息
+	stocks, err := stockRepo.GetStocksBySymbols(ctx, symbols)
+	if err == nil {
+		for i := range stocks {
+			stockMap[stocks[i].Symbol] = &stocks[i]
+		}
+	}
+
+	// 组装结果
+	results := make([]db.RangeStockData, 0, len(rangeResults))
+	for _, r := range rangeResults {
+		changePct := (r.EndPrice - r.StartPrice) / r.StartPrice * 100
+
+		rangeData := db.RangeStockData{
+			Symbol:     r.Symbol,
+			StartPrice: r.StartPrice,
+			EndPrice:   r.EndPrice,
+			ChangePct:  changePct,
+		}
+
+		// 补充股票基本信息
+		if stockInfo, ok := stockMap[r.Symbol]; ok {
+			rangeData.Name = stockInfo.Name
+			rangeData.LatestPrice = stockInfo.LatestPrice
+			rangeData.TotalMarketCap = stockInfo.TotalMarketCap
+			rangeData.CircMarketCap = stockInfo.CircMarketCap
+			rangeData.PERatio = stockInfo.PERatio
+			rangeData.PBRatio = stockInfo.PBRatio
+			rangeData.TurnoverRate = stockInfo.TurnoverRate
+			rangeData.Industry = stockInfo.Industry
+		}
+
+		results = append(results, rangeData)
+	}
 
 	// 按涨幅排序
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].ChangePct > results[j].ChangePct
 	})
 
-	log.Printf("Calculated %d stocks from DB", len(results))
+	log.Printf("Calculated %d stocks from DB (aggregation)", len(results))
 	return results, true
 }
 
