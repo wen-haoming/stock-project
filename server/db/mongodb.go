@@ -80,6 +80,20 @@ func GetCollection(name string) *mongo.Collection {
 	return Database.Collection(name)
 }
 
+// IsConnected 检查数据库是否正确连接
+func IsConnected() bool {
+	if Client == nil || Database == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := Client.Ping(ctx, nil); err != nil {
+		log.Printf("Database ping failed: %v", err)
+		return false
+	}
+	return true
+}
+
 // InitIndexes 初始化索引
 func InitIndexes() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

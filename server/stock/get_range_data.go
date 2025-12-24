@@ -217,7 +217,7 @@ func GetRangeData(c *gin.Context) {
 	var fromDB bool
 
 	// 检查数据库连接
-	if db.Client != nil && db.Database != nil {
+	if db.IsConnected() {
 		cacheRepo := db.NewRangeCacheRepository()
 		klineRepo := db.NewKlineRepository()
 
@@ -331,8 +331,8 @@ func GetRangeData(c *gin.Context) {
 		allResults = results
 	}
 
-	// 保存到缓存
-	if len(allResults) > 0 && !fromDB && db.Client != nil {
+	// 保存到缓存（来自API的数据）
+	if len(allResults) > 0 && !fromDB && db.IsConnected() {
 		cacheRepo := db.NewRangeCacheRepository()
 		if err := cacheRepo.SetCache(ctx, startDate, endDate, allResults); err != nil {
 			log.Printf("Failed to save range cache: %v", err)
@@ -488,4 +488,131 @@ func calculateRangeFromDB(ctx context.Context, klineRepo *db.KlineRepository, st
 
 	log.Printf("Calculated %d stocks from DB", len(results))
 	return results, true
+}
+
+// RefreshRangeData 主动刷新并存储范围数据到数据库
+func RefreshRangeData(c *gin.Context) {
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
+	if startDate == "" || endDate == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date are required"})
+		return
+	}
+
+	if !db.IsConnected() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "database not connected"})
+		return
+	}
+
+	ctx := context.Background()
+
+	log.Printf("Starting to refresh range data for %s - %s", startDate, endDate)
+
+	// 1. 获取所有港股列表
+	stockList, err := fetchAllHKStockList()
+	if err != nil {
+		log.Printf("Error fetching stock list: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch stock list: " + err.Error()})
+		return
+	}
+
+	if len(stockList) == 0 {
+		log.Printf("No stocks found in list")
+		c.JSON(http.StatusOK, gin.H{
+			"message": "No stocks found",
+			"count":   0,
+		})
+		return
+	}
+
+	log.Printf("Fetched %d stocks from API", len(stockList))
+
+	// 2. 并发获取每只股票的历史数据并计算涨幅
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	results := make([]db.RangeStockData, 0)
+	successCount := 0
+	failCount := 0
+
+	// 限制并发数
+	semaphore := make(chan struct{}, 50)
+
+	for _, stock := range stockList {
+		wg.Add(1)
+		go func(s HKStockData) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			klines, err := fetchHKStockKline(s.Symbol, startDate, endDate)
+			if err != nil || len(klines) < 2 {
+				mu.Lock()
+				failCount++
+				mu.Unlock()
+				return
+			}
+
+			startPrice := klines[0].Close
+			endPrice := klines[len(klines)-1].Close
+
+			if startPrice <= 0 {
+				mu.Lock()
+				failCount++
+				mu.Unlock()
+				return
+			}
+
+			changePct := (endPrice - startPrice) / startPrice * 100
+
+			rangeData := db.RangeStockData{
+				Symbol:         s.Symbol,
+				Name:           s.Name,
+				StartPrice:     startPrice,
+				EndPrice:       endPrice,
+				ChangePct:      changePct,
+				LatestPrice:    s.LatestPrice,
+				TotalMarketCap: s.TotalMarketCap,
+				CircMarketCap:  s.CircMarketCap,
+				PERatio:        s.PERatio,
+				PBRatio:        s.PBRatio,
+				TurnoverRate:   s.TurnoverRate,
+				Industry:       s.Industry,
+			}
+
+			mu.Lock()
+			results = append(results, rangeData)
+			successCount++
+			mu.Unlock()
+		}(stock)
+	}
+
+	wg.Wait()
+
+	// 按涨幅排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ChangePct > results[j].ChangePct
+	})
+
+	log.Printf("Fetched kline data: success=%d, failed=%d, total=%d", successCount, failCount, len(results))
+
+	// 3. 保存到缓存
+	if len(results) > 0 {
+		cacheRepo := db.NewRangeCacheRepository()
+		if err := cacheRepo.SetCache(ctx, startDate, endDate, results); err != nil {
+			log.Printf("Failed to save range cache: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save cache: " + err.Error()})
+			return
+		}
+		log.Printf("Range cache saved successfully for %s - %s, %d stocks", startDate, endDate, len(results))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Range data refreshed successfully",
+		"count":      len(results),
+		"success":    successCount,
+		"failed":     failCount,
+		"start_date": startDate,
+		"end_date":   endDate,
+	})
 }

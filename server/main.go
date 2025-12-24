@@ -28,6 +28,7 @@ func setupRouter() *gin.Engine {
 	r.GET("/api/v1/stock/all_kdj", stock.GetAllData2)
 	r.GET("/api/v1/stock/detail", stock.GetStockDetail)
 	r.GET("/api/v1/stock/range", stock.GetRangeData)
+	r.POST("/api/v1/stock/range/refresh", stock.RefreshRangeData) // 主动刷新范围数据
 
 	// 数据库状态API
 	r.GET("/api/v1/db/status", func(c *gin.Context) {
