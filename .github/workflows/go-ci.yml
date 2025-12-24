@@ -39,9 +39,16 @@ jobs:
             # Redeploy Docker container on remote (assume Docker is managed externally)
             echo "Redeploying Docker container on remote host"
 
-            # --- Start MongoDB on remote ---
-            sudo docker rm -f stock-mongodb || true
+            # --- Start / Redeploy MongoDB on remote ---
             sudo docker pull mongo:7.0 || true
+            EXISTING=$(sudo docker ps -a --filter "name=stock-mongodb" -q || true)
+            if [ -n "$EXISTING" ]; then
+              echo "Found existing stock-mongodb container, recreating..."
+              sudo docker stop stock-mongodb || true
+              sudo docker rm stock-mongodb || true
+            else
+              echo "No existing stock-mongodb container, will create new one"
+            fi
             sudo docker run -d --name stock-mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=admin123 -e MONGO_INITDB_DATABASE=stock_db -p 27017:27017 mongo:7.0
 
             echo "Waiting for MongoDB to accept connections..."
