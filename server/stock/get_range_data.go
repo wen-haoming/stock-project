@@ -176,6 +176,16 @@ func fetchAllHKStockList() ([]HKStockData, error) {
 
 // GetRangeData 获取区间涨幅数据（返回全部数据，前端分页）
 func GetRangeData(c *gin.Context) {
+	// Panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in GetRangeData: %v", r)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Internal server error: %v", r),
+			})
+		}
+	}()
+
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 	minChangePct := c.DefaultQuery("min_change_pct", "0")        // 最小涨幅筛选
@@ -201,28 +211,40 @@ func GetRangeData(c *gin.Context) {
 	maxCapValue := maxCap * 100000000
 
 	ctx := context.Background()
-	cacheRepo := db.NewRangeCacheRepository()
-	klineRepo := db.NewKlineRepository()
 
-	// 尝试从缓存获取
+	// 初始化变量
 	var allResults []db.RangeStockData
 	var fromDB bool
-	if !forceRefresh {
-		cache, err := cacheRepo.GetCache(ctx, startDate, endDate)
-		if err == nil && cacheRepo.IsCacheValid(cache) {
-			log.Printf("Range cache hit for %s - %s", startDate, endDate)
-			allResults = cache.Data
-		}
-	}
 
-	// 缓存未命中，尝试从数据库K线数据计算
-	if len(allResults) == 0 {
-		// 检查数据库是否有K线数据
-		klineCount, _ := klineRepo.CountKlines(ctx)
-		if klineCount > 10000 {
-			log.Printf("Calculating range from DB klines (%d records)", klineCount)
-			allResults, fromDB = calculateRangeFromDB(ctx, klineRepo, startDateFmt, endDateFmt)
+	// 检查数据库连接
+	if db.Client != nil && db.Database != nil {
+		cacheRepo := db.NewRangeCacheRepository()
+		klineRepo := db.NewKlineRepository()
+
+		// 尝试从缓存获取
+		if !forceRefresh {
+			cache, err := cacheRepo.GetCache(ctx, startDate, endDate)
+			if err == nil && cache != nil && cacheRepo.IsCacheValid(cache) {
+				log.Printf("Range cache hit for %s - %s", startDate, endDate)
+				allResults = cache.Data
+			} else if err != nil {
+				log.Printf("Error getting cache: %v", err)
+			}
 		}
+
+		// 缓存未命中，尝试从数据库K线数据计算
+		if len(allResults) == 0 {
+			// 检查数据库是否有K线数据
+			klineCount, err := klineRepo.CountKlines(ctx)
+			if err != nil {
+				log.Printf("Error counting klines: %v", err)
+			} else if klineCount > 10000 {
+				log.Printf("Calculating range from DB klines (%d records)", klineCount)
+				allResults, fromDB = calculateRangeFromDB(ctx, klineRepo, startDateFmt, endDateFmt)
+			}
+		}
+	} else {
+		log.Printf("Database not connected, will fetch from API")
 	}
 
 	// 数据库也没有，从API获取
@@ -232,7 +254,20 @@ func GetRangeData(c *gin.Context) {
 		// 1. 获取所有港股列表
 		stockList, err := fetchAllHKStockList()
 		if err != nil {
+			log.Printf("Error fetching stock list: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch stock list: " + err.Error()})
+			return
+		}
+
+		if len(stockList) == 0 {
+			log.Printf("No stocks found in list")
+			c.JSON(http.StatusOK, gin.H{
+				"data":          []db.RangeStockData{},
+				"total":         0,
+				"industryStats": []interface{}{},
+				"cached":        false,
+				"fromDB":        false,
+			})
 			return
 		}
 
@@ -297,7 +332,8 @@ func GetRangeData(c *gin.Context) {
 	}
 
 	// 保存到缓存
-	if len(allResults) > 0 && !fromDB {
+	if len(allResults) > 0 && !fromDB && db.Client != nil {
+		cacheRepo := db.NewRangeCacheRepository()
 		if err := cacheRepo.SetCache(ctx, startDate, endDate, allResults); err != nil {
 			log.Printf("Failed to save range cache: %v", err)
 		} else {

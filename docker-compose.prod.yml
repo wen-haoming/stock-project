@@ -1,0 +1,61 @@
+version: '3.8'
+
+# 生产环境配置：使用镜像仓库的镜像
+# 部署时只需要：docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: stock-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-admin123}
+      MONGO_INITDB_DATABASE: stock_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./db/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - stock-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${NAMESPACE:-stock-project}/stock-server:latest
+    container_name: stock-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MONGODB_URI: mongodb://${MONGO_USER:-stockuser}:${MONGO_PASSWORD:-stockpass}@mongodb:27017/stock_db?authSource=stock_db
+      MONGODB_DATABASE: stock_db
+      GIN_MODE: release
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - stock-network
+
+  web:
+    image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${NAMESPACE:-stock-project}/stock-web:latest
+    container_name: stock-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    networks:
+      - stock-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  stock-network:
+    driver: bridge
+
