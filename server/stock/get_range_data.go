@@ -206,8 +206,8 @@ func GetRangeData(c *gin.Context) {
 	minPct, _ := strconv.ParseFloat(minChangePct, 64)
 	minCap, _ := strconv.ParseFloat(minMarketCap, 64)
 	maxCap, _ := strconv.ParseFloat(maxMarketCap, 64)
-	// 转换为实际值（输入是亿，需要转为元）
-	minCapValue := minCap * 100000000
+	// 前端传参单位是「亿」，数据库存储单位是「元」，统一转换
+	minCapValue := minCap * 100000000 // 亿转元
 	maxCapValue := maxCap * 100000000
 
 	ctx := context.Background()

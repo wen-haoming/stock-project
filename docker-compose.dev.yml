@@ -1,7 +1,5 @@
-version: '3.8'
-
-# 本地开发用：只启动 MongoDB
-# 使用方法: docker-compose -f docker-compose.dev.yml up -d
+# 开发环境一键启动
+# 使用方法: docker compose -f docker-compose.dev.yml up -d
 
 services:
   mongodb:
@@ -11,7 +9,51 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_dev_data:/data/db
-    # 开发环境不设密码，简化连接
+    networks:
+      - stock-dev-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    container_name: stock-server-dev
+    ports:
+      - "8080:8080"
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/stock_db
+      MONGODB_DATABASE: stock_db
+      GIN_MODE: debug
+    volumes:
+      - ./server:/app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - stock-dev-network
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    container_name: stock-web-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    depends_on:
+      - server
+    networks:
+      - stock-dev-network
 
 volumes:
   mongodb_dev_data:
+
+networks:
+  stock-dev-network:
+    driver: bridge

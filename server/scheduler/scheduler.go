@@ -170,18 +170,6 @@ func (s *Scheduler) syncHKHistoryData() {
 
 	ctx := context.Background()
 
-	// 检查是否已有数据
-	count, err := s.klineRepo.CountKlines(ctx)
-	if err != nil {
-		log.Printf("Failed to count klines: %v", err)
-		return
-	}
-
-	if count > 100000 {
-		log.Printf("HK history data already exists (%d records), skipping full sync", count)
-		return
-	}
-
 	// 获取所有港股列表
 	stockList, err := fetchAllHKStockList()
 	if err != nil {
@@ -189,7 +177,42 @@ func (s *Scheduler) syncHKHistoryData() {
 		return
 	}
 
-	log.Printf("Found %d HK stocks to sync history", len(stockList))
+	log.Printf("Found %d HK stocks", len(stockList))
+
+	// 先更新 stocks 表的基本信息（市值等）- 这个总是执行
+	var dbStocks []db.StockData
+	for _, stock := range stockList {
+		dbStocks = append(dbStocks, db.StockData{
+			Symbol:         stock.Symbol,
+			Name:           stock.Name,
+			Market:         "hk",
+			LatestPrice:    stock.LatestPrice,
+			TotalMarketCap: stock.TotalMarketCap,
+			CircMarketCap:  stock.CircMarketCap,
+			PERatio:        stock.PERatio,
+			PBRatio:        stock.PBRatio,
+			TurnoverRate:   stock.TurnoverRate,
+			Industry:       stock.Industry,
+		})
+	}
+	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
+		log.Printf("Failed to upsert HK stocks basic info: %v", err)
+	} else {
+		log.Printf("Updated %d HK stocks basic info to stocks table", len(dbStocks))
+	}
+
+	// 检查是否已有 K 线数据
+	count, err := s.klineRepo.CountKlines(ctx)
+	if err != nil {
+		log.Printf("Failed to count klines: %v", err)
+		return
+	}
+
+	if count > 100000 {
+		log.Printf("HK kline data already exists (%d records), skipping kline sync", count)
+		log.Printf("HK history sync completed in %v (basic info only)", time.Since(start))
+		return
+	}
 
 	// 设置历史数据范围（最近2年）
 	endDate := time.Now().Format("20060102")
@@ -852,4 +875,120 @@ func (s *Scheduler) ManualSync() {
 // ManualSyncHistory 手动触发历史数据同步
 func (s *Scheduler) ManualSyncHistory() {
 	go s.syncHKHistoryData()
+}
+
+// ForceSyncHKData 强制重新同步所有港股数据（清除已有数据检查）
+func (s *Scheduler) ForceSyncHKData() {
+	s.mu.Lock()
+	if s.syncingHK {
+		s.mu.Unlock()
+		log.Println("HK sync already in progress, skipping...")
+		return
+	}
+	s.syncingHK = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.syncingHK = false
+		s.mu.Unlock()
+	}()
+
+	log.Println("Starting FORCE HK stock sync (this may take a while)...")
+	start := time.Now()
+
+	ctx := context.Background()
+
+	// 获取所有港股列表
+	stockList, err := fetchAllHKStockList()
+	if err != nil {
+		log.Printf("Failed to fetch HK stock list: %v", err)
+		return
+	}
+
+	log.Printf("Found %d HK stocks to sync", len(stockList))
+
+	// 更新 stocks 表的基本信息（市值等）
+	var dbStocks []db.StockData
+	for _, stock := range stockList {
+		dbStocks = append(dbStocks, db.StockData{
+			Symbol:         stock.Symbol,
+			Name:           stock.Name,
+			Market:         "hk",
+			LatestPrice:    stock.LatestPrice,
+			TotalMarketCap: stock.TotalMarketCap,
+			CircMarketCap:  stock.CircMarketCap,
+			PERatio:        stock.PERatio,
+			PBRatio:        stock.PBRatio,
+			TurnoverRate:   stock.TurnoverRate,
+			Industry:       stock.Industry,
+		})
+	}
+	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
+		log.Printf("Failed to upsert HK stocks basic info: %v", err)
+	} else {
+		log.Printf("Updated %d HK stocks basic info", len(dbStocks))
+	}
+
+	// 设置历史数据范围（最近2年）
+	endDate := time.Now().Format("20060102")
+	startDate := time.Now().AddDate(-2, 0, 0).Format("20060102")
+
+	// 并发同步 K 线，限制并发数
+	semaphore := make(chan struct{}, 20)
+	var wg sync.WaitGroup
+	var successCount, failCount int64
+	var mu sync.Mutex
+
+	for i, stock := range stockList {
+		wg.Add(1)
+		go func(idx int, symbol, name string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			klines, err := fetchHKStockKline(symbol, startDate, endDate)
+			if err != nil || len(klines) == 0 {
+				mu.Lock()
+				failCount++
+				mu.Unlock()
+				return
+			}
+
+			var dbKlines []db.StockKline
+			for _, k := range klines {
+				dbKlines = append(dbKlines, db.StockKline{
+					Symbol:       symbol,
+					Date:         k.Date,
+					Open:         k.Open,
+					Close:        k.Close,
+					High:         k.High,
+					Low:          k.Low,
+					Volume:       k.Volume,
+					Turnover:     k.Turnover,
+					Amplitude:    k.Amplitude,
+					ChangePct:    k.ChangePct,
+					ChangeAmt:    k.ChangeAmt,
+					TurnoverRate: k.TurnoverRate,
+				})
+			}
+
+			if err := s.klineRepo.UpsertKlines(ctx, dbKlines); err != nil {
+				mu.Lock()
+				failCount++
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			successCount++
+			if successCount%100 == 0 {
+				log.Printf("HK sync progress: %d/%d stocks completed", successCount, len(stockList))
+			}
+			mu.Unlock()
+		}(i, stock.Symbol, stock.Name)
+	}
+
+	wg.Wait()
+	log.Printf("Force HK sync completed in %v: %d success, %d failed", time.Since(start), successCount, failCount)
 }

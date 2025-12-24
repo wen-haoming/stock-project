@@ -73,8 +73,8 @@ const parseUrlParams = (searchParams) => {
     minChangePct: minPct ? parseFloat(minPct) : 60,
     marketCapMode: capMode || 'range',
     marketCapValue: capValue ? parseFloat(capValue) : null,
-    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 2000,
-    maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 10000,
+    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 20,
+    maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 1000,
     selectedIndustry: industry || '',
     page: page ? parseInt(page) : 1,
     pageSize: pageSize ? parseInt(pageSize) : 20,
@@ -562,8 +562,8 @@ function RangeStatsPC() {
   const handleMarketCapModeChange = (v) => {
     setMarketCapMode(v)
     if (v === 'range') {
-      setMinMarketCap(1000)
-      setMaxMarketCap(10000)
+      setMinMarketCap(20)
+      setMaxMarketCap(500)
       setMarketCapValue(null)
     } else if (v === 'less') {
       setMarketCapValue(50)
