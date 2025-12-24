@@ -36,24 +36,8 @@ jobs:
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/server-go"
           SCRIPT_AFTER: |
-            # Ensure Docker is installed on remote (use sudo where needed)
-            if ! command -v docker >/dev/null 2>&1; then
-              echo "Docker not found — installing via get.docker.com"
-              sudo apt-get update -y || true
-              sudo apt-get install -y ca-certificates curl gnupg lsb-release || true
-              curl -fsSL https://get.docker.com | sudo sh
-              sudo systemctl enable docker || true
-              sudo systemctl start docker || true
-            else
-              echo "Docker already installed"
-            fi
-
-            # Ensure docker compose plugin is available
-            if ! docker compose version >/dev/null 2>&1; then
-              echo "docker compose plugin not available — attempting to install"
-              sudo apt-get update -y || true
-              sudo apt-get install -y docker-compose-plugin || true
-            fi
+            # Redeploy Docker container on remote (assume Docker is managed externally)
+            echo "Redeploying Docker container on remote host"
 
             # --- Start MongoDB on remote ---
             sudo docker rm -f stock-mongodb || true
