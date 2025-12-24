@@ -24,6 +24,8 @@ jobs:
         working-directory: ./server
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./server-go
 
+      # MongoDB start and initialization will run on the remote server
+
       - name: Deploy to aliyun server
         uses: easingthemes/ssh-deploy@main
         env:
@@ -34,6 +36,41 @@ jobs:
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/server-go"
           SCRIPT_AFTER: |
+            # Ensure Docker is installed on remote (use sudo where needed)
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker not found — installing via get.docker.com"
+              sudo apt-get update -y || true
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release || true
+              curl -fsSL https://get.docker.com | sudo sh
+              sudo systemctl enable docker || true
+              sudo systemctl start docker || true
+            else
+              echo "Docker already installed"
+            fi
+
+            # Ensure docker compose plugin is available
+            if ! docker compose version >/dev/null 2>&1; then
+              echo "docker compose plugin not available — attempting to install"
+              sudo apt-get update -y || true
+              sudo apt-get install -y docker-compose-plugin || true
+            fi
+
+            # --- Start MongoDB on remote ---
+            sudo docker rm -f stock-mongodb || true
+            sudo docker pull mongo:7.0 || true
+            sudo docker run -d --name stock-mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=admin123 -e MONGO_INITDB_DATABASE=stock_db -p 27017:27017 mongo:7.0
+
+            echo "Waiting for MongoDB to accept connections..."
+            for i in $(seq 1 30); do
+              sudo docker exec stock-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1 && { echo "MongoDB is ready"; break; }
+              echo "Attempt $i: not ready..."
+              sleep 2
+            done
+
+            # Initialize DB: create app user, collections and indexes
+            sudo docker exec stock-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --eval "db = db.getSiblingDB('stock_db'); db.createUser({user:'stockuser',pwd:'stockpass',roles:[{role:'readWrite',db:'stock_db'}]}); db.createCollection('stocks'); db.createCollection('stock_history'); db.stocks.createIndex({symbol:1},{unique:true}); db.stocks.createIndex({updatedAt:-1}); db.stocks.createIndex({market:1}); db.stocks.createIndex({changePct:-1}); db.stock_history.createIndex({symbol:1,date:1},{unique:true}); db.stock_history.createIndex({date:-1}); print('MongoDB remote initialization completed')"
+
+            # --- Start server binary ---
             cd /
             chmod +x ./server-go
             pkill -f server-go || true
@@ -41,111 +78,3 @@ jobs:
             nohup ./server-go > /var/log/server-go.log 2>&1 &
             sleep 2
             pgrep -f server-go && echo "Server started successfully" || echo "Server failed to start"
-
-  deploy-docker:
-    name: Deploy Docker Containers
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to Aliyun Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push server image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./server
-          file: ./server/Dockerfile
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.SERVER_IMAGE }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.SERVER_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push web image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./web
-          file: ./web/Dockerfile
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.WEB_IMAGE }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.WEB_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Copy files to server
-        uses: easingthemes/ssh-deploy@main
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          ARGS: '-avzr'
-          SOURCE: "docker-compose.yml,db/"
-          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-          REMOTE_USER: ${{ secrets.REMOTE_USER }}
-          TARGET: "/opt/stock-project"
-
-      - name: Deploy containers
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.REMOTE_HOST }}
-          username: ${{ secrets.REMOTE_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /opt/stock-project
-            
-            # 登录阿里云镜像仓库
-            docker login -u ${{ secrets.REGISTRY_USERNAME }} -p ${{ secrets.REGISTRY_PASSWORD }} registry.cn-hangzhou.aliyuncs.com
-            
-            # 拉取最新镜像
-            docker pull registry.cn-hangzhou.aliyuncs.com/stock-project/stock-server:latest
-            docker pull registry.cn-hangzhou.aliyuncs.com/stock-project/stock-web:latest
-            
-            # 创建生产环境 docker-compose 覆盖文件
-            cat > docker-compose.override.yml << 'EOF'
-            version: '3.8'
-            
-            services:
-              server:
-                image: registry.cn-hangzhou.aliyuncs.com/stock-project/stock-server:latest
-                build: !reset null
-            
-              web:
-                image: registry.cn-hangzhou.aliyuncs.com/stock-project/stock-web:latest
-                build: !reset null
-                ports:
-                  - "80:80"
-            EOF
-            
-            # 创建 .env 文件（如果不存在）
-            if [ ! -f .env ]; then
-              cat > .env << 'ENVEOF'
-            MONGO_ROOT_USER=admin
-            MONGO_ROOT_PASSWORD=admin123
-            MONGO_USER=stockuser
-            MONGO_PASSWORD=stockpass
-            ENVEOF
-            fi
-            
-            # 停止旧容器并启动新容器
-            docker-compose down
-            docker-compose up -d
-            
-            # 清理旧镜像
-            docker image prune -f
-            
-            # 检查服务状态
-            sleep 10
-            docker-compose ps
-            
-            echo "Deployment completed!"
