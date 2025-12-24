@@ -16,6 +16,7 @@ jobs:
       - name: Deploy project files to server
         uses: easingthemes/ssh-deploy@main
         env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avzr --delete'
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
@@ -29,6 +30,7 @@ jobs:
       - name: Build and start containers on server
         uses: easingthemes/ssh-deploy@main
         env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avzr'
           SOURCE: "./docker-compose.yml"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
