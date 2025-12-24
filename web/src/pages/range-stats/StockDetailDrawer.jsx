@@ -2,20 +2,29 @@ import { memo } from 'react'
 import { Drawer, Space, Tooltip } from 'antd'
 import StockDetail from './StockDetail'
 
-// 生成东财链接（港股）
-const getEastMoneyUrl = (symbol) => {
-  // symbol 格式如 00700, 需要转为 116.00700
-  const code = symbol?.replace(/^0+/, '') || symbol
+// 生成东财链接
+const getEastMoneyUrl = (symbol, market = 'hk') => {
+  if (market === 'a') {
+    // A股: 沪市(6开头) -> sh, 深市(0/3开头) -> sz
+    const prefix = symbol.startsWith('6') ? 'sh' : 'sz'
+    return `https://quote.eastmoney.com/${prefix}${symbol}.html`
+  }
+  // 港股
   return `https://quote.eastmoney.com/hk/${symbol}.html`
 }
 
-// 生成雪球链接（港股）
-const getXueqiuUrl = (symbol) => {
-  // 雪球港股格式为 0xxxx
+// 生成雪球链接
+const getXueqiuUrl = (symbol, market = 'hk') => {
+  if (market === 'a') {
+    // A股: 沪市 SH, 深市 SZ
+    const prefix = symbol.startsWith('6') ? 'SH' : 'SZ'
+    return `https://xueqiu.com/S/${prefix}${symbol}`
+  }
+  // 港股
   return `https://xueqiu.com/S/${symbol}`
 }
 
-function StockDetailDrawer({ visible, stock, onClose }) {
+function StockDetailDrawer({ visible, stock, onClose, market = 'hk' }) {
   return (
     <Drawer
       title={stock ? (
@@ -28,7 +37,7 @@ function StockDetailDrawer({ visible, stock, onClose }) {
           <Space size={4} style={{ marginLeft: 8 }}>
             <Tooltip title="在东方财富查看">
               <a 
-                href={getEastMoneyUrl(stock.symbol)} 
+                href={getEastMoneyUrl(stock.symbol, market)} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 style={{ fontSize: 12, padding: '2px 6px', background: '#f5f5f5', borderRadius: 4 }}
@@ -38,7 +47,7 @@ function StockDetailDrawer({ visible, stock, onClose }) {
             </Tooltip>
             <Tooltip title="在雪球查看">
               <a 
-                href={getXueqiuUrl(stock.symbol)} 
+                href={getXueqiuUrl(stock.symbol, market)} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 style={{ fontSize: 12, padding: '2px 6px', background: '#f5f5f5', borderRadius: 4 }}
@@ -56,7 +65,7 @@ function StockDetailDrawer({ visible, stock, onClose }) {
       destroyOnClose
       styles={{ body: { padding: 0, overflow: 'auto' } }}
     >
-      <StockDetail stock={stock} />
+      <StockDetail stock={stock} market={market} />
     </Drawer>
   )
 }

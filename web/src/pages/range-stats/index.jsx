@@ -13,8 +13,17 @@ import IndexMobile from './IndexMobile'
 const { RangePicker } = DatePicker
 const { useBreakpoint } = Grid
 
-// 恒生指数配置
-const indexConfig = { secid: '100.HSI', name: '恒生指数' }
+// 市场配置
+const marketOptions = [
+  { label: '港股', value: 'hk' },
+  { label: 'A股', value: 'a' },
+]
+
+// 指数配置（根据市场切换）
+const indexConfigs = {
+  hk: { secid: '100.HSI', name: '恒生指数' },
+  a: { secid: '1.000001', name: '上证指数' },  // 上证指数
+}
 
 // ECharts 颜色配置
 const upColor = '#ec5a5a'
@@ -65,6 +74,7 @@ const parseUrlParams = (searchParams) => {
   const minCap = searchParams.get('minCap')
   const maxCap = searchParams.get('maxCap')
   const industry = searchParams.get('industry')
+  const market = searchParams.get('market')
 
   return {
     dateRange: startDate && endDate 
@@ -76,23 +86,41 @@ const parseUrlParams = (searchParams) => {
     minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 20,
     maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 1000,
     selectedIndustry: industry || '',
+    market: market || 'hk',
   }
 }
 
-// 日期区间预设 - 移到组件外避免重复创建
-const rangePresets = [
-  { label: '── 常用区间 ──', value: [dayjs(), dayjs()] },
-  { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
-  { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近3月', value: [dayjs().subtract(3, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近6月', value: [dayjs().subtract(6, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs().subtract(1, 'day')] },
-  { label: '今年以来', value: [dayjs().startOf('year'), dayjs().subtract(1, 'day')] },
-  { label: '── 港股历史牛市 ──', value: [dayjs(), dayjs()] },
-  { label: '第9波 24.01-至今 AI浪潮', value: [dayjs('2024-01-02'), dayjs().subtract(1, 'day')] },
-  { label: '第8波 16.02-18.01 南下资金', value: [dayjs('2016-02-01'), dayjs('2018-01-31')] },
-  { label: '第7波 03.04-07.10 SARS后', value: [dayjs('2003-04-01'), dayjs('2007-10-31')] },
-]
+// 日期区间预设 - 根据市场返回不同预设
+const getRangePresets = (market) => {
+  const commonPresets = [
+    { label: '── 常用区间 ──', value: [dayjs(), dayjs()] },
+    { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
+    { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近3月', value: [dayjs().subtract(3, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近6月', value: [dayjs().subtract(6, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs().subtract(1, 'day')] },
+    { label: '今年以来', value: [dayjs().startOf('year'), dayjs().subtract(1, 'day')] },
+  ]
+
+  if (market === 'a') {
+    return [
+      ...commonPresets,
+      { label: '── A股历史牛市 ──', value: [dayjs(), dayjs()] },
+      { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
+      { label: '19.01-21.02 核心资产牛', value: [dayjs('2019-01-04'), dayjs('2021-02-18')] },
+      { label: '14.07-15.06 杠杆牛', value: [dayjs('2014-07-01'), dayjs('2015-06-12')] },
+      { label: '05.06-07.10 股改牛', value: [dayjs('2005-06-06'), dayjs('2007-10-16')] },
+    ]
+  }
+
+  return [
+    ...commonPresets,
+    { label: '── 港股历史牛市 ──', value: [dayjs(), dayjs()] },
+    { label: '第9波 24.01-至今 AI浪潮', value: [dayjs('2024-01-02'), dayjs().subtract(1, 'day')] },
+    { label: '第8波 16.02-18.01 南下资金', value: [dayjs('2016-02-01'), dayjs('2018-01-31')] },
+    { label: '第7波 03.04-07.10 SARS后', value: [dayjs('2003-04-01'), dayjs('2007-10-31')] },
+  ]
+}
 
 export default function RangeStats() {
   const screens = useBreakpoint()
@@ -120,6 +148,7 @@ function RangeStatsPC() {
   const loadedStartDateRef = useRef('20080101')
   const isLoadingMoreRef = useRef(false)
 
+  const [market, setMarket] = useState(initialParams.market)
   const [dateRange, setDateRange] = useState(initialParams.dateRange)
   const [minChangePct, setMinChangePct] = useState(initialParams.minChangePct)
   const [marketCapMode, setMarketCapMode] = useState(initialParams.marketCapMode)
@@ -138,6 +167,12 @@ function RangeStatsPC() {
   const [selectedStock, setSelectedStock] = useState(null)
 
   const isMobile = false // PC 端固定为 false
+
+  // 当前市场的指数配置
+  const indexConfig = useMemo(() => indexConfigs[market] || indexConfigs.hk, [market])
+
+  // 当前市场的日期预设
+  const rangePresets = useMemo(() => getRangePresets(market), [market])
 
   // 计算指数区间涨幅
   const calculateIndexChange = useCallback((startDate, endDate) => {
@@ -176,6 +211,7 @@ function RangeStatsPC() {
     const minCap = params.minMarketCap ?? minMarketCap
     const maxCap = params.maxMarketCap ?? maxMarketCap
     const industry = params.selectedIndustry ?? selectedIndustry
+    const mkt = params.market ?? market
 
     if (start) newParams.set('start', start.format('YYYY-MM-DD'))
     if (end) newParams.set('end', end.format('YYYY-MM-DD'))
@@ -185,6 +221,7 @@ function RangeStatsPC() {
     if (minCap != null) newParams.set('minCap', minCap.toString())
     if (maxCap != null) newParams.set('maxCap', maxCap.toString())
     if (industry) newParams.set('industry', industry)
+    if (mkt !== 'hk') newParams.set('market', mkt)
 
     setSearchParams(newParams, { replace: true })
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry, setSearchParams])
@@ -298,7 +335,7 @@ function RangeStatsPC() {
       { name: 'MA60', type: 'line', data: calculateMA(60, data.values), smooth: true, lineStyle: { opacity: 0.5, width: 1 }, symbol: 'none', show: !isMobile },
       { name: 'Volume', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes }
     ]
-  }), [isMobile])
+  }), [isMobile, indexConfig])
 
   // 获取 K 线数据
   const fetchKlineData = useCallback(async (initialDateRange, startDate = '20080101') => {
@@ -327,7 +364,7 @@ function RangeStatsPC() {
     } finally {
       setLoading(false)
     }
-  }, [createChartOption, updateChartBrush])
+  }, [createChartOption, updateChartBrush, indexConfig])
 
   // 加载更早的 K 线数据
   const loadEarlierKlineData = useCallback(async () => {
@@ -385,7 +422,7 @@ function RangeStatsPC() {
     } finally {
       isLoadingMoreRef.current = false
     }
-  }, [])
+  }, [indexConfig])
 
   // 获取区间涨幅股票数据
   const fetchStockData = useCallback(async (industry = '') => {
@@ -408,6 +445,7 @@ function RangeStatsPC() {
         min_change_pct: minChangePct,
         min_market_cap: actualMinCap,
         max_market_cap: actualMaxCap,
+        market: market,
       }
       if (industry) params.industry = industry
       
@@ -424,7 +462,7 @@ function RangeStatsPC() {
     } finally {
       setTableLoading(false)
     }
-  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap])
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, market])
 
   // 打开股票详情
   const openStockDetail = useCallback((stock) => {
@@ -528,6 +566,19 @@ function RangeStatsPC() {
     setSelectedIndustry('')
     updateUrlParams({ selectedIndustry: '' })
     fetchStockData('')
+  }
+
+  // 市场切换
+  const handleMarketChange = (newMarket) => {
+    setMarket(newMarket)
+    setAllStockData([])
+    setIndustryStats([])
+    setSelectedIndustry('')
+    updateUrlParams({ market: newMarket, selectedIndustry: '' })
+    // 重新加载K线数据
+    setTimeout(() => {
+      fetchKlineData(dateRange)
+    }, 100)
   }
 
   const handleTableChange = (pag, filters, sorter) => {
@@ -775,6 +826,8 @@ function RangeStatsPC() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14 }}>市场:</span>
+              <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
               <span style={{ fontSize: 14 }}>日期:</span>
               <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} presets={rangePresets} size="middle" />
             </div>
@@ -886,7 +939,7 @@ function RangeStatsPC() {
       </Card>
 
       {/* 股票详情抽屉 */}
-      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} />
+      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} market={market} />
     </div>
   )
 }

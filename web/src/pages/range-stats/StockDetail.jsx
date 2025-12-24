@@ -34,11 +34,21 @@ const financeMetrics = [
 ]
 
 // 获取个股 K 线数据
-const fetchStockKline = async (symbol) => {
+const fetchStockKline = async (symbol, market = 'hk') => {
   try {
     const start = dayjs().subtract(1, 'year').format('YYYYMMDD')
     const end = dayjs().format('YYYYMMDD')
-    const secid = `116.${symbol}`
+    
+    // 根据市场类型构建 secid
+    let secid
+    if (market === 'a') {
+      // A股: 沪市(6开头)=1.代码, 深市(0/3开头)=0.代码
+      secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
+    } else {
+      // 港股: 116.代码
+      secid = `116.${symbol}`
+    }
+    
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
 
     const response = await axios.get(url)
@@ -83,23 +93,43 @@ const fetchStockNews = async (name) => {
   }
 }
 
-// 获取港股财务数据 (东方财富真实API)
-const fetchFinanceData = async (symbol, reportType = '') => {
+// 获取财务数据 (东方财富真实API)
+const fetchFinanceData = async (symbol, reportType = '', market = 'hk') => {
   try {
-    const params = new URLSearchParams({
-      sortColumns: 'REPORT_DATE',
-      sortTypes: '-1',
-      pageSize: '50',
-      pageNumber: '1',
-      reportName: 'RPT_HKF10_FN_MAININDICATOR',
-      columns: 'ALL',
-      quoteColumns: '',
-      source: 'SECURITIES',
-      client: 'PC',
-      filter: `(SECUCODE="${symbol}.HK")`,
-    })
+    let url
     
-    const url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
+    if (market === 'a') {
+      // A股财务数据API
+      const params = new URLSearchParams({
+        sortColumns: 'REPORTDATE',
+        sortTypes: '-1',
+        pageSize: '50',
+        pageNumber: '1',
+        reportName: 'RPT_LICO_FN_CPD',
+        columns: 'ALL',
+        quoteColumns: '',
+        source: 'WEB',
+        client: 'DATACENTER_WEB',
+        filter: `(SECURITY_CODE="${symbol}")`,
+      })
+      url = `https://datacenter-web.eastmoney.com/api/data/v1/get?${params.toString()}`
+    } else {
+      // 港股财务数据API
+      const params = new URLSearchParams({
+        sortColumns: 'REPORT_DATE',
+        sortTypes: '-1',
+        pageSize: '50',
+        pageNumber: '1',
+        reportName: 'RPT_HKF10_FN_MAININDICATOR',
+        columns: 'ALL',
+        quoteColumns: '',
+        source: 'SECURITIES',
+        client: 'PC',
+        filter: `(SECUCODE="${symbol}.HK")`,
+      })
+      url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
+    }
+    
     const response = await axios.get(url)
     
     let result = response.data?.result?.data || []
@@ -109,18 +139,57 @@ const fetchFinanceData = async (symbol, reportType = '') => {
       return []
     }
     
-    // 根据报告类型在前端过滤
+    // 根据报告类型在前端过滤 - A股用REPORTDATE，港股用REPORT_DATE
+    const dateField = market === 'a' ? 'REPORTDATE' : 'REPORT_DATE'
     if (reportType) {
       const monthMap = { '1': 3, '2': 6, '3': 9, '4': 12 }
       const targetMonth = monthMap[reportType]
       if (targetMonth) {
         result = result.filter(item => {
-          const month = dayjs(item.REPORT_DATE).month() + 1
+          const month = dayjs(item[dateField]).month() + 1
           return month === targetMonth
         })
       }
     }
     
+    // A股和港股字段映射不同
+    if (market === 'a') {
+      return result.map(item => {
+        const reportDate = item.REPORTDATE || ''
+        const date = dayjs(reportDate)
+        const month = date.month() + 1
+        const year = date.year()
+        
+        let periodLabel = ''
+        if (month === 3) periodLabel = `${year}一季报`
+        else if (month === 6) periodLabel = `${year}中报`
+        else if (month === 9) periodLabel = `${year}三季报`
+        else if (month === 12) periodLabel = `${year}年报`
+        else periodLabel = date.format('YYYY-MM')
+        
+        const netProfit = item.PARENT_NETPROFIT ? item.PARENT_NETPROFIT / 100000000 : null
+        const revenue = item.TOTAL_OPERATE_INCOME ? item.TOTAL_OPERATE_INCOME / 100000000 : null
+        
+        return {
+          period: periodLabel,
+          reportDate: reportDate,
+          netProfit: netProfit,
+          netProfitYoy: item.SJLTZ ?? null,  // 净利润同比
+          revenue: revenue,
+          revenueYoy: item.YSTZ ? item.YSTZ * 100 : null,  // 营收同比(原始是小数)
+          grossProfit: null,
+          grossProfitYoy: null,
+          eps: item.BASIC_EPS ?? null,
+          navps: item.BPS ?? null,
+          npm: null,
+          gpm: item.XSMLL ?? null,  // 毛利率
+          roe: item.WEIGHTAVG_ROE ?? null,
+          dar: null,
+        }
+      }).reverse()
+    }
+    
+    // 港股字段映射
     return result.map(item => {
       const reportDate = item.REPORT_DATE || ''
       const date = dayjs(reportDate)
@@ -345,11 +414,23 @@ const NewsList = memo(({ news }) => (
 ))
 
 // 公告链接组件
-const AnnouncementLinks = memo(({ stockSymbol }) => {
-  // 同花顺公告链接
-  const ths10jqkaUrl = `https://stockpage.10jqka.com.cn/HK${stockSymbol}/news/#pub`
-  // 港交所披露易链接
-  const hkexUrl = `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&stock=${stockSymbol}`
+const AnnouncementLinks = memo(({ stockSymbol, market = 'hk' }) => {
+  // 根据市场生成不同的链接
+  let ths10jqkaUrl, exchangeUrl, exchangeName
+
+  if (market === 'a') {
+    // A股链接
+    ths10jqkaUrl = `https://stockpage.10jqka.com.cn/${stockSymbol}/news/#pub`
+    // 巨潮资讯网公告
+    exchangeUrl = `http://www.cninfo.com.cn/new/disclosure/stock?stockCode=${stockSymbol}`
+    exchangeName = '巨潮资讯'
+  } else {
+    // 港股链接
+    ths10jqkaUrl = `https://stockpage.10jqka.com.cn/HK${stockSymbol}/news/#pub`
+    // 港交所披露易链接
+    exchangeUrl = `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&stock=${stockSymbol}`
+    exchangeName = '港交所披露易'
+  }
 
   return (
     <Card 
@@ -373,9 +454,9 @@ const AnnouncementLinks = memo(({ stockSymbol }) => {
         <Button 
           type="link" 
           style={{ padding: 0 }}
-          onClick={() => window.open(hkexUrl, '_blank')}
+          onClick={() => window.open(exchangeUrl, '_blank')}
         >
-          港交所披露易
+          {exchangeName}
         </Button>
       </Space>
     </Card>
@@ -394,7 +475,7 @@ const financeTableColumns = [
 ]
 
 // 股票详情组件
-function StockDetail({ stock }) {
+function StockDetail({ stock, market = 'hk' }) {
   const screens = useBreakpoint()
   const isMobile = !screens.md
 
@@ -410,9 +491,9 @@ function StockDetail({ stock }) {
 
   // 加载财务数据
   const loadFinanceData = useCallback(async (symbol, type) => {
-    const finance = await fetchFinanceData(symbol, type)
+    const finance = await fetchFinanceData(symbol, type, market)
     setFinanceData(finance)
-  }, [])
+  }, [market])
 
   // 报告类型变化
   const handleReportTypeChange = useCallback((value) => {
@@ -435,9 +516,9 @@ function StockDetail({ stock }) {
 
     try {
       const [kline, news, finance] = await Promise.all([
-        fetchStockKline(stock.symbol),
+        fetchStockKline(stock.symbol, market),
         fetchStockNews(stock.name),
-        fetchFinanceData(stock.symbol, ''),
+        fetchFinanceData(stock.symbol, '', market),
       ])
       setKlineData(kline)
       setStockNews(news)
@@ -447,7 +528,7 @@ function StockDetail({ stock }) {
     } finally {
       setLoading(false)
     }
-  }, [stock])
+  }, [stock, market])
 
   // stock 变化时加载数据
   useEffect(() => {
@@ -675,7 +756,7 @@ function StockDetail({ stock }) {
           </Card>
         )}
 
-        <AnnouncementLinks stockSymbol={stock.symbol} />
+        <AnnouncementLinks stockSymbol={stock.symbol} market={market} />
 
         <NewsList news={stockNews} />
       </div>
