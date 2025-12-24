@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Card, DatePicker, Button, Table, Tag, Spin, message, InputNumber, Select, Grid } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { Card, DatePicker, Button, Table, Tag, Spin, message, InputNumber, Select, Grid, Space } from 'antd'
+import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 import StockDetailDrawer from './StockDetailDrawer'
 import IndexMobile from './IndexMobile'
 
@@ -63,8 +65,6 @@ const parseUrlParams = (searchParams) => {
   const minCap = searchParams.get('minCap')
   const maxCap = searchParams.get('maxCap')
   const industry = searchParams.get('industry')
-  const page = searchParams.get('page')
-  const pageSize = searchParams.get('pageSize')
 
   return {
     dateRange: startDate && endDate 
@@ -76,8 +76,6 @@ const parseUrlParams = (searchParams) => {
     minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 20,
     maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 1000,
     selectedIndustry: industry || '',
-    page: page ? parseInt(page) : 1,
-    pageSize: pageSize ? parseInt(pageSize) : 20,
   }
 }
 
@@ -116,6 +114,7 @@ function RangeStatsPC() {
 
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
+  const tableCardRef = useRef(null)
   const klineDataRef = useRef({ categoryData: [], values: [], volumes: [] })
   const isUpdatingFromChart = useRef(false)
   const loadedStartDateRef = useRef('20080101')
@@ -131,11 +130,6 @@ function RangeStatsPC() {
   const [loading, setLoading] = useState(false)
   const [tableLoading, setTableLoading] = useState(false)
   const [allStockData, setAllStockData] = useState([])
-  const [pagination, setPagination] = useState({ 
-    current: initialParams.page, 
-    pageSize: initialParams.pageSize, 
-    total: 0 
-  })
   const [industryStats, setIndustryStats] = useState([])
   const [indexChangePct, setIndexChangePct] = useState(null)
 
@@ -182,8 +176,6 @@ function RangeStatsPC() {
     const minCap = params.minMarketCap ?? minMarketCap
     const maxCap = params.maxMarketCap ?? maxMarketCap
     const industry = params.selectedIndustry ?? selectedIndustry
-    const page = params.page ?? pagination.current
-    const pageSize = params.pageSize ?? pagination.pageSize
 
     if (start) newParams.set('start', start.format('YYYY-MM-DD'))
     if (end) newParams.set('end', end.format('YYYY-MM-DD'))
@@ -193,11 +185,9 @@ function RangeStatsPC() {
     if (minCap != null) newParams.set('minCap', minCap.toString())
     if (maxCap != null) newParams.set('maxCap', maxCap.toString())
     if (industry) newParams.set('industry', industry)
-    if (page !== 1) newParams.set('page', page.toString())
-    if (pageSize !== 20) newParams.set('pageSize', pageSize.toString())
 
     setSearchParams(newParams, { replace: true })
-  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry, pagination, setSearchParams])
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry, setSearchParams])
 
   // 更新图表 brush 区间
   const updateChartBrush = useCallback((startDate, endDate) => {
@@ -426,7 +416,6 @@ function RangeStatsPC() {
       
       if (result.data) {
         setAllStockData(result.data)
-        setPagination(prev => ({ ...prev, current: 1, total: result.total || 0 }))
         if (!industry) setIndustryStats(result.industryStats || [])
       }
     } catch (error) {
@@ -537,24 +526,33 @@ function RangeStatsPC() {
 
   const handleSearch = () => {
     setSelectedIndustry('')
-    setPagination(prev => ({ ...prev, current: 1 }))
-    updateUrlParams({ selectedIndustry: '', page: 1 })
+    updateUrlParams({ selectedIndustry: '' })
     fetchStockData('')
   }
 
-  const handleTableChange = (pag) => {
-    setPagination(prev => ({ ...prev, current: pag.current, pageSize: pag.pageSize }))
-    updateUrlParams({ page: pag.current, pageSize: pag.pageSize })
+  const handleTableChange = (pag, filters, sorter) => {
+    // 处理排序
+    if (sorter.field && sorter.order) {
+      const sorted = [...allStockData].sort((a, b) => {
+        const aVal = a[sorter.field] || 0
+        const bVal = b[sorter.field] || 0
+        if (typeof aVal === 'string') {
+          return sorter.order === 'ascend' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+        }
+        return sorter.order === 'ascend' ? aVal - bVal : bVal - aVal
+      })
+      setAllStockData(sorted)
+    }
   }
 
   const handleIndustryClick = (industry) => {
     if (selectedIndustry === industry) {
       setSelectedIndustry('')
-      updateUrlParams({ selectedIndustry: '', page: 1 })
+      updateUrlParams({ selectedIndustry: '' })
       fetchStockData('')
     } else {
       setSelectedIndustry(industry)
-      updateUrlParams({ selectedIndustry: industry, page: 1 })
+      updateUrlParams({ selectedIndustry: industry })
       fetchStockData(industry)
     }
   }
@@ -580,11 +578,125 @@ function RangeStatsPC() {
     }
   }
 
-  // 计算当前页数据 - 使用 useMemo 优化
-  const currentPageData = useMemo(() => 
-    allStockData.slice((pagination.current - 1) * pagination.pageSize, pagination.current * pagination.pageSize),
-    [allStockData, pagination.current, pagination.pageSize]
-  )
+  // 生成查询条件标题
+  const getQueryTitle = useCallback(() => {
+    const parts = [`区间涨幅排行 ${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')}`]
+    parts.push(`涨幅≥${minChangePct}%`)
+    if (marketCapMode === 'range' && (minMarketCap || maxMarketCap)) {
+      parts.push(`市值${minMarketCap || 0}~${maxMarketCap || '不限'}亿`)
+    } else if (marketCapMode === 'greater' && marketCapValue) {
+      parts.push(`市值>${marketCapValue}亿`)
+    } else if (marketCapMode === 'less' && marketCapValue) {
+      parts.push(`市值<${marketCapValue}亿`)
+    }
+    if (selectedIndustry) parts.push(`行业:${selectedIndustry}`)
+    return parts.join(' | ')
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry])
+
+  // 导出 Excel
+  const handleExportExcel = useCallback(() => {
+    if (!allStockData.length) {
+      message.warning('没有数据可导出')
+      return
+    }
+
+    const title = getQueryTitle()
+    const exportData = allStockData.map((item, index) => ({
+      '排名': index + 1,
+      '代码': item.symbol,
+      '名称': item.name,
+      '起始价': item.startPrice?.toFixed(3),
+      '结束价': item.endPrice?.toFixed(3),
+      '涨幅(%)': item.changePct?.toFixed(2),
+      '现价': item.latestPrice?.toFixed(2),
+      '市值(亿)': item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
+      '市盈率': item.peRatio?.toFixed(2) || '-',
+      '市净率': item.pbRatio?.toFixed(2) || '-',
+      '换手率(%)': item.turnoverRate?.toFixed(2) || '-',
+    }))
+
+    const ws = XLSX.utils.json_to_sheet([])
+    // 添加标题行
+    XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' })
+    // 添加空行
+    XLSX.utils.sheet_add_aoa(ws, [[]], { origin: 'A2' })
+    // 添加数据
+    XLSX.utils.sheet_add_json(ws, exportData, { origin: 'A3' })
+    
+    // 合并标题单元格
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }]
+    
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '区间涨幅')
+    
+    const fileName = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.xlsx`
+    XLSX.writeFile(wb, fileName)
+    message.success('导出成功')
+  }, [allStockData, dateRange, getQueryTitle])
+
+  // 复制到剪贴板
+  const handleCopy = useCallback(async () => {
+    if (!allStockData.length) {
+      message.warning('没有数据可复制')
+      return
+    }
+
+    const title = getQueryTitle()
+    const header = ['排名', '代码', '名称', '起始价', '结束价', '涨幅(%)', '现价', '市值(亿)', '市盈率', '市净率', '换手率(%)'].join('\t')
+    const rows = allStockData.map((item, index) => [
+      index + 1,
+      item.symbol,
+      item.name,
+      item.startPrice?.toFixed(3),
+      item.endPrice?.toFixed(3),
+      item.changePct?.toFixed(2),
+      item.latestPrice?.toFixed(2),
+      item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
+      item.peRatio?.toFixed(2) || '-',
+      item.pbRatio?.toFixed(2) || '-',
+      item.turnoverRate?.toFixed(2) || '-',
+    ].join('\t'))
+
+    const text = [title, '', header, ...rows].join('\n')
+    
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success(`已复制 ${allStockData.length} 条数据`)
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
+  }, [allStockData, getQueryTitle])
+
+  // 截图功能
+  const handleScreenshot = useCallback(async () => {
+    if (!tableCardRef.current || !allStockData.length) {
+      message.warning('没有数据可截图')
+      return
+    }
+
+    const hide = message.loading('正在生成截图...', 0)
+    
+    try {
+      const canvas = await html2canvas(tableCardRef.current, {
+        backgroundColor: '#fff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      
+      const link = document.createElement('a')
+      link.download = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      hide()
+      message.success('截图已保存')
+    } catch (error) {
+      hide()
+      console.error('截图失败:', error)
+      message.error('截图失败')
+    }
+  }, [allStockData, dateRange])
 
   // 表格列定义 - 使用 useMemo 优化
   const columns = useMemo(() => [
@@ -594,37 +706,40 @@ function RangeStatsPC() {
       width: isMobile ? 36 : 60,
       fixed: 'left',
       render: (_, __, index) => {
-        const rank = (pagination.current - 1) * pagination.pageSize + index + 1
+        const rank = index + 1
         const color = rank <= 3 ? 'red' : rank <= 10 ? 'orange' : 'default'
         return <Tag color={color} style={{ margin: 0, fontSize: isMobile ? 10 : 12 }}>{rank}</Tag>
       },
     },
-    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'] },
+    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'], sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
     {
       title: '名称',
       dataIndex: 'name',
       width: isMobile ? 60 : 100,
       fixed: 'left',
       ellipsis: true,
+      sorter: (a, b) => a.name.localeCompare(b.name),
       render: (text, record) => (
         <a onClick={() => openStockDetail(record)} style={{ color: '#1677ff', fontSize: isMobile ? 12 : 14 }}>{text}</a>
       ),
     },
-    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], render: (v) => v?.toFixed(3) },
-    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], render: (v) => v?.toFixed(3) },
+    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.startPrice || 0) - (b.startPrice || 0), render: (v) => v?.toFixed(3) },
+    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.endPrice || 0) - (b.endPrice || 0), render: (v) => v?.toFixed(3) },
     {
       title: '涨幅',
       dataIndex: 'changePct',
       width: isMobile ? 60 : 90,
       align: 'right',
+      sorter: (a, b) => (a.changePct || 0) - (b.changePct || 0),
+      defaultSortOrder: 'descend',
       render: (v) => <span style={{ color: v >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: isMobile ? 12 : 14 }}>{v >= 0 ? '+' : ''}{v?.toFixed(1)}%</span>,
     },
-    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
-    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
-    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], render: (v) => v ? v.toFixed(2) + '%' : '-' },
-  ], [isMobile, pagination.current, pagination.pageSize, openStockDetail])
+    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', sorter: (a, b) => (a.latestPrice || 0) - (b.latestPrice || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
+    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', sorter: (a, b) => (a.totalMarketCap || 0) - (b.totalMarketCap || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
+    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.peRatio || 0) - (b.peRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
+    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.pbRatio || 0) - (b.pbRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
+    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.turnoverRate || 0) - (b.turnoverRate || 0), render: (v) => v ? v.toFixed(2) + '%' : '-' },
+  ], [isMobile, openStockDetail])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: isMobile ? 4 : 16, padding: isMobile ? 4 : 0 }}>
@@ -735,12 +850,22 @@ function RangeStatsPC() {
 
       {/* 股票表格区域 */}
       <Card
+        ref={tableCardRef}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: isMobile ? 12 : 14 }}>
-              {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : `区间涨幅排行 (${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')})`}
-            </span>
-            {pagination.total > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{pagination.total}只</Tag>}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: isMobile ? 12 : 14 }}>
+                {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : getQueryTitle()}
+              </span>
+              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{allStockData.length}只</Tag>}
+            </div>
+            {!isMobile && allStockData.length > 0 && (
+              <Space size="small">
+                <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>复制</Button>
+                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportExcel}>导出Excel</Button>
+                <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshot}>截图</Button>
+              </Space>
+            )}
           </div>
         }
         size="small"
@@ -749,13 +874,14 @@ function RangeStatsPC() {
       >
         <Table
           columns={columns}
-          dataSource={currentPageData}
+          dataSource={allStockData}
           rowKey="symbol"
           loading={tableLoading}
-          pagination={{ ...pagination, showSizeChanger: !isMobile, showQuickJumper: !isMobile, showTotal: isMobile ? undefined : (total) => `共 ${total} 条`, size: 'small', simple: isMobile }}
+          pagination={false}
           onChange={handleTableChange}
           size="small"
-          scroll={{ x: isMobile ? 280 : 800 }}
+          scroll={{ x: isMobile ? 280 : 800, y: 'calc(100vh - 280px)' }}
+          sticky
         />
       </Card>
 

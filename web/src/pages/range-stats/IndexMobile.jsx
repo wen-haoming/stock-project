@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Card, Tag, Selector, SpinLoading, Empty, InfiniteScroll, Button } from 'antd-mobile'
+import { Card, Tag, Selector, SpinLoading, Empty, InfiniteScroll, Button, ActionSheet, Toast } from 'antd-mobile'
+import { MoreOutline } from 'antd-mobile-icons'
 import Canvas from '@antv/f2-react'
 import { Chart, Line, Axis, Tooltip, Area } from '@antv/f2'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 
 // 颜色配置
 const upColor = '#ec5a5a'
@@ -176,9 +179,11 @@ export default function IndexMobile() {
   const [industryStats, setIndustryStats] = useState([])
   const [klineData, setKlineData] = useState([])
   const [hasMore, setHasMore] = useState(false)
+  const [actionSheetVisible, setActionSheetVisible] = useState(false)
   
   const pageRef = useRef(1)
   const totalRef = useRef(0)
+  const listCardRef = useRef(null)
 
   // 获取 K 线数据
   const fetchKlineData = useCallback(async () => {
@@ -278,6 +283,122 @@ export default function IndexMobile() {
     pageRef.current += 1
     await fetchStockData(false, selectedIndustry)
   }
+
+  // 生成查询条件标题
+  const getQueryTitle = useCallback(() => {
+    const parts = [`区间涨幅 ${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')}`]
+    parts.push(`涨幅≥${minChangePct}%`)
+    const capRange = getMarketCapRange()
+    if (capRange.min > 0 || capRange.max > 0) {
+      if (capRange.max === 0) parts.push(`市值>${capRange.min}亿`)
+      else if (capRange.min === 0) parts.push(`市值<${capRange.max}亿`)
+      else parts.push(`市值${capRange.min}~${capRange.max}亿`)
+    }
+    if (selectedIndustry) parts.push(`行业:${selectedIndustry}`)
+    return parts.join(' | ')
+  }, [dateRange, minChangePct, getMarketCapRange, selectedIndustry])
+
+  // 导出 Excel
+  const handleExportExcel = useCallback(() => {
+    if (!stockData.length) {
+      Toast.show({ content: '没有数据可导出', position: 'bottom' })
+      return
+    }
+
+    const title = getQueryTitle()
+    const exportData = stockData.map((item, index) => ({
+      '排名': index + 1,
+      '代码': item.symbol,
+      '名称': item.name,
+      '起始价': item.startPrice?.toFixed(3),
+      '结束价': item.endPrice?.toFixed(3),
+      '涨幅(%)': item.changePct?.toFixed(2),
+      '现价': item.latestPrice?.toFixed(2),
+      '市值(亿)': item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
+      '市盈率': item.peRatio?.toFixed(2) || '-',
+      '市净率': item.pbRatio?.toFixed(2) || '-',
+      '换手率(%)': item.turnoverRate?.toFixed(2) || '-',
+    }))
+
+    const ws = XLSX.utils.json_to_sheet([])
+    XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' })
+    XLSX.utils.sheet_add_aoa(ws, [[]], { origin: 'A2' })
+    XLSX.utils.sheet_add_json(ws, exportData, { origin: 'A3' })
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }]
+    
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '区间涨幅')
+    
+    const fileName = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.xlsx`
+    XLSX.writeFile(wb, fileName)
+    Toast.show({ content: '导出成功', position: 'bottom' })
+  }, [stockData, dateRange, getQueryTitle])
+
+  // 复制到剪贴板
+  const handleCopy = useCallback(async () => {
+    if (!stockData.length) {
+      Toast.show({ content: '没有数据可复制', position: 'bottom' })
+      return
+    }
+
+    const title = getQueryTitle()
+    const header = ['排名', '代码', '名称', '涨幅(%)', '现价', '市值(亿)'].join('\t')
+    const rows = stockData.map((item, index) => [
+      index + 1,
+      item.symbol,
+      item.name,
+      item.changePct?.toFixed(2),
+      item.latestPrice?.toFixed(2),
+      item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(0) : '-',
+    ].join('\t'))
+
+    const text = [title, '', header, ...rows].join('\n')
+    
+    try {
+      await navigator.clipboard.writeText(text)
+      Toast.show({ content: `已复制 ${stockData.length} 条数据`, position: 'bottom' })
+    } catch {
+      Toast.show({ content: '复制失败', position: 'bottom' })
+    }
+  }, [stockData, getQueryTitle])
+
+  // 截图功能
+  const handleScreenshot = useCallback(async () => {
+    if (!listCardRef.current || !stockData.length) {
+      Toast.show({ content: '没有数据可截图', position: 'bottom' })
+      return
+    }
+
+    Toast.show({ content: '正在生成截图...', position: 'bottom', duration: 0 })
+    
+    try {
+      const canvas = await html2canvas(listCardRef.current, {
+        backgroundColor: '#fff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      
+      const link = document.createElement('a')
+      link.download = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      Toast.clear()
+      Toast.show({ content: '截图已保存', position: 'bottom' })
+    } catch (error) {
+      Toast.clear()
+      console.error('截图失败:', error)
+      Toast.show({ content: '截图失败', position: 'bottom' })
+    }
+  }, [stockData, dateRange])
+
+  // 操作菜单
+  const actionSheetActions = [
+    { text: '复制数据', key: 'copy', onClick: handleCopy },
+    { text: '导出Excel', key: 'excel', onClick: handleExportExcel },
+    { text: '截图保存', key: 'screenshot', onClick: handleScreenshot },
+  ]
 
   // 初始化
   useEffect(() => {
@@ -385,14 +506,27 @@ export default function IndexMobile() {
       )}
 
       {/* 股票列表 - 平铺展示 */}
-      <Card style={{ margin: '0 8px 8px', borderRadius: 8 }} bodyStyle={{ padding: 0 }}>
+      <Card ref={listCardRef} style={{ margin: '0 8px 8px', borderRadius: 8 }} bodyStyle={{ padding: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
-          <span style={{ fontSize: 13, fontWeight: 'bold' }}>
-            涨幅榜 {dateRange[0]?.format('MM-DD')}~{dateRange[1]?.format('MM-DD')}
-          </span>
-          <Tag color="primary" fill="outline" style={{ fontSize: 11 }}>
-            共{totalRef.current}只
-          </Tag>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 'bold' }}>
+              涨幅榜 {dateRange[0]?.format('MM-DD')}~{dateRange[1]?.format('MM-DD')}
+            </div>
+            <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>
+              涨幅≥{minChangePct}% {selectedIndustry && `· ${selectedIndustry}`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Tag color="primary" fill="outline" style={{ fontSize: 11 }}>
+              共{totalRef.current}只
+            </Tag>
+            {stockData.length > 0 && (
+              <MoreOutline 
+                style={{ fontSize: 20, color: '#666' }} 
+                onClick={() => setActionSheetVisible(true)} 
+              />
+            )}
+          </div>
         </div>
         
         {loading && stockData.length === 0 ? (
@@ -418,6 +552,14 @@ export default function IndexMobile() {
           {hasMore ? <SpinLoading /> : null}
         </InfiniteScroll>
       </Card>
+
+      {/* 操作菜单 */}
+      <ActionSheet
+        visible={actionSheetVisible}
+        actions={actionSheetActions}
+        onClose={() => setActionSheetVisible(false)}
+        cancelText="取消"
+      />
     </div>
   )
 }
