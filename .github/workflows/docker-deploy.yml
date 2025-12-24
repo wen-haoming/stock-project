@@ -1,0 +1,60 @@
+name: Docker Build and Deploy
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy project files to server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          ARGS: '-avzr --delete'
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/stock-project"
+          EXCLUDE: "/.git, /node_modules, /server/tmp, /server/main, /server/server, /server/server-go, /web/dist, /.github"
+          SCRIPT_BEFORE: |
+            echo "Creating project directory structure..."
+            mkdir -p /stock-project/db || true
+
+      - name: Build and start containers on server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          ARGS: '-avzr'
+          SOURCE: "./docker-compose.yml"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/stock-project"
+          SCRIPT_AFTER: |
+            echo "Building and starting containers..."
+            cd /stock-project || exit 1
+            
+            echo "Stopping old containers if exist..."
+            docker compose down || true
+            
+            echo "Building images..."
+            docker compose build --no-cache
+            
+            echo "Starting containers..."
+            docker compose up -d
+            
+            echo "Waiting for services to be ready..."
+            sleep 5
+            
+            echo "Checking service status..."
+            docker compose ps
+            
+            echo "Cleaning up unused images..."
+            docker image prune -f
+            
+            echo "Deployment completed successfully!"
+
