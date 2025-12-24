@@ -8,8 +8,9 @@ services:
     image: mongo:7.0
     container_name: stock-mongodb
     restart: unless-stopped
-    ports:
-      - "27017:27017"
+    # 不映射端口到主机，只在 Docker 网络内访问
+    # ports:
+    #   - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-admin123}
@@ -29,8 +30,9 @@ services:
     image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${NAMESPACE:-stock-project}/stock-server:latest
     container_name: stock-server
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # 不映射端口到主机，只在 Docker 网络内访问（通过 web 容器的 nginx 代理）
+    # ports:
+    #   - "8080:8080"
     environment:
       MONGODB_URI: mongodb://${MONGO_USER:-stockuser}:${MONGO_PASSWORD:-stockpass}@mongodb:27017/stock_db?authSource=stock_db
       MONGODB_DATABASE: stock_db
@@ -45,6 +47,8 @@ services:
     image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${NAMESPACE:-stock-project}/stock-web:latest
     container_name: stock-web
     restart: unless-stopped
+    # 映射端口到主机，供外部 nginx 反向代理访问
+    # 外部 nginx 通过 localhost:3000 访问 web 容器
     ports:
       - "3000:80"
     depends_on:

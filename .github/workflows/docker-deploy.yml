@@ -100,7 +100,29 @@ jobs:
             cd /stock-project || exit 1
             
             echo "Stopping old containers if exist..."
-            docker compose down || true
+            docker compose -f docker-compose.prod.yml down || true
+            
+            echo "Checking for processes using ports 8080 and 3000..."
+            # 查找并停止占用 8080 端口的进程（排除 docker-proxy）
+            if command -v lsof >/dev/null 2>&1; then
+              lsof -ti:8080 2>/dev/null | while read pid; do
+                if ! ps -p $pid -o comm= | grep -q docker-proxy; then
+                  echo "Killing process $pid using port 8080"
+                  kill -9 $pid 2>/dev/null || true
+                fi
+              done || true
+              lsof -ti:3000 2>/dev/null | while read pid; do
+                if ! ps -p $pid -o comm= | grep -q docker-proxy; then
+                  echo "Killing process $pid using port 3000"
+                  kill -9 $pid 2>/dev/null || true
+                fi
+              done || true
+            else
+              # 使用 ss 和 kill 命令（适用于没有 lsof 的系统）
+              ss -tlnp 2>/dev/null | grep ':8080' | awk '{print $7}' | cut -d',' -f2 | grep -v docker-proxy | xargs -r kill -9 2>/dev/null || true
+              ss -tlnp 2>/dev/null | grep ':3000' | awk '{print $7}' | cut -d',' -f2 | grep -v docker-proxy | xargs -r kill -9 2>/dev/null || true
+            fi
+            sleep 2
             
             echo "Loading server image..."
             docker load -i /tmp/stock-server.tar || true
@@ -112,30 +134,33 @@ jobs:
             rm -f /tmp/stock-server.tar /tmp/stock-web.tar || true
             
             echo "Starting containers..."
-            docker compose up -d
+            docker compose -f docker-compose.prod.yml up -d
             
             echo "Waiting for services to be ready..."
             sleep 10
             
             echo "Checking service status..."
-            docker compose ps
+            docker compose -f docker-compose.prod.yml ps
             
             echo "Checking container logs..."
             echo "=== MongoDB logs ==="
-            docker compose logs --tail=20 mongodb || true
+            docker compose -f docker-compose.prod.yml logs --tail=20 mongodb || true
             echo "=== Server logs ==="
-            docker compose logs --tail=30 server || true
+            docker compose -f docker-compose.prod.yml logs --tail=30 server || true
             echo "=== Web logs ==="
-            docker compose logs --tail=20 web || true
+            docker compose -f docker-compose.prod.yml logs --tail=20 web || true
             
             echo "Testing server connectivity..."
-            docker exec stock-server wget -qO- http://localhost:8080/ping || echo "Server ping failed"
+            docker exec stock-server wget -qO- http://localhost:8080/ping 2>/dev/null || echo "Server ping failed"
             
             echo "Testing network connectivity..."
-            docker exec stock-web wget -qO- http://server:8080/ping || echo "Network test failed"
+            docker exec stock-web wget -qO- http://server:8080/ping 2>/dev/null || echo "Network test failed"
+            
+            echo "Testing web container from host..."
+            curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:3000/ || echo "Web container not accessible on port 3000"
             
             echo "Checking exposed ports..."
-            netstat -tlnp | grep -E ':(3000|8080|27017)' || ss -tlnp | grep -E ':(3000|8080|27017)' || true
+            netstat -tlnp 2>/dev/null | grep -E ':(3000|8080|27017)' || ss -tlnp 2>/dev/null | grep -E ':(3000|8080|27017)' || true
             
             echo "Cleaning up unused images..."
             docker image prune -f
