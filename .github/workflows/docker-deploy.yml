@@ -23,7 +23,7 @@ jobs:
           file: ./server/Dockerfile
           push: false
           tags: stock-server:latest
-          outputs: type=docker,dest=/tmp/stock-server.tar
+          load: true
 
       - name: Build web image
         uses: docker/build-push-action@v5
@@ -32,14 +32,24 @@ jobs:
           file: ./web/Dockerfile
           push: false
           tags: stock-web:latest
-          outputs: type=docker,dest=/tmp/stock-web.tar
+          load: true
+
+      - name: Save server image
+        run: |
+          docker save stock-server:latest -o stock-server.tar
+          ls -lh stock-server.tar
+
+      - name: Save web image
+        run: |
+          docker save stock-web:latest -o stock-web.tar
+          ls -lh stock-web.tar
 
       - name: Upload server image to server
         uses: easingthemes/ssh-deploy@main
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avz'
-          SOURCE: "/tmp/stock-server.tar"
+          SOURCE: "./stock-server.tar"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/tmp/"
@@ -49,7 +59,7 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: '-avz'
-          SOURCE: "/tmp/stock-web.tar"
+          SOURCE: "./stock-web.tar"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/tmp/"
