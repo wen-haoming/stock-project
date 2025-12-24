@@ -2,6 +2,12 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# 配置 Alpine 使用国内镜像源（阿里云）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 配置 npm 使用国内镜像源（淘宝镜像）
+RUN npm config set registry https://registry.npmmirror.com
+
 # 安装 pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
@@ -19,6 +25,9 @@ RUN pnpm build
 
 # 运行阶段
 FROM nginx:alpine
+
+# 配置 Alpine 使用国内镜像源（阿里云）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 复制构建产物
 COPY --from=builder /app/dist /usr/share/nginx/html
