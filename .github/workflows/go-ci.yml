@@ -24,7 +24,27 @@ jobs:
         working-directory: ./server
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./server-go
 
-      # MongoDB start and initialization will run on the remote server
+      - name: Deploy whole project with docker-compose
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          ARGS: '-avzr --delete'
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: "/stock-project"
+          SCRIPT_BEFORE: |
+            echo "Stopping and removing existing containers..."
+            cd /stock-project || mkdir -p /stock-project
+            sudo docker compose down || true
+          SCRIPT_AFTER: |
+            echo "Starting services with docker compose..."
+            cd /stock-project
+            sudo docker compose up -d
+            sleep 5
+            echo "Checking service status..."
+            sudo docker compose ps
+            echo "All services deployed successfully"
 
       - name: Deploy to aliyun server
         uses: easingthemes/ssh-deploy@main
@@ -36,36 +56,6 @@ jobs:
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           TARGET: "/server-go"
           SCRIPT_AFTER: |
-            # Redeploy Docker container on remote (assume Docker is managed externally)
-            echo "Redeploying Docker container on remote host"
-
-            # --- Start / Redeploy MongoDB on remote ---
-            sudo docker pull mongo:7.0 || true
-            EXISTING=$(sudo docker ps -a --filter "name=stock-mongodb" -q || true)
-            if [ -n "$EXISTING" ]; then
-              echo "Found existing stock-mongodb container, recreating..."
-              sudo docker stop stock-mongodb || true
-              sudo docker rm stock-mongodb || true
-            else
-              echo "No existing stock-mongodb container, will create new one"
-            fi
-            sudo docker run -d --name stock-mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=admin123 -e MONGO_INITDB_DATABASE=stock_db -p 27017:27017 mongo:7.0
-
-            echo "Waiting for MongoDB to accept connections..."
-            for i in $(seq 1 30); do
-              sudo docker exec stock-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1 && { echo "MongoDB is ready"; break; }
-              echo "Attempt $i: not ready..."
-              sleep 2
-            done
-
-            # Initialize DB: create app user, collections and indexes
-            sudo docker exec stock-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --eval "db = db.getSiblingDB('stock_db'); db.createUser({user:'stockuser',pwd:'stockpass',roles:[{role:'readWrite',db:'stock_db'}]}); db.createCollection('stocks'); db.createCollection('stock_history'); db.stocks.createIndex({symbol:1},{unique:true}); db.stocks.createIndex({updatedAt:-1}); db.stocks.createIndex({market:1}); db.stocks.createIndex({changePct:-1}); db.stock_history.createIndex({symbol:1,date:1},{unique:true}); db.stock_history.createIndex({date:-1}); print('MongoDB remote initialization completed')"
-
-            # --- Start server binary ---
-            cd /
-            chmod +x ./server-go
-            pkill -f server-go || true
-            sleep 1
-            nohup ./server-go > /var/log/server-go.log 2>&1 &
-            sleep 2
-            pgrep -f server-go && echo "Server started successfully" || echo "Server failed to start"
+            echo "Backup server binary (legacy deployment step)"
+            cd /stock-project
+            cp ./server/server-go /server-go-backup || true
