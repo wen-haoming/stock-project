@@ -33,6 +33,9 @@ type StockData struct {
 	CreatedAt time.Time `bson:"createdAt" json:"createdAt"`
 }
 
+// Stock 是 StockData 的别名，用于批量查询
+type Stock = StockData
+
 // KDJIndicator KDJ指标
 type KDJIndicator struct {
 	K float64 `bson:"k" json:"k"`

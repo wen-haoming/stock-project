@@ -10,11 +10,11 @@ import dayjs from 'dayjs'
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
 
-// 报告类型选项（港股通常只披露中报和年报）
+// 报告类型选项
 const reportTypeOptions = [
   { label: '全部', value: '' },
-  { label: '年报', value: '4' },
   { label: '中报', value: '2' },
+  { label: '年报', value: '4' },
 ]
 
 // 财务指标配置

@@ -173,6 +173,92 @@ func fetchHKStockData(page, pageSize int, code, name string) ([]HKStockData, int
 	return result, response.Data.Total, nil
 }
 
+// fetchAStockData 从东方财富获取A股数据 (免费API)
+// market: sh=沪市, sz=深市, 空=全部
+func fetchAStockData(page, pageSize int, code, name, market string) ([]HKStockData, int, error) {
+	url := "https://push2.eastmoney.com/api/qt/clist/get"
+
+	req, _ := http.NewRequest("GET", url, nil)
+	q := req.URL.Query()
+	q.Add("pn", fmt.Sprintf("%d", page))
+	q.Add("pz", fmt.Sprintf("%d", pageSize))
+	q.Add("po", "1")
+	q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
+	q.Add("fltt", "2")
+	q.Add("invt", "2")
+	q.Add("fid", "f3") // 按涨跌幅排序
+
+	// A股市场选择: m:0=深市, m:1=沪市
+	switch market {
+	case "sh":
+		q.Add("fs", "m:1+t:2,m:1+t:23") // 沪市主板+科创板
+	case "sz":
+		q.Add("fs", "m:0+t:6,m:0+t:80") // 深市主板+创业板
+	default:
+		q.Add("fs", "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23") // 全部A股
+	}
+
+	q.Add("fields", "f2,f3,f4,f5,f6,f7,f8,f9,f12,f14,f15,f16,f17,f18,f20,f21,f23,f100")
+	req.URL.RawQuery = q.Encode()
+
+	client := &http.Client{Timeout: time.Second * 15}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var response EastMoneyHKResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, 0, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if response.Data.Diff == nil {
+		return nil, 0, nil
+	}
+
+	// 转换数据
+	var result []HKStockData
+	for _, raw := range response.Data.Diff {
+		// 过滤条件
+		if code != "" && !strings.Contains(raw.Symbol, code) {
+			continue
+		}
+		if name != "" && !strings.Contains(raw.Name, name) {
+			continue
+		}
+
+		stock := HKStockData{
+			Symbol:         raw.Symbol,
+			Name:           raw.Name,
+			LatestPrice:    toFloatHK(raw.LatestPrice),
+			Open:           toFloatHK(raw.Open),
+			Close:          toFloatHK(raw.Close),
+			High:           toFloatHK(raw.High),
+			Low:            toFloatHK(raw.Low),
+			ChangePct:      toFloatHK(raw.ChangePct),
+			ChangeAmt:      toFloatHK(raw.ChangeAmt),
+			Volume:         toIntHK(raw.Volume),
+			Turnover:       toFloatHK(raw.Turnover),
+			TurnoverRate:   toFloatHK(raw.TurnoverRate),
+			Amplitude:      toFloatHK(raw.Amplitude),
+			TotalMarketCap: toFloatHK(raw.TotalMarketCap),
+			CircMarketCap:  toFloatHK(raw.CircMarketCap),
+			PERatio:        toFloatHK(raw.PERatio),
+			PBRatio:        toFloatHK(raw.PBRatio),
+			Industry:       raw.Industry,
+		}
+		result = append(result, stock)
+	}
+
+	return result, response.Data.Total, nil
+}
+
 // GetAllData 获取港股数据 (使用东方财富免费API)
 func GetAllData(c *gin.Context) {
 	page := c.DefaultQuery("page", "1")

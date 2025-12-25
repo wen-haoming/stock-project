@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
-import { Card, Table, Spin, Empty, Radio, Statistic, Row, Col, Grid, Select, Space } from 'antd'
+import { Card, Table, Spin, Empty, Radio, Statistic, Row, Col, Grid, Select, Space, Button, message, Tooltip } from 'antd'
+import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, FileTextOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
+import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 import axios from 'axios'
 import dayjs from 'dayjs'
 
@@ -10,32 +13,42 @@ const { useBreakpoint } = Grid
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
 
-// 报告类型选项（港股通常只披露中报和年报）
+// 报告类型选项
 const reportTypeOptions = [
   { label: '全部', value: '' },
-  { label: '年报', value: '4' },
   { label: '中报', value: '2' },
+  { label: '年报', value: '4' },
 ]
 
-// 财务指标配置
+// 财务指标配置（含解释、公式、例子）
 const financeMetrics = [
-  { key: 'netProfit', label: '归母净利润', unit: '亿', yoyKey: 'netProfitYoy' },
-  { key: 'revenue', label: '营业收入', unit: '亿', yoyKey: 'revenueYoy' },
-  { key: 'grossProfit', label: '毛利润', unit: '亿', yoyKey: 'grossProfitYoy' },
-  { key: 'eps', label: '每股收益', unit: '元', yoyKey: null },
-  { key: 'navps', label: '每股净资产', unit: '元', yoyKey: null },
-  { key: 'npm', label: '净利率', unit: '%', yoyKey: null },
-  { key: 'gpm', label: '毛利率', unit: '%', yoyKey: null },
-  { key: 'roe', label: 'ROE', unit: '%', yoyKey: null },
-  { key: 'dar', label: '资产负债率', unit: '%', yoyKey: null },
+  { key: 'netProfit', label: '归母净利润', unit: '亿', yoyKey: 'netProfitYoy', tip: '解释：扣除所有成本费用后，真正属于股东的利润\n公式：营业收入 - 成本 - 费用 - 税金\n例子：收入100亿，各项支出80亿，归母净利润=20亿' },
+  { key: 'revenue', label: '营业收入', unit: '亿', yoyKey: 'revenueYoy', tip: '解释：公司主营业务获得的全部收入，反映经营规模\n公式：销售数量 × 单价\n例子：卖出1000万部手机，每部3000元，营业收入=300亿' },
+  { key: 'grossProfit', label: '毛利润', unit: '亿', yoyKey: 'grossProfitYoy', tip: '解释：扣除直接生产成本后的利润，体现产品盈利能力\n公式：营业收入 - 营业成本\n例子：收入100亿，生产成本60亿，毛利润=40亿' },
+  { key: 'eps', label: '每股收益', unit: '元', yoyKey: null, tip: '解释：每一股能赚多少钱，衡量股票价值的核心指标\n公式：净利润 ÷ 总股本\n例子：净利润10亿，股本5亿股，EPS=2元/股' },
+  { key: 'navps', label: '每股净资产', unit: '元', yoyKey: null, tip: '解释：每一股对应的账面价值，可判断股价是否被低估\n公式：净资产 ÷ 总股本\n例子：净资产50亿，股本5亿股，每股净资产=10元' },
+  { key: 'npm', label: '净利率', unit: '%', yoyKey: null, tip: '解释：每100元收入能赚多少净利润，反映综合盈利能力\n公式：净利润 ÷ 营业收入 × 100%\n例子：收入100亿，净利润20亿，净利率=20%' },
+  { key: 'gpm', label: '毛利率', unit: '%', yoyKey: null, tip: '解释：每100元收入扣除成本后剩多少，反映产品定价权\n公式：毛利润 ÷ 营业收入 × 100%\n例子：收入100亿，毛利润40亿，毛利率=40%' },
+  { key: 'roe', label: 'ROE', unit: '%', yoyKey: null, tip: '解释：股东投入的钱能产生多少回报，巴菲特最看重的指标\n公式：净利润 ÷ 净资产 × 100%\n例子：净资产100亿，净利润15亿，ROE=15%' },
+  { key: 'dar', label: '资产负债率', unit: '%', yoyKey: null, tip: '解释：公司负债占总资产的比例，衡量财务风险\n公式：总负债 ÷ 总资产 × 100%\n例子：总资产100亿，负债50亿，资产负债率=50%' },
 ]
 
 // 获取个股 K 线数据
-const fetchStockKline = async (symbol) => {
+const fetchStockKline = async (symbol, market = 'hk') => {
   try {
     const start = dayjs().subtract(1, 'year').format('YYYYMMDD')
     const end = dayjs().format('YYYYMMDD')
-    const secid = `116.${symbol}`
+    
+    // 根据市场类型构建 secid
+    let secid
+    if (market === 'a') {
+      // A股: 沪市(6开头)=1.代码, 深市(0/3开头)=0.代码
+      secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
+    } else {
+      // 港股: 116.代码
+      secid = `116.${symbol}`
+    }
+    
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
 
     const response = await axios.get(url)
@@ -80,23 +93,43 @@ const fetchStockNews = async (name) => {
   }
 }
 
-// 获取港股财务数据 (东方财富真实API)
-const fetchFinanceData = async (symbol, reportType = '') => {
+// 获取财务数据 (东方财富真实API)
+const fetchFinanceData = async (symbol, reportType = '', market = 'hk') => {
   try {
-    const params = new URLSearchParams({
-      sortColumns: 'REPORT_DATE',
-      sortTypes: '-1',
-      pageSize: '50',
-      pageNumber: '1',
-      reportName: 'RPT_HKF10_FN_MAININDICATOR',
-      columns: 'ALL',
-      quoteColumns: '',
-      source: 'SECURITIES',
-      client: 'PC',
-      filter: `(SECUCODE="${symbol}.HK")`,
-    })
+    let url
     
-    const url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
+    if (market === 'a') {
+      // A股财务数据API
+      const params = new URLSearchParams({
+        sortColumns: 'REPORTDATE',
+        sortTypes: '-1',
+        pageSize: '50',
+        pageNumber: '1',
+        reportName: 'RPT_LICO_FN_CPD',
+        columns: 'ALL',
+        quoteColumns: '',
+        source: 'WEB',
+        client: 'DATACENTER_WEB',
+        filter: `(SECURITY_CODE="${symbol}")`,
+      })
+      url = `https://datacenter-web.eastmoney.com/api/data/v1/get?${params.toString()}`
+    } else {
+      // 港股财务数据API
+      const params = new URLSearchParams({
+        sortColumns: 'REPORT_DATE',
+        sortTypes: '-1',
+        pageSize: '50',
+        pageNumber: '1',
+        reportName: 'RPT_HKF10_FN_MAININDICATOR',
+        columns: 'ALL',
+        quoteColumns: '',
+        source: 'SECURITIES',
+        client: 'PC',
+        filter: `(SECUCODE="${symbol}.HK")`,
+      })
+      url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
+    }
+    
     const response = await axios.get(url)
     
     let result = response.data?.result?.data || []
@@ -106,18 +139,57 @@ const fetchFinanceData = async (symbol, reportType = '') => {
       return []
     }
     
-    // 根据报告类型在前端过滤
+    // 根据报告类型在前端过滤 - A股用REPORTDATE，港股用REPORT_DATE
+    const dateField = market === 'a' ? 'REPORTDATE' : 'REPORT_DATE'
     if (reportType) {
       const monthMap = { '1': 3, '2': 6, '3': 9, '4': 12 }
       const targetMonth = monthMap[reportType]
       if (targetMonth) {
         result = result.filter(item => {
-          const month = dayjs(item.REPORT_DATE).month() + 1
+          const month = dayjs(item[dateField]).month() + 1
           return month === targetMonth
         })
       }
     }
     
+    // A股和港股字段映射不同
+    if (market === 'a') {
+      return result.map(item => {
+        const reportDate = item.REPORTDATE || ''
+        const date = dayjs(reportDate)
+        const month = date.month() + 1
+        const year = date.year()
+        
+        let periodLabel = ''
+        if (month === 3) periodLabel = `${year}一季报`
+        else if (month === 6) periodLabel = `${year}中报`
+        else if (month === 9) periodLabel = `${year}三季报`
+        else if (month === 12) periodLabel = `${year}年报`
+        else periodLabel = date.format('YYYY-MM')
+        
+        const netProfit = item.PARENT_NETPROFIT ? item.PARENT_NETPROFIT / 100000000 : null
+        const revenue = item.TOTAL_OPERATE_INCOME ? item.TOTAL_OPERATE_INCOME / 100000000 : null
+        
+        return {
+          period: periodLabel,
+          reportDate: reportDate,
+          netProfit: netProfit,
+          netProfitYoy: item.SJLTZ ?? null,  // 净利润同比
+          revenue: revenue,
+          revenueYoy: item.YSTZ ? item.YSTZ * 100 : null,  // 营收同比(原始是小数)
+          grossProfit: null,
+          grossProfitYoy: null,
+          eps: item.BASIC_EPS ?? null,
+          navps: item.BPS ?? null,
+          npm: null,
+          gpm: item.XSMLL ?? null,  // 毛利率
+          roe: item.WEIGHTAVG_ROE ?? null,
+          dar: null,
+        }
+      }).reverse()
+    }
+    
+    // 港股字段映射
     return result.map(item => {
       const reportDate = item.REPORT_DATE || ''
       const date = dayjs(reportDate)
@@ -157,6 +229,8 @@ const fetchFinanceData = async (symbol, reportType = '') => {
     return []
   }
 }
+
+
 
 // K线图表组件
 const KlineChart = memo(({ data, stockName, isMobile }) => {
@@ -339,6 +413,56 @@ const NewsList = memo(({ news }) => (
   </Card>
 ))
 
+// 公告链接组件
+const AnnouncementLinks = memo(({ stockSymbol, market = 'hk' }) => {
+  // 根据市场生成不同的链接
+  let ths10jqkaUrl, exchangeUrl, exchangeName
+
+  if (market === 'a') {
+    // A股链接
+    ths10jqkaUrl = `https://stockpage.10jqka.com.cn/${stockSymbol}/news/#pub`
+    // 巨潮资讯网公告
+    exchangeUrl = `http://www.cninfo.com.cn/new/disclosure/stock?stockCode=${stockSymbol}`
+    exchangeName = '巨潮资讯'
+  } else {
+    // 港股链接
+    ths10jqkaUrl = `https://stockpage.10jqka.com.cn/HK${stockSymbol}/news/#pub`
+    // 港交所披露易链接
+    exchangeUrl = `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&stock=${stockSymbol}`
+    exchangeName = '港交所披露易'
+  }
+
+  return (
+    <Card 
+      title={
+        <Space>
+          <FileTextOutlined />
+          <span>公司公告</span>
+        </Space>
+      } 
+      size="small" 
+      style={{ marginBottom: 16 }}
+    >
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <Button 
+          type="link" 
+          style={{ padding: 0 }}
+          onClick={() => window.open(ths10jqkaUrl, '_blank')}
+        >
+          同花顺公告
+        </Button>
+        <Button 
+          type="link" 
+          style={{ padding: 0 }}
+          onClick={() => window.open(exchangeUrl, '_blank')}
+        >
+          {exchangeName}
+        </Button>
+      </Space>
+    </Card>
+  )
+})
+
 // 财务表格列定义
 const financeTableColumns = [
   { title: '报告期', dataIndex: 'period', width: 90, fixed: 'left' },
@@ -351,7 +475,7 @@ const financeTableColumns = [
 ]
 
 // 股票详情组件
-function StockDetail({ stock }) {
+function StockDetail({ stock, market = 'hk' }) {
   const screens = useBreakpoint()
   const isMobile = !screens.md
 
@@ -362,11 +486,14 @@ function StockDetail({ stock }) {
   const [stockNews, setStockNews] = useState([])
   const [reportType, setReportType] = useState('')
 
+  const financeChartCardRef = useRef(null)
+  const financeTableCardRef = useRef(null)
+
   // 加载财务数据
   const loadFinanceData = useCallback(async (symbol, type) => {
-    const finance = await fetchFinanceData(symbol, type)
+    const finance = await fetchFinanceData(symbol, type, market)
     setFinanceData(finance)
-  }, [])
+  }, [market])
 
   // 报告类型变化
   const handleReportTypeChange = useCallback((value) => {
@@ -389,9 +516,9 @@ function StockDetail({ stock }) {
 
     try {
       const [kline, news, finance] = await Promise.all([
-        fetchStockKline(stock.symbol),
+        fetchStockKline(stock.symbol, market),
         fetchStockNews(stock.name),
-        fetchFinanceData(stock.symbol, ''),
+        fetchFinanceData(stock.symbol, '', market),
       ])
       setKlineData(kline)
       setStockNews(news)
@@ -401,7 +528,7 @@ function StockDetail({ stock }) {
     } finally {
       setLoading(false)
     }
-  }, [stock])
+  }, [stock, market])
 
   // stock 变化时加载数据
   useEffect(() => {
@@ -409,6 +536,131 @@ function StockDetail({ stock }) {
       loadData()
     }
   }, [stock, loadData])
+
+  // 导出财务数据 Excel
+  const handleExportFinanceExcel = useCallback(() => {
+    if (!financeData?.length) {
+      message.warning('没有数据可导出')
+      return
+    }
+
+    const title = `${stock.name}(${stock.symbol}) 财务数据`
+    const exportData = financeData.slice().reverse().map(item => ({
+      '报告期': item.period,
+      '归母净利润(亿)': item.netProfit?.toFixed(2),
+      '净利润同比(%)': item.netProfitYoy?.toFixed(2),
+      '营业收入(亿)': item.revenue?.toFixed(2),
+      '收入同比(%)': item.revenueYoy?.toFixed(2),
+      '毛利润(亿)': item.grossProfit?.toFixed(2),
+      '毛利润同比(%)': item.grossProfitYoy?.toFixed(2),
+      '每股收益': item.eps?.toFixed(3),
+      '每股净资产': item.navps?.toFixed(2),
+      '净利率(%)': item.npm?.toFixed(2),
+      '毛利率(%)': item.gpm?.toFixed(2),
+      'ROE(%)': item.roe?.toFixed(2),
+      '资产负债率(%)': item.dar?.toFixed(2),
+    }))
+
+    const ws = XLSX.utils.json_to_sheet([])
+    XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' })
+    XLSX.utils.sheet_add_aoa(ws, [[]], { origin: 'A2' })
+    XLSX.utils.sheet_add_json(ws, exportData, { origin: 'A3' })
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }]
+    
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '财务数据')
+    XLSX.writeFile(wb, `${stock.name}_财务数据.xlsx`)
+    message.success('导出成功')
+  }, [financeData, stock])
+
+  // 复制财务数据
+  const handleCopyFinance = useCallback(async () => {
+    if (!financeData?.length) {
+      message.warning('没有数据可复制')
+      return
+    }
+
+    const title = `${stock.name}(${stock.symbol}) 财务数据`
+    const header = ['报告期', '归母净利润(亿)', '同比(%)', '营业收入(亿)', '同比(%)', '每股收益', 'ROE(%)'].join('\t')
+    const rows = financeData.slice().reverse().map(item => [
+      item.period,
+      item.netProfit?.toFixed(2) || '-',
+      item.netProfitYoy?.toFixed(2) || '-',
+      item.revenue?.toFixed(2) || '-',
+      item.revenueYoy?.toFixed(2) || '-',
+      item.eps?.toFixed(3) || '-',
+      item.roe?.toFixed(2) || '-',
+    ].join('\t'))
+
+    const text = [title, '', header, ...rows].join('\n')
+    
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success(`已复制 ${financeData.length} 期财务数据`)
+    } catch {
+      message.error('复制失败')
+    }
+  }, [financeData, stock])
+
+  // 截图财务数据图表
+  const handleScreenshotFinanceChart = useCallback(async () => {
+    if (!financeChartCardRef.current) {
+      message.warning('没有数据可截图')
+      return
+    }
+
+    const hide = message.loading('正在生成截图...', 0)
+    try {
+      const canvas = await html2canvas(financeChartCardRef.current, {
+        backgroundColor: '#fff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      
+      const link = document.createElement('a')
+      link.download = `${stock.name}_财务数据.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      hide()
+      message.success('截图已保存')
+    } catch (error) {
+      hide()
+      console.error('截图失败:', error)
+      message.error('截图失败')
+    }
+  }, [stock])
+
+  // 截图财务报表明细
+  const handleScreenshotFinanceTable = useCallback(async () => {
+    if (!financeTableCardRef.current) {
+      message.warning('没有数据可截图')
+      return
+    }
+
+    const hide = message.loading('正在生成截图...', 0)
+    try {
+      const canvas = await html2canvas(financeTableCardRef.current, {
+        backgroundColor: '#fff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      
+      const link = document.createElement('a')
+      link.download = `${stock.name}_财务报表明细.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      hide()
+      message.success('截图已保存')
+    } catch (error) {
+      hide()
+      console.error('截图失败:', error)
+      message.error('截图失败')
+    }
+  }, [stock])
 
   if (!stock) {
     return (
@@ -434,11 +686,12 @@ function StockDetail({ stock }) {
         </Card>
 
         <Card 
+          ref={financeChartCardRef}
           title="财务数据" 
           size="small" 
           style={{ marginBottom: 16 }}
           extra={
-            <Space size="small">
+            <Space size="small" wrap>
               <Select
                 value={reportType}
                 onChange={handleReportTypeChange}
@@ -446,14 +699,26 @@ function StockDetail({ stock }) {
                 size="small"
                 style={{ width: 90 }}
               />
-              {financeData?.length > 0 && <span style={{ fontSize: 12, color: '#999' }}>共 {financeData.length} 期</span>}
+              {financeData?.length > 0 && (
+                <>
+                  <span style={{ fontSize: 12, color: '#999' }}>共 {financeData.length} 期</span>
+                  <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
+                  <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
+                  <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceChart} />
+                </>
+              )}
             </Space>
           }
         >
           <div style={{ marginBottom: 12 }}>
             <Radio.Group value={financeMetric} onChange={(e) => setFinanceMetric(e.target.value)} size="small" buttonStyle="solid">
               {financeMetrics.map(m => (
-                <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4 }}>{m.label}</Radio.Button>
+                <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4 }}>
+                  {m.label}
+                  <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{m.tip}</div>}>
+                    <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 12, color: '#999' }} />
+                  </Tooltip>
+                </Radio.Button>
               ))}
             </Radio.Group>
           </div>
@@ -467,7 +732,19 @@ function StockDetail({ stock }) {
         </Card>
 
         {financeData?.length > 0 && (
-          <Card title="财务报表明细" size="small" style={{ marginBottom: 16 }}>
+          <Card 
+            ref={financeTableCardRef}
+            title="财务报表明细" 
+            size="small" 
+            style={{ marginBottom: 16 }}
+            extra={
+              <Space size="small">
+                <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
+                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
+                <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceTable} />
+              </Space>
+            }
+          >
             <Table
               size="small"
               pagination={{ pageSize: 10, showSizeChanger: true, showQuickJumper: true }}
@@ -478,6 +755,8 @@ function StockDetail({ stock }) {
             />
           </Card>
         )}
+
+        <AnnouncementLinks stockSymbol={stock.symbol} market={market} />
 
         <NewsList news={stockNews} />
       </div>

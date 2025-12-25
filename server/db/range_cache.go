@@ -84,13 +84,13 @@ func (r *RangeCacheRepository) SetCache(ctx context.Context, startDate, endDate 
 	return err
 }
 
-// IsCacheValid 检查缓存是否有效（1小时内有效）
+// IsCacheValid 检查缓存是否有效（24小时内有效）
 func (r *RangeCacheRepository) IsCacheValid(cache *RangeCacheData) bool {
 	if cache == nil {
 		return false
 	}
-	// 缓存1小时有效
-	return time.Since(cache.UpdatedAt) < 1*time.Hour
+	// 缓存24小时有效（历史数据变化不大）
+	return time.Since(cache.UpdatedAt) < 24*time.Hour
 }
 
 // ClearOldCache 清理旧缓存（保留最近7天的）

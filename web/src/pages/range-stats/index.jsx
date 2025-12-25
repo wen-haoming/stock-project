@@ -1,18 +1,29 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Card, DatePicker, Button, Table, Tag, Spin, message, InputNumber, Select, Grid } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { Card, DatePicker, Button, Table, Tag, Spin, message, InputNumber, Select, Grid, Space } from 'antd'
+import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 import StockDetailDrawer from './StockDetailDrawer'
 import IndexMobile from './IndexMobile'
 
 const { RangePicker } = DatePicker
 const { useBreakpoint } = Grid
 
-// 恒生指数配置
-const indexConfig = { secid: '100.HSI', name: '恒生指数' }
+// 市场配置
+const marketOptions = [
+  { label: '港股', value: 'hk' },
+  { label: 'A股', value: 'a' },
+]
+
+// 指数配置（根据市场切换）
+const indexConfigs = {
+  hk: { secid: '100.HSI', name: '恒生指数' },
+  a: { secid: '1.000001', name: '上证指数' },  // 上证指数
+}
 
 // ECharts 颜色配置
 const upColor = '#ec5a5a'
@@ -63,8 +74,7 @@ const parseUrlParams = (searchParams) => {
   const minCap = searchParams.get('minCap')
   const maxCap = searchParams.get('maxCap')
   const industry = searchParams.get('industry')
-  const page = searchParams.get('page')
-  const pageSize = searchParams.get('pageSize')
+  const market = searchParams.get('market')
 
   return {
     dateRange: startDate && endDate 
@@ -73,28 +83,44 @@ const parseUrlParams = (searchParams) => {
     minChangePct: minPct ? parseFloat(minPct) : 60,
     marketCapMode: capMode || 'range',
     marketCapValue: capValue ? parseFloat(capValue) : null,
-    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 2000,
-    maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 10000,
+    minMarketCap: minCap !== null ? (minCap ? parseFloat(minCap) : null) : 20,
+    maxMarketCap: maxCap !== null ? (maxCap ? parseFloat(maxCap) : null) : 1000,
     selectedIndustry: industry || '',
-    page: page ? parseInt(page) : 1,
-    pageSize: pageSize ? parseInt(pageSize) : 20,
+    market: market || 'hk',
   }
 }
 
-// 日期区间预设 - 移到组件外避免重复创建
-const rangePresets = [
-  { label: '── 常用区间 ──', value: [dayjs(), dayjs()] },
-  { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
-  { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近3月', value: [dayjs().subtract(3, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近6月', value: [dayjs().subtract(6, 'month'), dayjs().subtract(1, 'day')] },
-  { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs().subtract(1, 'day')] },
-  { label: '今年以来', value: [dayjs().startOf('year'), dayjs().subtract(1, 'day')] },
-  { label: '── 港股历史牛市 ──', value: [dayjs(), dayjs()] },
-  { label: '第9波 24.01-至今 AI浪潮', value: [dayjs('2024-01-02'), dayjs().subtract(1, 'day')] },
-  { label: '第8波 16.02-18.01 南下资金', value: [dayjs('2016-02-01'), dayjs('2018-01-31')] },
-  { label: '第7波 03.04-07.10 SARS后', value: [dayjs('2003-04-01'), dayjs('2007-10-31')] },
-]
+// 日期区间预设 - 根据市场返回不同预设
+const getRangePresets = (market) => {
+  const commonPresets = [
+    { label: '── 常用区间 ──', value: [dayjs(), dayjs()] },
+    { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
+    { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近3月', value: [dayjs().subtract(3, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近6月', value: [dayjs().subtract(6, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs().subtract(1, 'day')] },
+    { label: '今年以来', value: [dayjs().startOf('year'), dayjs().subtract(1, 'day')] },
+  ]
+
+  if (market === 'a') {
+    return [
+      ...commonPresets,
+      { label: '── A股历史牛市 ──', value: [dayjs(), dayjs()] },
+      { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
+      { label: '19.01-21.02 核心资产牛', value: [dayjs('2019-01-04'), dayjs('2021-02-18')] },
+      { label: '14.07-15.06 杠杆牛', value: [dayjs('2014-07-01'), dayjs('2015-06-12')] },
+      { label: '05.06-07.10 股改牛', value: [dayjs('2005-06-06'), dayjs('2007-10-16')] },
+    ]
+  }
+
+  return [
+    ...commonPresets,
+    { label: '── 港股历史牛市 ──', value: [dayjs(), dayjs()] },
+    { label: '第9波 24.01-至今 AI浪潮', value: [dayjs('2024-01-02'), dayjs().subtract(1, 'day')] },
+    { label: '第8波 16.02-18.01 南下资金', value: [dayjs('2016-02-01'), dayjs('2018-01-31')] },
+    { label: '第7波 03.04-07.10 SARS后', value: [dayjs('2003-04-01'), dayjs('2007-10-31')] },
+  ]
+}
 
 export default function RangeStats() {
   const screens = useBreakpoint()
@@ -116,11 +142,13 @@ function RangeStatsPC() {
 
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
+  const tableCardRef = useRef(null)
   const klineDataRef = useRef({ categoryData: [], values: [], volumes: [] })
   const isUpdatingFromChart = useRef(false)
   const loadedStartDateRef = useRef('20080101')
   const isLoadingMoreRef = useRef(false)
 
+  const [market, setMarket] = useState(initialParams.market)
   const [dateRange, setDateRange] = useState(initialParams.dateRange)
   const [minChangePct, setMinChangePct] = useState(initialParams.minChangePct)
   const [marketCapMode, setMarketCapMode] = useState(initialParams.marketCapMode)
@@ -131,11 +159,6 @@ function RangeStatsPC() {
   const [loading, setLoading] = useState(false)
   const [tableLoading, setTableLoading] = useState(false)
   const [allStockData, setAllStockData] = useState([])
-  const [pagination, setPagination] = useState({ 
-    current: initialParams.page, 
-    pageSize: initialParams.pageSize, 
-    total: 0 
-  })
   const [industryStats, setIndustryStats] = useState([])
   const [indexChangePct, setIndexChangePct] = useState(null)
 
@@ -144,6 +167,12 @@ function RangeStatsPC() {
   const [selectedStock, setSelectedStock] = useState(null)
 
   const isMobile = false // PC 端固定为 false
+
+  // 当前市场的指数配置
+  const indexConfig = useMemo(() => indexConfigs[market] || indexConfigs.hk, [market])
+
+  // 当前市场的日期预设
+  const rangePresets = useMemo(() => getRangePresets(market), [market])
 
   // 计算指数区间涨幅
   const calculateIndexChange = useCallback((startDate, endDate) => {
@@ -182,8 +211,7 @@ function RangeStatsPC() {
     const minCap = params.minMarketCap ?? minMarketCap
     const maxCap = params.maxMarketCap ?? maxMarketCap
     const industry = params.selectedIndustry ?? selectedIndustry
-    const page = params.page ?? pagination.current
-    const pageSize = params.pageSize ?? pagination.pageSize
+    const mkt = params.market ?? market
 
     if (start) newParams.set('start', start.format('YYYY-MM-DD'))
     if (end) newParams.set('end', end.format('YYYY-MM-DD'))
@@ -193,11 +221,10 @@ function RangeStatsPC() {
     if (minCap != null) newParams.set('minCap', minCap.toString())
     if (maxCap != null) newParams.set('maxCap', maxCap.toString())
     if (industry) newParams.set('industry', industry)
-    if (page !== 1) newParams.set('page', page.toString())
-    if (pageSize !== 20) newParams.set('pageSize', pageSize.toString())
+    if (mkt !== 'hk') newParams.set('market', mkt)
 
     setSearchParams(newParams, { replace: true })
-  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry, pagination, setSearchParams])
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry, setSearchParams])
 
   // 更新图表 brush 区间
   const updateChartBrush = useCallback((startDate, endDate) => {
@@ -308,7 +335,7 @@ function RangeStatsPC() {
       { name: 'MA60', type: 'line', data: calculateMA(60, data.values), smooth: true, lineStyle: { opacity: 0.5, width: 1 }, symbol: 'none', show: !isMobile },
       { name: 'Volume', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes }
     ]
-  }), [isMobile])
+  }), [isMobile, indexConfig])
 
   // 获取 K 线数据
   const fetchKlineData = useCallback(async (initialDateRange, startDate = '20080101') => {
@@ -337,7 +364,7 @@ function RangeStatsPC() {
     } finally {
       setLoading(false)
     }
-  }, [createChartOption, updateChartBrush])
+  }, [createChartOption, updateChartBrush, indexConfig])
 
   // 加载更早的 K 线数据
   const loadEarlierKlineData = useCallback(async () => {
@@ -395,7 +422,7 @@ function RangeStatsPC() {
     } finally {
       isLoadingMoreRef.current = false
     }
-  }, [])
+  }, [indexConfig])
 
   // 获取区间涨幅股票数据
   const fetchStockData = useCallback(async (industry = '') => {
@@ -418,6 +445,7 @@ function RangeStatsPC() {
         min_change_pct: minChangePct,
         min_market_cap: actualMinCap,
         max_market_cap: actualMaxCap,
+        market: market,
       }
       if (industry) params.industry = industry
       
@@ -426,7 +454,6 @@ function RangeStatsPC() {
       
       if (result.data) {
         setAllStockData(result.data)
-        setPagination(prev => ({ ...prev, current: 1, total: result.total || 0 }))
         if (!industry) setIndustryStats(result.industryStats || [])
       }
     } catch (error) {
@@ -435,7 +462,7 @@ function RangeStatsPC() {
     } finally {
       setTableLoading(false)
     }
-  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap])
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, market])
 
   // 打开股票详情
   const openStockDetail = useCallback((stock) => {
@@ -537,24 +564,46 @@ function RangeStatsPC() {
 
   const handleSearch = () => {
     setSelectedIndustry('')
-    setPagination(prev => ({ ...prev, current: 1 }))
-    updateUrlParams({ selectedIndustry: '', page: 1 })
+    updateUrlParams({ selectedIndustry: '' })
     fetchStockData('')
   }
 
-  const handleTableChange = (pag) => {
-    setPagination(prev => ({ ...prev, current: pag.current, pageSize: pag.pageSize }))
-    updateUrlParams({ page: pag.current, pageSize: pag.pageSize })
+  // 市场切换
+  const handleMarketChange = (newMarket) => {
+    setMarket(newMarket)
+    setAllStockData([])
+    setIndustryStats([])
+    setSelectedIndustry('')
+    updateUrlParams({ market: newMarket, selectedIndustry: '' })
+    // 重新加载K线数据
+    setTimeout(() => {
+      fetchKlineData(dateRange)
+    }, 100)
+  }
+
+  const handleTableChange = (pag, filters, sorter) => {
+    // 处理排序
+    if (sorter.field && sorter.order) {
+      const sorted = [...allStockData].sort((a, b) => {
+        const aVal = a[sorter.field] || 0
+        const bVal = b[sorter.field] || 0
+        if (typeof aVal === 'string') {
+          return sorter.order === 'ascend' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+        }
+        return sorter.order === 'ascend' ? aVal - bVal : bVal - aVal
+      })
+      setAllStockData(sorted)
+    }
   }
 
   const handleIndustryClick = (industry) => {
     if (selectedIndustry === industry) {
       setSelectedIndustry('')
-      updateUrlParams({ selectedIndustry: '', page: 1 })
+      updateUrlParams({ selectedIndustry: '' })
       fetchStockData('')
     } else {
       setSelectedIndustry(industry)
-      updateUrlParams({ selectedIndustry: industry, page: 1 })
+      updateUrlParams({ selectedIndustry: industry })
       fetchStockData(industry)
     }
   }
@@ -562,8 +611,8 @@ function RangeStatsPC() {
   const handleMarketCapModeChange = (v) => {
     setMarketCapMode(v)
     if (v === 'range') {
-      setMinMarketCap(1000)
-      setMaxMarketCap(10000)
+      setMinMarketCap(20)
+      setMaxMarketCap(500)
       setMarketCapValue(null)
     } else if (v === 'less') {
       setMarketCapValue(50)
@@ -580,11 +629,125 @@ function RangeStatsPC() {
     }
   }
 
-  // 计算当前页数据 - 使用 useMemo 优化
-  const currentPageData = useMemo(() => 
-    allStockData.slice((pagination.current - 1) * pagination.pageSize, pagination.current * pagination.pageSize),
-    [allStockData, pagination.current, pagination.pageSize]
-  )
+  // 生成查询条件标题
+  const getQueryTitle = useCallback(() => {
+    const parts = [`区间涨幅排行 ${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')}`]
+    parts.push(`涨幅≥${minChangePct}%`)
+    if (marketCapMode === 'range' && (minMarketCap || maxMarketCap)) {
+      parts.push(`市值${minMarketCap || 0}~${maxMarketCap || '不限'}亿`)
+    } else if (marketCapMode === 'greater' && marketCapValue) {
+      parts.push(`市值>${marketCapValue}亿`)
+    } else if (marketCapMode === 'less' && marketCapValue) {
+      parts.push(`市值<${marketCapValue}亿`)
+    }
+    if (selectedIndustry) parts.push(`行业:${selectedIndustry}`)
+    return parts.join(' | ')
+  }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry])
+
+  // 导出 Excel
+  const handleExportExcel = useCallback(() => {
+    if (!allStockData.length) {
+      message.warning('没有数据可导出')
+      return
+    }
+
+    const title = getQueryTitle()
+    const exportData = allStockData.map((item, index) => ({
+      '排名': index + 1,
+      '代码': item.symbol,
+      '名称': item.name,
+      '起始价': item.startPrice?.toFixed(3),
+      '结束价': item.endPrice?.toFixed(3),
+      '涨幅(%)': item.changePct?.toFixed(2),
+      '现价': item.latestPrice?.toFixed(2),
+      '市值(亿)': item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
+      '市盈率': item.peRatio?.toFixed(2) || '-',
+      '市净率': item.pbRatio?.toFixed(2) || '-',
+      '换手率(%)': item.turnoverRate?.toFixed(2) || '-',
+    }))
+
+    const ws = XLSX.utils.json_to_sheet([])
+    // 添加标题行
+    XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' })
+    // 添加空行
+    XLSX.utils.sheet_add_aoa(ws, [[]], { origin: 'A2' })
+    // 添加数据
+    XLSX.utils.sheet_add_json(ws, exportData, { origin: 'A3' })
+    
+    // 合并标题单元格
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }]
+    
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '区间涨幅')
+    
+    const fileName = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.xlsx`
+    XLSX.writeFile(wb, fileName)
+    message.success('导出成功')
+  }, [allStockData, dateRange, getQueryTitle])
+
+  // 复制到剪贴板
+  const handleCopy = useCallback(async () => {
+    if (!allStockData.length) {
+      message.warning('没有数据可复制')
+      return
+    }
+
+    const title = getQueryTitle()
+    const header = ['排名', '代码', '名称', '起始价', '结束价', '涨幅(%)', '现价', '市值(亿)', '市盈率', '市净率', '换手率(%)'].join('\t')
+    const rows = allStockData.map((item, index) => [
+      index + 1,
+      item.symbol,
+      item.name,
+      item.startPrice?.toFixed(3),
+      item.endPrice?.toFixed(3),
+      item.changePct?.toFixed(2),
+      item.latestPrice?.toFixed(2),
+      item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
+      item.peRatio?.toFixed(2) || '-',
+      item.pbRatio?.toFixed(2) || '-',
+      item.turnoverRate?.toFixed(2) || '-',
+    ].join('\t'))
+
+    const text = [title, '', header, ...rows].join('\n')
+    
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success(`已复制 ${allStockData.length} 条数据`)
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
+  }, [allStockData, getQueryTitle])
+
+  // 截图功能
+  const handleScreenshot = useCallback(async () => {
+    if (!tableCardRef.current || !allStockData.length) {
+      message.warning('没有数据可截图')
+      return
+    }
+
+    const hide = message.loading('正在生成截图...', 0)
+    
+    try {
+      const canvas = await html2canvas(tableCardRef.current, {
+        backgroundColor: '#fff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      
+      const link = document.createElement('a')
+      link.download = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+      
+      hide()
+      message.success('截图已保存')
+    } catch (error) {
+      hide()
+      console.error('截图失败:', error)
+      message.error('截图失败')
+    }
+  }, [allStockData, dateRange])
 
   // 表格列定义 - 使用 useMemo 优化
   const columns = useMemo(() => [
@@ -594,37 +757,40 @@ function RangeStatsPC() {
       width: isMobile ? 36 : 60,
       fixed: 'left',
       render: (_, __, index) => {
-        const rank = (pagination.current - 1) * pagination.pageSize + index + 1
+        const rank = index + 1
         const color = rank <= 3 ? 'red' : rank <= 10 ? 'orange' : 'default'
         return <Tag color={color} style={{ margin: 0, fontSize: isMobile ? 10 : 12 }}>{rank}</Tag>
       },
     },
-    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'] },
+    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'], sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
     {
       title: '名称',
       dataIndex: 'name',
       width: isMobile ? 60 : 100,
       fixed: 'left',
       ellipsis: true,
+      sorter: (a, b) => a.name.localeCompare(b.name),
       render: (text, record) => (
         <a onClick={() => openStockDetail(record)} style={{ color: '#1677ff', fontSize: isMobile ? 12 : 14 }}>{text}</a>
       ),
     },
-    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], render: (v) => v?.toFixed(3) },
-    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], render: (v) => v?.toFixed(3) },
+    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.startPrice || 0) - (b.startPrice || 0), render: (v) => v?.toFixed(3) },
+    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.endPrice || 0) - (b.endPrice || 0), render: (v) => v?.toFixed(3) },
     {
       title: '涨幅',
       dataIndex: 'changePct',
       width: isMobile ? 60 : 90,
       align: 'right',
+      sorter: (a, b) => (a.changePct || 0) - (b.changePct || 0),
+      defaultSortOrder: 'descend',
       render: (v) => <span style={{ color: v >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: isMobile ? 12 : 14 }}>{v >= 0 ? '+' : ''}{v?.toFixed(1)}%</span>,
     },
-    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
-    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
-    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], render: (v) => v ? v.toFixed(2) + '%' : '-' },
-  ], [isMobile, pagination.current, pagination.pageSize, openStockDetail])
+    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', sorter: (a, b) => (a.latestPrice || 0) - (b.latestPrice || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
+    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', sorter: (a, b) => (a.totalMarketCap || 0) - (b.totalMarketCap || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
+    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.peRatio || 0) - (b.peRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
+    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.pbRatio || 0) - (b.pbRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
+    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.turnoverRate || 0) - (b.turnoverRate || 0), render: (v) => v ? v.toFixed(2) + '%' : '-' },
+  ], [isMobile, openStockDetail])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: isMobile ? 4 : 16, padding: isMobile ? 4 : 0 }}>
@@ -660,6 +826,8 @@ function RangeStatsPC() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14 }}>市场:</span>
+              <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
               <span style={{ fontSize: 14 }}>日期:</span>
               <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} presets={rangePresets} size="middle" />
             </div>
@@ -735,12 +903,22 @@ function RangeStatsPC() {
 
       {/* 股票表格区域 */}
       <Card
+        ref={tableCardRef}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: isMobile ? 12 : 14 }}>
-              {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : `区间涨幅排行 (${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')})`}
-            </span>
-            {pagination.total > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{pagination.total}只</Tag>}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: isMobile ? 12 : 14 }}>
+                {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : getQueryTitle()}
+              </span>
+              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{allStockData.length}只</Tag>}
+            </div>
+            {!isMobile && allStockData.length > 0 && (
+              <Space size="small">
+                <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>复制</Button>
+                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportExcel}>导出Excel</Button>
+                <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshot}>截图</Button>
+              </Space>
+            )}
           </div>
         }
         size="small"
@@ -749,18 +927,19 @@ function RangeStatsPC() {
       >
         <Table
           columns={columns}
-          dataSource={currentPageData}
+          dataSource={allStockData}
           rowKey="symbol"
           loading={tableLoading}
-          pagination={{ ...pagination, showSizeChanger: !isMobile, showQuickJumper: !isMobile, showTotal: isMobile ? undefined : (total) => `共 ${total} 条`, size: 'small', simple: isMobile }}
+          pagination={false}
           onChange={handleTableChange}
           size="small"
-          scroll={{ x: isMobile ? 280 : 800 }}
+          scroll={{ x: isMobile ? 280 : 800, y: 'calc(100vh - 280px)' }}
+          sticky
         />
       </Card>
 
       {/* 股票详情抽屉 */}
-      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} />
+      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} market={market} />
     </div>
   )
 }

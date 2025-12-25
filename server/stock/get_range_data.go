@@ -22,6 +22,25 @@ import (
 func fetchHKStockKline(symbol, startDate, endDate string) ([]HistData, error) {
 	// 港股 secid 格式: 116.股票代码
 	secid := fmt.Sprintf("116.%s", symbol)
+	return fetchStockKlineBySecid(secid, symbol, startDate, endDate)
+}
+
+// 获取单只A股的历史K线数据
+func fetchAStockKline(symbol, startDate, endDate string) ([]HistData, error) {
+	// A股 secid 格式:
+	// 沪市(60开头): 1.股票代码
+	// 深市(00/30开头): 0.股票代码
+	var secid string
+	if strings.HasPrefix(symbol, "6") {
+		secid = fmt.Sprintf("1.%s", symbol)
+	} else {
+		secid = fmt.Sprintf("0.%s", symbol)
+	}
+	return fetchStockKlineBySecid(secid, symbol, startDate, endDate)
+}
+
+// fetchStockKlineBySecid 通用K线获取函数
+func fetchStockKlineBySecid(secid, symbol, startDate, endDate string) ([]HistData, error) {
 
 	url := "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 	req, _ := http.NewRequest("GET", url, nil)
@@ -174,6 +193,92 @@ func fetchAllHKStockList() ([]HKStockData, error) {
 	return allStocks, nil
 }
 
+// 获取所有A股列表 (分页获取全部)
+func fetchAllAStockList() ([]HKStockData, error) {
+	var allStocks []HKStockData
+	seenSymbols := make(map[string]bool)
+
+	page := 1
+	for {
+		url := "https://push2.eastmoney.com/api/qt/clist/get"
+		req, _ := http.NewRequest("GET", url, nil)
+		q := req.URL.Query()
+		q.Add("pn", strconv.Itoa(page))
+		q.Add("pz", "100") // 每页100条
+		q.Add("po", "1")
+		q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
+		q.Add("fltt", "2")
+		q.Add("invt", "2")
+		q.Add("fid", "f3")
+		q.Add("fs", "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23") // A股全部（深市主板+创业板+沪市主板+科创板）
+		q.Add("fields", "f2,f3,f8,f9,f12,f14,f20,f21,f23,f100")
+		req.URL.RawQuery = q.Encode()
+
+		client := &http.Client{Timeout: time.Second * 30}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		var response EastMoneyHKResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, err
+		}
+
+		if response.Data.Diff == nil || len(response.Data.Diff) == 0 {
+			break
+		}
+
+		diffLen := len(response.Data.Diff)
+		for _, raw := range response.Data.Diff {
+			// 跳过已存在的股票（去重）
+			if seenSymbols[raw.Symbol] {
+				continue
+			}
+			seenSymbols[raw.Symbol] = true
+
+			// A股代码: 6位数字
+			// 沪市主板: 60xxxx, 科创板: 688xxx
+			// 深市主板: 00xxxx, 创业板: 30xxxx
+			if len(raw.Symbol) != 6 {
+				continue
+			}
+
+			stock := HKStockData{
+				Symbol:         raw.Symbol,
+				Name:           raw.Name,
+				LatestPrice:    toFloatHK(raw.LatestPrice),
+				TotalMarketCap: toFloatHK(raw.TotalMarketCap),
+				CircMarketCap:  toFloatHK(raw.CircMarketCap),
+				PERatio:        toFloatHK(raw.PERatio),
+				PBRatio:        toFloatHK(raw.PBRatio),
+				TurnoverRate:   toFloatHK(raw.TurnoverRate),
+				Industry:       raw.Industry,
+			}
+			allStocks = append(allStocks, stock)
+		}
+
+		// 如果返回数量少于请求数量，说明已经是最后一页
+		if diffLen < 100 {
+			break
+		}
+		page++
+
+		// 安全限制，最多获取100页（约1万只股票，A股约5000只）
+		if page > 100 {
+			break
+		}
+	}
+
+	return allStocks, nil
+}
+
 // GetRangeData 获取区间涨幅数据（返回全部数据，前端分页）
 func GetRangeData(c *gin.Context) {
 	// Panic recovery
@@ -193,6 +298,7 @@ func GetRangeData(c *gin.Context) {
 	maxMarketCap := c.DefaultQuery("max_market_cap", "0")        // 最大市值筛选（亿），0表示不限
 	industryFilter := c.Query("industry")                        // 行业筛选
 	forceRefresh := c.DefaultQuery("refresh", "false") == "true" // 强制刷新缓存
+	market := c.DefaultQuery("market", "hk")                     // 市场: hk=港股, a=A股
 
 	if startDate == "" || endDate == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date and end_date are required"})
@@ -206,8 +312,8 @@ func GetRangeData(c *gin.Context) {
 	minPct, _ := strconv.ParseFloat(minChangePct, 64)
 	minCap, _ := strconv.ParseFloat(minMarketCap, 64)
 	maxCap, _ := strconv.ParseFloat(maxMarketCap, 64)
-	// 转换为实际值（输入是亿，需要转为元）
-	minCapValue := minCap * 100000000
+	// 前端传参单位是「亿」，数据库存储单位是「元」，统一转换
+	minCapValue := minCap * 100000000 // 亿转元
 	maxCapValue := maxCap * 100000000
 
 	ctx := context.Background()
@@ -216,8 +322,8 @@ func GetRangeData(c *gin.Context) {
 	var allResults []db.RangeStockData
 	var fromDB bool
 
-	// 检查数据库连接
-	if db.IsConnected() {
+	// 检查数据库连接（仅港股使用数据库缓存）
+	if db.IsConnected() && market == "hk" {
 		cacheRepo := db.NewRangeCacheRepository()
 		klineRepo := db.NewKlineRepository()
 
@@ -243,16 +349,26 @@ func GetRangeData(c *gin.Context) {
 				allResults, fromDB = calculateRangeFromDB(ctx, klineRepo, startDateFmt, endDateFmt)
 			}
 		}
+	} else if market != "hk" {
+		log.Printf("A-share market, skipping DB cache")
 	} else {
 		log.Printf("Database not connected, will fetch from API")
 	}
 
 	// 数据库也没有，从API获取
 	if len(allResults) == 0 {
-		log.Printf("Range cache miss, fetching from API for %s - %s", startDate, endDate)
+		log.Printf("Range cache miss, fetching from API for %s - %s (market: %s)", startDate, endDate, market)
 
-		// 1. 获取所有港股列表
-		stockList, err := fetchAllHKStockList()
+		var stockList []HKStockData
+		var err error
+
+		// 根据市场选择获取股票列表的函数
+		if market == "a" {
+			stockList, err = fetchAllAStockList()
+		} else {
+			stockList, err = fetchAllHKStockList()
+		}
+
 		if err != nil {
 			log.Printf("Error fetching stock list: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch stock list: " + err.Error()})
@@ -271,6 +387,8 @@ func GetRangeData(c *gin.Context) {
 			return
 		}
 
+		log.Printf("Fetched %d stocks from %s market", len(stockList), market)
+
 		// 2. 并发获取每只股票的历史数据并计算涨幅
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -281,12 +399,21 @@ func GetRangeData(c *gin.Context) {
 
 		for _, stock := range stockList {
 			wg.Add(1)
-			go func(s HKStockData) {
+			go func(s HKStockData, mkt string) {
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
 
-				klines, err := fetchHKStockKline(s.Symbol, startDate, endDate)
+				var klines []HistData
+				var err error
+
+				// 根据市场选择K线获取函数
+				if mkt == "a" {
+					klines, err = fetchAStockKline(s.Symbol, startDate, endDate)
+				} else {
+					klines, err = fetchHKStockKline(s.Symbol, startDate, endDate)
+				}
+
 				if err != nil || len(klines) < 2 {
 					return
 				}
@@ -318,7 +445,7 @@ func GetRangeData(c *gin.Context) {
 				mu.Lock()
 				results = append(results, rangeData)
 				mu.Unlock()
-			}(stock)
+			}(stock, market)
 		}
 
 		wg.Wait()
@@ -331,8 +458,8 @@ func GetRangeData(c *gin.Context) {
 		allResults = results
 	}
 
-	// 保存到缓存（来自API的数据）
-	if len(allResults) > 0 && !fromDB && db.IsConnected() {
+	// 保存到缓存（仅港股且来自API的数据）
+	if len(allResults) > 0 && !fromDB && db.IsConnected() && market == "hk" {
 		cacheRepo := db.NewRangeCacheRepository()
 		if err := cacheRepo.SetCache(ctx, startDate, endDate, allResults); err != nil {
 			log.Printf("Failed to save range cache: %v", err)
@@ -412,81 +539,75 @@ func formatDate(date string) string {
 	return date
 }
 
-// calculateRangeFromDB 从数据库K线数据计算区间涨幅
+// calculateRangeFromDB 从数据库K线数据计算区间涨幅（使用聚合管道优化）
 func calculateRangeFromDB(ctx context.Context, klineRepo *db.KlineRepository, startDate, endDate string) ([]db.RangeStockData, bool) {
-	// 获取所有有K线数据的股票
-	symbols, err := klineRepo.GetAllSymbols(ctx)
-	if err != nil || len(symbols) == 0 {
+	log.Printf("Calculating range from DB using aggregation: %s - %s", startDate, endDate)
+
+	// 使用聚合管道一次性计算所有股票的区间涨幅
+	rangeResults, err := klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate)
+	if err != nil {
+		log.Printf("Aggregation error: %v", err)
 		return nil, false
 	}
 
-	log.Printf("Calculating range for %d symbols from DB", len(symbols))
-
-	// 获取股票基本信息（用于市值等数据）
-	stockRepo := db.NewStockRepository()
-
-	var results []db.RangeStockData
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 50)
-
-	for _, symbol := range symbols {
-		wg.Add(1)
-		go func(sym string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			// 从数据库获取K线
-			klines, err := klineRepo.GetKlinesBySymbol(ctx, sym, startDate, endDate)
-			if err != nil || len(klines) < 2 {
-				return
-			}
-
-			startPrice := klines[0].Close
-			endPrice := klines[len(klines)-1].Close
-
-			if startPrice <= 0 {
-				return
-			}
-
-			changePct := (endPrice - startPrice) / startPrice * 100
-
-			// 获取股票基本信息
-			stockInfo, _ := stockRepo.GetStockBySymbol(ctx, sym)
-
-			rangeData := db.RangeStockData{
-				Symbol:     sym,
-				StartPrice: startPrice,
-				EndPrice:   endPrice,
-				ChangePct:  changePct,
-			}
-
-			if stockInfo != nil {
-				rangeData.Name = stockInfo.Name
-				rangeData.LatestPrice = stockInfo.LatestPrice
-				rangeData.TotalMarketCap = stockInfo.TotalMarketCap
-				rangeData.CircMarketCap = stockInfo.CircMarketCap
-				rangeData.PERatio = stockInfo.PERatio
-				rangeData.PBRatio = stockInfo.PBRatio
-				rangeData.TurnoverRate = stockInfo.TurnoverRate
-				rangeData.Industry = stockInfo.Industry
-			}
-
-			mu.Lock()
-			results = append(results, rangeData)
-			mu.Unlock()
-		}(symbol)
+	if len(rangeResults) == 0 {
+		log.Printf("No range results from aggregation")
+		return nil, false
 	}
 
-	wg.Wait()
+	log.Printf("Aggregation returned %d stocks", len(rangeResults))
+
+	// 批量获取股票基本信息
+	stockRepo := db.NewStockRepository()
+	stockMap := make(map[string]*db.Stock)
+
+	// 收集所有symbol
+	symbols := make([]string, 0, len(rangeResults))
+	for _, r := range rangeResults {
+		symbols = append(symbols, r.Symbol)
+	}
+
+	// 批量查询股票信息
+	stocks, err := stockRepo.GetStocksBySymbols(ctx, symbols)
+	if err == nil {
+		for i := range stocks {
+			stockMap[stocks[i].Symbol] = &stocks[i]
+		}
+	}
+
+	// 组装结果
+	results := make([]db.RangeStockData, 0, len(rangeResults))
+	for _, r := range rangeResults {
+		changePct := (r.EndPrice - r.StartPrice) / r.StartPrice * 100
+
+		rangeData := db.RangeStockData{
+			Symbol:     r.Symbol,
+			StartPrice: r.StartPrice,
+			EndPrice:   r.EndPrice,
+			ChangePct:  changePct,
+		}
+
+		// 补充股票基本信息
+		if stockInfo, ok := stockMap[r.Symbol]; ok {
+			rangeData.Name = stockInfo.Name
+			rangeData.LatestPrice = stockInfo.LatestPrice
+			rangeData.TotalMarketCap = stockInfo.TotalMarketCap
+			rangeData.CircMarketCap = stockInfo.CircMarketCap
+			rangeData.PERatio = stockInfo.PERatio
+			rangeData.PBRatio = stockInfo.PBRatio
+			rangeData.TurnoverRate = stockInfo.TurnoverRate
+			rangeData.Industry = stockInfo.Industry
+		}
+
+		results = append(results, rangeData)
+	}
 
 	// 按涨幅排序
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].ChangePct > results[j].ChangePct
 	})
 
-	log.Printf("Calculated %d stocks from DB", len(results))
+	log.Printf("Calculated %d stocks from DB (aggregation)", len(results))
 	return results, true
 }
 

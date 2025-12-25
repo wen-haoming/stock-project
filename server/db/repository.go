@@ -72,6 +72,26 @@ func (r *StockRepository) GetStockBySymbol(ctx context.Context, symbol string) (
 	return &stock, err
 }
 
+// GetStocksBySymbols 批量获取股票信息
+func (r *StockRepository) GetStocksBySymbols(ctx context.Context, symbols []string) ([]Stock, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+
+	cursor, err := r.collection.Find(ctx, bson.M{"symbol": bson.M{"$in": symbols}})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var stocks []Stock
+	if err := cursor.All(ctx, &stocks); err != nil {
+		return nil, err
+	}
+
+	return stocks, nil
+}
+
 // GetStocks 获取股票列表
 func (r *StockRepository) GetStocks(ctx context.Context, filter bson.M, page, pageSize int) ([]StockData, int64, error) {
 	// 计算总数

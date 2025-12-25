@@ -69,7 +69,7 @@ function App() {
           fontWeight: 'bold',
           borderBottom: '1px solid rgba(255,255,255,0.1)'
         }}>
-          {collapsed ? '📈' : '港股分析-'}
+          {collapsed ? '📈' : '港股分析'}
         </div>
         <Menu
           theme="dark"

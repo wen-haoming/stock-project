@@ -208,3 +208,18 @@ docker compose logs -f
 - MongoDB 7.0
 - Nginx
 - Docker
+
+
+
+## 开发
+
+```bash
+# 一键启动开发环境（MongoDB + 后端 + 前端）
+docker compose -f docker-compose.dev.yml up -d --build
+
+# 查看日志
+docker compose -f docker-compose.dev.yml logs -f
+
+# 停止
+docker compose -f docker-compose.dev.yml down
+```
