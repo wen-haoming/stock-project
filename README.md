@@ -215,6 +215,8 @@ docker compose logs -f
 
 ```bash
 # 一键启动开发环境（MongoDB + 后端 + 前端）
+docker compose up -d --build server
+
 docker compose -f docker-compose.dev.yml up -d --build
 
 # 查看日志

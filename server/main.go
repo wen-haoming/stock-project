@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,8 +35,12 @@ func setupRouter() *gin.Engine {
 
 	// 新闻代理接口（解决跨域）
 	r.GET("/api/v1/news/forex", func(c *gin.Context) {
+		page := c.DefaultQuery("page", "1")
+		num := c.DefaultQuery("num", "15")
+
 		client := &http.Client{Timeout: 10 * time.Second}
-		req, err := http.NewRequest("GET", "https://feed.mix.sina.com.cn/api/roll/get?pageid=155&lid=1543&num=15&page=1", nil)
+		forexURL := "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&num=" + num + "&page=" + page
+		req, err := http.NewRequest("GET", forexURL, nil)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -92,6 +97,92 @@ func setupRouter() *gin.Engine {
 		sched := scheduler.NewScheduler()
 		sched.ManualSyncHistory()
 		c.JSON(http.StatusOK, gin.H{"message": "History sync started"})
+	})
+
+	// A股公告代理接口（解决跨域）
+	r.GET("/api/v1/stock/announcements", func(c *gin.Context) {
+		symbol := c.Query("symbol")
+		page := c.DefaultQuery("page", "1")
+		pageSize := c.DefaultQuery("page_size", "20")
+		category := c.DefaultQuery("category", "0") // 0=全部, 1=业绩报告, 2=融资公告, 3=风险提示, 4=资产重组, 5=信息变更
+
+		if symbol == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "symbol is required"})
+			return
+		}
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		annURL := "https://np-anotice-stock.eastmoney.com/api/security/ann?cb=jQuery&sr=-1&page_size=" + pageSize + "&page_index=" + page + "&ann_type=A&stock_list=" + symbol + "&f_node=" + category + "&s_node=0"
+		req, err := http.NewRequest("GET", annURL, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 去掉 jQuery() 包装
+		bodyStr := string(body)
+		if len(bodyStr) > 8 && bodyStr[:7] == "jQuery(" {
+			bodyStr = bodyStr[7 : len(bodyStr)-1]
+		}
+
+		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(bodyStr))
+	})
+
+	// 股票新闻搜索代理接口（解决跨域）
+	r.GET("/api/v1/stock/news", func(c *gin.Context) {
+		keyword := c.Query("keyword")
+		if keyword == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keyword is required"})
+			return
+		}
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		// 构建东方财富搜索API URL，需要对 param 进行 URL 编码
+		paramJSON := `{"uid":"","keyword":"` + keyword + `","type":["cmsArticleWebOld"],"client":"web","clientType":"web","clientVersion":"curr","param":{"cmsArticleWebOld":{"searchScope":"default","sort":"default","pageIndex":1,"pageSize":10,"preTag":"<em>","postTag":"</em>"}}}`
+		apiURL := "https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param=" + url.QueryEscape(paramJSON)
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Referer", "https://so.eastmoney.com/")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 去掉 jQuery() 包装
+		bodyStr := string(body)
+		if len(bodyStr) > 8 && bodyStr[:7] == "jQuery(" {
+			bodyStr = bodyStr[7 : len(bodyStr)-1]
+		}
+
+		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(bodyStr))
 	})
 
 	return r

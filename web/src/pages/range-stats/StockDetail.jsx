@@ -77,11 +77,11 @@ const fetchStockKline = async (symbol, market = 'hk') => {
 // 获取个股新闻
 const fetchStockNews = async (name) => {
   try {
-    const url = `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param={"uid":"","keyword":"${encodeURIComponent(name)}","type":["cmsArticleWebOld"],"client":"web","clientType":"web","clientVersion":"curr","param":{"cmsArticleWebOld":{"searchScope":"default","sort":"default","pageIndex":1,"pageSize":10,"preTag":"<em>","postTag":"</em>"}}}`
-    const response = await axios.get(url)
-    const jsonStr = response.data.replace(/^jQuery\(/, '').replace(/\)$/, '')
-    const data = JSON.parse(jsonStr)
-    return (data?.result?.cmsArticleWebOld?.list || []).map(item => ({
+    const response = await axios.get('/api/v1/stock/news', {
+      params: { keyword: name }
+    })
+    const data = response.data
+    return (data?.result?.cmsArticleWebOld || []).map(item => ({
       title: item.title?.replace(/<\/?em>/g, ''),
       url: item.url,
       date: item.date,
@@ -90,6 +90,39 @@ const fetchStockNews = async (name) => {
   } catch (error) {
     console.error('获取新闻失败:', error)
     return []
+  }
+}
+
+// 公告分类选项
+const announcementCategories = [
+  { label: '全部', value: '0' },
+  { label: '业绩报告', value: '1' },
+  { label: '融资公告', value: '2' },
+  { label: '风险提示', value: '3' },
+  { label: '资产重组', value: '4' },
+  { label: '信息变更', value: '5' },
+]
+
+// 获取A股公告列表
+const fetchAnnouncements = async (symbol, page = 1, pageSize = 20, category = '0') => {
+  try {
+    const response = await axios.get('/api/v1/stock/announcements', {
+      params: { symbol, page, page_size: pageSize, category }
+    })
+    const data = response.data?.data || {}
+    return {
+      list: (data.list || []).map(item => ({
+        title: item.title_ch || item.title,
+        date: item.notice_date?.split(' ')[0] || '',
+        code: item.art_code,
+        category: item.columns?.[0]?.column_name || '',
+        url: `https://data.eastmoney.com/notices/detail/${symbol}/${item.art_code}.html`,
+      })),
+      total: data.total_hits || 0,
+    }
+  } catch (error) {
+    console.error('获取公告失败:', error)
+    return { list: [], total: 0 }
   }
 }
 
@@ -398,9 +431,9 @@ const NewsList = memo(({ news }) => (
     {news.length > 0 ? (
       <div>
         {news.map((item, index) => (
-          <div key={index} style={{ padding: '12px 0', borderBottom: index < news.length - 1 ? '1px solid #f0f0f0' : 'none', cursor: 'pointer' }} onClick={() => window.open(item.url, '_blank')}>
-            <div style={{ fontSize: 14, color: '#333', lineHeight: 1.5, marginBottom: 6 }}>{item.title}</div>
-            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#999' }}>
+          <div key={index} style={{ padding: '8px 0', borderBottom: index < news.length - 1 ? '1px solid #f0f0f0' : 'none', cursor: 'pointer' }} onClick={() => window.open(item.url, '_blank')}>
+            <div style={{ fontSize: 13, color: '#333', lineHeight: 1.4, marginBottom: 4 }}>{item.title}</div>
+            <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
               <span>{item.source}</span>
               <span>{item.date}</span>
             </div>
@@ -413,21 +446,17 @@ const NewsList = memo(({ news }) => (
   </Card>
 ))
 
-// 公告链接组件
-const AnnouncementLinks = memo(({ stockSymbol, market = 'hk' }) => {
-  // 根据市场生成不同的链接
+// 公告列表组件
+const AnnouncementList = memo(({ stockSymbol, market = 'hk', announcements = [], loading = false, onLoadMore, category = '0', onCategoryChange }) => {
+  // 根据市场生成不同的外部链接
   let ths10jqkaUrl, exchangeUrl, exchangeName
 
   if (market === 'a') {
-    // A股链接
     ths10jqkaUrl = `https://stockpage.10jqka.com.cn/${stockSymbol}/news/#pub`
-    // 巨潮资讯网公告
     exchangeUrl = `http://www.cninfo.com.cn/new/disclosure/stock?stockCode=${stockSymbol}`
     exchangeName = '巨潮资讯'
   } else {
-    // 港股链接
     ths10jqkaUrl = `https://stockpage.10jqka.com.cn/HK${stockSymbol}/news/#pub`
-    // 港交所披露易链接
     exchangeUrl = `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&stock=${stockSymbol}`
     exchangeName = '港交所披露易'
   }
@@ -438,27 +467,62 @@ const AnnouncementLinks = memo(({ stockSymbol, market = 'hk' }) => {
         <Space>
           <FileTextOutlined />
           <span>公司公告</span>
+          {market === 'a' && onCategoryChange && (
+            <Select 
+              value={category} 
+              onChange={onCategoryChange} 
+              size="small" 
+              style={{ width: 90, marginLeft: 8 }} 
+              options={announcementCategories}
+            />
+          )}
         </Space>
       } 
       size="small" 
       style={{ marginBottom: 16 }}
+      extra={
+        <Space size="small">
+          <Button type="link" size="small" onClick={() => window.open(ths10jqkaUrl, '_blank')}>同花顺</Button>
+          <Button type="link" size="small" onClick={() => window.open(exchangeUrl, '_blank')}>{exchangeName}</Button>
+        </Space>
+      }
     >
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Button 
-          type="link" 
-          style={{ padding: 0 }}
-          onClick={() => window.open(ths10jqkaUrl, '_blank')}
-        >
-          同花顺公告
-        </Button>
-        <Button 
-          type="link" 
-          style={{ padding: 0 }}
-          onClick={() => window.open(exchangeUrl, '_blank')}
-        >
-          {exchangeName}
-        </Button>
-      </Space>
+      {market === 'a' && announcements.length > 0 ? (
+        <div>
+          {announcements.map((item, index) => (
+            <div 
+              key={item.code || index} 
+              style={{ 
+                padding: '8px 0', 
+                borderBottom: index < announcements.length - 1 ? '1px solid #f0f0f0' : 'none',
+                cursor: 'pointer'
+              }} 
+              onClick={() => window.open(item.url, '_blank')}
+            >
+              <div style={{ fontSize: 13, color: '#333', lineHeight: 1.4, marginBottom: 2 }}>
+                {item.title}
+              </div>
+              <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
+                <span>{item.date}</span>
+                {item.category && <span style={{ color: '#1890ff' }}>{item.category}</span>}
+              </div>
+            </div>
+          ))}
+          {onLoadMore && (
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <Button type="link" size="small" loading={loading} onClick={onLoadMore}>
+                加载更多
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : market === 'a' ? (
+        <Empty description="暂无公告数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <div style={{ color: '#666', fontSize: 13, padding: '12px 0' }}>
+          港股公告请点击上方链接查看
+        </div>
+      )}
     </Card>
   )
 })
@@ -485,6 +549,11 @@ function StockDetail({ stock, market = 'hk' }) {
   const [financeMetric, setFinanceMetric] = useState('netProfit')
   const [stockNews, setStockNews] = useState([])
   const [reportType, setReportType] = useState('')
+  const [announcements, setAnnouncements] = useState([])
+  const [announcementPage, setAnnouncementPage] = useState(1)
+  const [announcementLoading, setAnnouncementLoading] = useState(false)
+  const [hasMoreAnnouncements, setHasMoreAnnouncements] = useState(true)
+  const [announcementCategory, setAnnouncementCategory] = useState('0')
 
   const financeChartCardRef = useRef(null)
   const financeTableCardRef = useRef(null)
@@ -503,6 +572,47 @@ function StockDetail({ stock, market = 'hk' }) {
     }
   }, [stock, loadFinanceData])
 
+  // 公告分类变化
+  const handleAnnouncementCategoryChange = useCallback(async (value) => {
+    if (!stock || market !== 'a') return
+    
+    setAnnouncementCategory(value)
+    setAnnouncementLoading(true)
+    setAnnouncementPage(1)
+    
+    try {
+      const result = await fetchAnnouncements(stock.symbol, 1, 20, value)
+      setAnnouncements(result.list)
+      setHasMoreAnnouncements(result.list.length < result.total)
+    } catch (error) {
+      console.error('加载公告失败:', error)
+    } finally {
+      setAnnouncementLoading(false)
+    }
+  }, [stock, market])
+
+  // 加载更多公告
+  const loadMoreAnnouncements = useCallback(async () => {
+    if (!stock || market !== 'a' || announcementLoading) return
+    
+    setAnnouncementLoading(true)
+    try {
+      const nextPage = announcementPage + 1
+      const result = await fetchAnnouncements(stock.symbol, nextPage, 20, announcementCategory)
+      if (result.list.length > 0) {
+        setAnnouncements(prev => [...prev, ...result.list])
+        setAnnouncementPage(nextPage)
+        setHasMoreAnnouncements(announcements.length + result.list.length < result.total)
+      } else {
+        setHasMoreAnnouncements(false)
+      }
+    } catch (error) {
+      console.error('加载更多公告失败:', error)
+    } finally {
+      setAnnouncementLoading(false)
+    }
+  }, [stock, market, announcementPage, announcementLoading, announcements.length, announcementCategory])
+
   // 加载数据
   const loadData = useCallback(async () => {
     if (!stock) return
@@ -513,16 +623,32 @@ function StockDetail({ stock, market = 'hk' }) {
     setStockNews([])
     setFinanceMetric('netProfit')
     setReportType('')
+    setAnnouncements([])
+    setAnnouncementPage(1)
+    setHasMoreAnnouncements(true)
+    setAnnouncementCategory('0')
 
     try {
-      const [kline, news, finance] = await Promise.all([
+      const promises = [
         fetchStockKline(stock.symbol, market),
         fetchStockNews(stock.name),
         fetchFinanceData(stock.symbol, '', market),
-      ])
-      setKlineData(kline)
-      setStockNews(news)
-      setFinanceData(finance)
+      ]
+      
+      // A股才加载公告
+      if (market === 'a') {
+        promises.push(fetchAnnouncements(stock.symbol, 1, 20, '0'))
+      }
+      
+      const results = await Promise.all(promises)
+      setKlineData(results[0])
+      setStockNews(results[1])
+      setFinanceData(results[2])
+      
+      if (market === 'a' && results[3]) {
+        setAnnouncements(results[3].list)
+        setHasMoreAnnouncements(results[3].list.length < results[3].total)
+      }
     } catch (error) {
       console.error('加载数据失败:', error)
     } finally {
@@ -756,7 +882,15 @@ function StockDetail({ stock, market = 'hk' }) {
           </Card>
         )}
 
-        <AnnouncementLinks stockSymbol={stock.symbol} market={market} />
+        <AnnouncementList 
+          stockSymbol={stock.symbol} 
+          market={market} 
+          announcements={announcements}
+          loading={announcementLoading}
+          onLoadMore={hasMoreAnnouncements ? loadMoreAnnouncements : null}
+          category={announcementCategory}
+          onCategoryChange={handleAnnouncementCategoryChange}
+        />
 
         <NewsList news={stockNews} />
       </div>
