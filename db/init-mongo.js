@@ -44,4 +44,18 @@ db.stock_history.createIndex({ symbol: 1, date: 1 }, { unique: true });
 db.stock_history.createIndex({ date: -1 });
 db.stock_history.createIndex({ symbol: 1, date: -1 });
 
+// K线数据集合和索引 (用于 range 查询优化)
+db.createCollection('stock_klines');
+// 复合唯一索引：symbol + date
+db.stock_klines.createIndex({ symbol: 1, date: 1 }, { unique: true });
+// 关键优化索引：date + symbol + close (覆盖索引，加速聚合查询)
+db.stock_klines.createIndex({ date: 1, symbol: 1, close: 1 });
+// 日期索引（用于范围查询）
+db.stock_klines.createIndex({ date: 1 });
+
+// Range 缓存集合和索引
+db.createCollection('range_cache');
+db.range_cache.createIndex({ cacheKey: 1 }, { unique: true });
+db.range_cache.createIndex({ updatedAt: -1 });
+
 print('MongoDB initialization completed!');

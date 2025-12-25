@@ -321,24 +321,42 @@ func GetRangeData(c *gin.Context) {
 	// 初始化变量
 	var allResults []db.RangeStockData
 	var fromDB bool
+	var fromMemory bool
 
-	// 检查数据库连接（仅港股使用数据库缓存）
-	if db.IsConnected() && market == "hk" {
+	// 缓存 key
+	cacheKey := fmt.Sprintf("%s_%s_%s", market, startDate, endDate)
+
+	// 1. 首先检查内存缓存（最快）
+	memCache := db.GetRangeMemoryCache()
+	if !forceRefresh {
+		if cached, ok := memCache.Get(cacheKey); ok {
+			if data, ok := cached.([]db.RangeStockData); ok {
+				log.Printf("Memory cache hit for %s", cacheKey)
+				allResults = data
+				fromMemory = true
+			}
+		}
+	}
+
+	// 2. 检查数据库缓存（仅港股使用数据库缓存）
+	if len(allResults) == 0 && db.IsConnected() && market == "hk" {
 		cacheRepo := db.NewRangeCacheRepository()
 		klineRepo := db.NewKlineRepository()
 
-		// 尝试从缓存获取
+		// 尝试从数据库缓存获取
 		if !forceRefresh {
 			cache, err := cacheRepo.GetCache(ctx, startDate, endDate)
 			if err == nil && cache != nil && cacheRepo.IsCacheValid(cache) {
-				log.Printf("Range cache hit for %s - %s", startDate, endDate)
+				log.Printf("DB cache hit for %s - %s", startDate, endDate)
 				allResults = cache.Data
+				// 同时写入内存缓存
+				memCache.Set(cacheKey, cache.Data, 30*time.Minute)
 			} else if err != nil {
 				log.Printf("Error getting cache: %v", err)
 			}
 		}
 
-		// 缓存未命中，尝试从数据库K线数据计算
+		// 3. 缓存未命中，尝试从数据库K线数据计算
 		if len(allResults) == 0 {
 			// 检查数据库是否有K线数据
 			klineCount, err := klineRepo.CountKlines(ctx)
@@ -347,17 +365,21 @@ func GetRangeData(c *gin.Context) {
 			} else if klineCount > 10000 {
 				log.Printf("Calculating range from DB klines (%d records)", klineCount)
 				allResults, fromDB = calculateRangeFromDB(ctx, klineRepo, startDateFmt, endDateFmt)
+				// 计算成功后写入内存缓存
+				if len(allResults) > 0 {
+					memCache.Set(cacheKey, allResults, 30*time.Minute)
+				}
 			}
 		}
 	} else if market != "hk" {
 		log.Printf("A-share market, skipping DB cache")
-	} else {
+	} else if !db.IsConnected() {
 		log.Printf("Database not connected, will fetch from API")
 	}
 
-	// 数据库也没有，从API获取
+	// 4. 数据库也没有，从API获取
 	if len(allResults) == 0 {
-		log.Printf("Range cache miss, fetching from API for %s - %s (market: %s)", startDate, endDate, market)
+		log.Printf("Cache miss, fetching from API for %s - %s (market: %s)", startDate, endDate, market)
 
 		var stockList []HKStockData
 		var err error
@@ -456,10 +478,15 @@ func GetRangeData(c *gin.Context) {
 		})
 
 		allResults = results
+
+		// 写入内存缓存
+		if len(allResults) > 0 {
+			memCache.Set(cacheKey, allResults, 30*time.Minute)
+		}
 	}
 
-	// 保存到缓存（仅港股且来自API的数据）
-	if len(allResults) > 0 && !fromDB && db.IsConnected() && market == "hk" {
+	// 保存到数据库缓存（仅港股且来自API的数据）
+	if len(allResults) > 0 && !fromDB && !fromMemory && db.IsConnected() && market == "hk" {
 		cacheRepo := db.NewRangeCacheRepository()
 		if err := cacheRepo.SetCache(ctx, startDate, endDate, allResults); err != nil {
 			log.Printf("Failed to save range cache: %v", err)
@@ -528,6 +555,7 @@ func GetRangeData(c *gin.Context) {
 		"industryStats": industryList,
 		"cached":        len(allResults) > 0,
 		"fromDB":        fromDB,
+		"fromMemory":    fromMemory,
 	})
 }
 

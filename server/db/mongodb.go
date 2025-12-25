@@ -129,6 +129,16 @@ func InitIndexes() error {
 		return fmt.Errorf("failed to create history indexes: %w", err)
 	}
 
+	// 初始化 K线索引
+	if err := InitKlineIndexes(); err != nil {
+		log.Printf("Warning: failed to create kline indexes: %v", err)
+	}
+
+	// 初始化 range_cache 索引
+	if err := InitRangeCacheIndexes(); err != nil {
+		log.Printf("Warning: failed to create range_cache indexes: %v", err)
+	}
+
 	log.Println("MongoDB indexes initialized")
 	return nil
 }

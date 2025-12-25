@@ -133,37 +133,93 @@ type RangeResult struct {
 }
 
 // CalculateRangeByAggregation 使用聚合管道批量计算区间涨幅
+// 优化版本：使用 $facet 并行获取首尾数据，避免全量排序
 func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, startDate, endDate string) ([]RangeResult, error) {
+	// 优化策略：分别获取开始日期和结束日期的数据，然后在应用层合并
+	// 这比在 MongoDB 中对全量数据排序 + group 快得多
+
+	// 使用 $facet 并行执行两个聚合
 	pipeline := mongo.Pipeline{
 		// 1. 筛选日期范围
 		{{Key: "$match", Value: bson.M{
 			"date": bson.M{"$gte": startDate, "$lte": endDate},
 		}}},
-		// 2. 按日期排序
-		{{Key: "$sort", Value: bson.M{"date": 1}}},
-		// 3. 按股票分组，获取首尾价格
-		{{Key: "$group", Value: bson.M{
-			"_id":        "$symbol",
-			"startPrice": bson.M{"$first": "$close"},
-			"endPrice":   bson.M{"$last": "$close"},
-			"startDate":  bson.M{"$first": "$date"},
-			"endDate":    bson.M{"$last": "$date"},
-		}}},
-		// 4. 过滤掉起始价格为0的数据
-		{{Key: "$match", Value: bson.M{
-			"startPrice": bson.M{"$gt": 0},
+		// 2. 使用 $facet 并行获取首尾数据
+		{{Key: "$facet", Value: bson.M{
+			"startData": mongo.Pipeline{
+				{{Key: "$sort", Value: bson.M{"symbol": 1, "date": 1}}},
+				{{Key: "$group", Value: bson.M{
+					"_id":        "$symbol",
+					"startPrice": bson.M{"$first": "$close"},
+					"startDate":  bson.M{"$first": "$date"},
+				}}},
+			},
+			"endData": mongo.Pipeline{
+				{{Key: "$sort", Value: bson.M{"symbol": 1, "date": -1}}},
+				{{Key: "$group", Value: bson.M{
+					"_id":      "$symbol",
+					"endPrice": bson.M{"$first": "$close"},
+					"endDate":  bson.M{"$first": "$date"},
+				}}},
+			},
 		}}},
 	}
 
-	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	cursor, err := r.collection.Aggregate(ctx, pipeline, options.Aggregate().SetAllowDiskUse(true))
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var results []RangeResult
-	if err := cursor.All(ctx, &results); err != nil {
+	// 解析 facet 结果
+	type facetResult struct {
+		StartData []struct {
+			Symbol     string  `bson:"_id"`
+			StartPrice float64 `bson:"startPrice"`
+			StartDate  string  `bson:"startDate"`
+		} `bson:"startData"`
+		EndData []struct {
+			Symbol   string  `bson:"_id"`
+			EndPrice float64 `bson:"endPrice"`
+			EndDate  string  `bson:"endDate"`
+		} `bson:"endData"`
+	}
+
+	var facetResults []facetResult
+	if err := cursor.All(ctx, &facetResults); err != nil {
 		return nil, err
+	}
+
+	if len(facetResults) == 0 {
+		return nil, nil
+	}
+
+	// 合并结果
+	endMap := make(map[string]struct {
+		EndPrice float64
+		EndDate  string
+	})
+	for _, e := range facetResults[0].EndData {
+		endMap[e.Symbol] = struct {
+			EndPrice float64
+			EndDate  string
+		}{e.EndPrice, e.EndDate}
+	}
+
+	var results []RangeResult
+	for _, s := range facetResults[0].StartData {
+		if s.StartPrice <= 0 {
+			continue
+		}
+		if e, ok := endMap[s.Symbol]; ok {
+			results = append(results, RangeResult{
+				Symbol:     s.Symbol,
+				StartPrice: s.StartPrice,
+				EndPrice:   e.EndPrice,
+				StartDate:  s.StartDate,
+				EndDate:    e.EndDate,
+			})
+		}
 	}
 
 	return results, nil
@@ -176,15 +232,23 @@ func InitKlineIndexes() error {
 
 	collection := GetCollection("stock_klines")
 	indexes := []mongo.IndexModel{
+		// 复合唯一索引
 		{
 			Keys:    bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}},
 			Options: options.Index().SetUnique(true),
 		},
+		// 关键优化索引：date + symbol + close (覆盖索引)
+		// 这个索引可以让聚合查询只扫描索引，不需要回表
+		{
+			Keys: bson.D{{Key: "date", Value: 1}, {Key: "symbol", Value: 1}, {Key: "close", Value: 1}},
+		},
+		// 日期索引（用于范围查询）
+		{
+			Keys: bson.D{{Key: "date", Value: 1}},
+		},
+		// symbol 索引（用于单股票查询）
 		{
 			Keys: bson.D{{Key: "symbol", Value: 1}},
-		},
-		{
-			Keys: bson.D{{Key: "date", Value: -1}},
 		},
 	}
 

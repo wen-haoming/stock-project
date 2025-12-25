@@ -99,3 +99,23 @@ func (r *RangeCacheRepository) ClearOldCache(ctx context.Context) error {
 	_, err := r.collection.DeleteMany(ctx, bson.M{"updatedAt": bson.M{"$lt": cutoff}})
 	return err
 }
+
+// InitRangeCacheIndexes 初始化 range_cache 索引
+func InitRangeCacheIndexes() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	collection := GetCollection("range_cache")
+	indexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "cacheKey", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys: bson.D{{Key: "updatedAt", Value: -1}},
+		},
+	}
+
+	_, err := collection.Indexes().CreateMany(ctx, indexes)
+	return err
+}
