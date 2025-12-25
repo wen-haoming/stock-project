@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { Card, Table, Spin, Empty, Radio, Statistic, Row, Col, Grid, Select, Space, Button, message, Tooltip } from 'antd'
-import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, FileTextOutlined } from '@ant-design/icons'
+import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, FileTextOutlined, FilePdfOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
@@ -104,7 +104,7 @@ const announcementCategories = [
 ]
 
 // 获取A股公告列表
-const fetchAnnouncements = async (symbol, page = 1, pageSize = 20, category = '0') => {
+const fetchAnnouncements = async (symbol, page = 1, pageSize = 10, category = '0') => {
   try {
     const response = await axios.get('/api/v1/stock/announcements', {
       params: { symbol, page, page_size: pageSize, category }
@@ -117,6 +117,7 @@ const fetchAnnouncements = async (symbol, page = 1, pageSize = 20, category = '0
         code: item.art_code,
         category: item.columns?.[0]?.column_name || '',
         url: `https://data.eastmoney.com/notices/detail/${symbol}/${item.art_code}.html`,
+        pdfUrl: `https://pdf.dfcfw.com/pdf/H2_${item.art_code}_1.pdf`,
       })),
       total: data.total_hits || 0,
     }
@@ -263,8 +264,6 @@ const fetchFinanceData = async (symbol, reportType = '', market = 'hk') => {
   }
 }
 
-
-
 // K线图表组件
 const KlineChart = memo(({ data, stockName, isMobile }) => {
   const chartRef = useRef(null)
@@ -319,7 +318,7 @@ const KlineChart = memo(({ data, stockName, isMobile }) => {
     }
   }, [data, stockName])
 
-  return <div ref={chartRef} style={{ height: isMobile ? 200 : 350 }} />
+  return <div ref={chartRef} style={{ height: isMobile ? 200 : 300 }} />
 })
 
 // 财务图表组件
@@ -387,39 +386,30 @@ const FinanceChart = memo(({ data, metric, isMobile }) => {
     }
   }, [data, metric])
 
-  return <div ref={chartRef} style={{ height: isMobile ? 220 : 300 }} />
+  return <div ref={chartRef} style={{ height: isMobile ? 220 : 280 }} />
 })
 
 // 基础信息卡片
 const BasicInfoCard = memo(({ stock, isMobile }) => (
-  <Card title="基础信息" size="small" style={{ marginBottom: 16 }}>
-    <Row gutter={[16, 16]}>
-      <Col xs={12} sm={8} md={6} lg={4}>
-        <Statistic title="最新价" value={stock.latestPrice} precision={2} valueStyle={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontSize: isMobile ? 18 : 24 }} />
+  <Card title="基础信息" size="small" style={{ marginBottom: 12 }}>
+    <Row gutter={[12, 12]}>
+      <Col span={8}>
+        <Statistic title="最新价" value={stock.latestPrice} precision={2} valueStyle={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontSize: isMobile ? 16 : 20 }} />
       </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
-        <Statistic title="起始价" value={stock.startPrice} precision={2} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
+      <Col span={8}>
+        <Statistic title="区间涨幅" value={stock.changePct} precision={2} suffix="%" prefix={stock.changePct >= 0 ? '+' : ''} valueStyle={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontSize: isMobile ? 16 : 20 }} />
       </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
-        <Statistic title="结束价" value={stock.endPrice} precision={2} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
-      </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
+      <Col span={8}>
         <Statistic title="市值(亿)" value={stock.totalMarketCap ? (stock.totalMarketCap / 100000000).toFixed(0) : '-'} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
       </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
-        <Statistic title="行业" value={stock.industry || '-'} valueStyle={{ fontSize: isMobile ? 14 : 16 }} />
+      <Col span={8}>
+        <Statistic title="行业" value={stock.industry || '-'} valueStyle={{ fontSize: isMobile ? 13 : 14 }} />
       </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
+      <Col span={8}>
         <Statistic title="市盈率" value={stock.peRatio?.toFixed(2) || '-'} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
       </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
+      <Col span={8}>
         <Statistic title="市净率" value={stock.pbRatio?.toFixed(2) || '-'} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
-      </Col>
-      <Col xs={12} sm={8} md={6} lg={4}>
-        <Statistic title="换手率" value={stock.turnoverRate ? stock.turnoverRate.toFixed(2) + '%' : '-'} valueStyle={{ fontSize: isMobile ? 16 : 20 }} />
-      </Col>
-      <Col xs={24} sm={8} md={6} lg={4}>
-        <Statistic title="区间涨幅" value={stock.changePct} precision={2} suffix="%" prefix={stock.changePct >= 0 ? '+' : ''} valueStyle={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontSize: isMobile ? 16 : 24, whiteSpace: 'nowrap' }} />
       </Col>
     </Row>
   </Card>
@@ -429,11 +419,11 @@ const BasicInfoCard = memo(({ stock, isMobile }) => (
 const NewsList = memo(({ news }) => (
   <Card title="相关资讯" size="small">
     {news.length > 0 ? (
-      <div>
+      <div style={{ maxHeight: 400, overflow: 'auto' }}>
         {news.map((item, index) => (
-          <div key={index} style={{ padding: '8px 0', borderBottom: index < news.length - 1 ? '1px solid #f0f0f0' : 'none', cursor: 'pointer' }} onClick={() => window.open(item.url, '_blank')}>
-            <div style={{ fontSize: 13, color: '#333', lineHeight: 1.4, marginBottom: 4 }}>{item.title}</div>
-            <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
+          <div key={index} style={{ padding: '6px 0', borderBottom: index < news.length - 1 ? '1px solid #f0f0f0' : 'none', cursor: 'pointer' }} onClick={() => window.open(item.url, '_blank')}>
+            <div style={{ fontSize: 13, color: '#333', lineHeight: 1.4, marginBottom: 2 }}>{item.title}</div>
+            <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#999' }}>
               <span>{item.source}</span>
               <span>{item.date}</span>
             </div>
@@ -446,8 +436,18 @@ const NewsList = memo(({ news }) => (
   </Card>
 ))
 
-// 公告列表组件
-const AnnouncementList = memo(({ stockSymbol, market = 'hk', announcements = [], loading = false, onLoadMore, category = '0', onCategoryChange }) => {
+// 公告表格组件
+const AnnouncementTable = memo(({ 
+  stockSymbol, 
+  market = 'hk', 
+  announcements = [], 
+  total = 0,
+  loading = false, 
+  category = '0', 
+  onCategoryChange,
+  pagination,
+  onPaginationChange 
+}) => {
   // 根据市场生成不同的外部链接
   let ths10jqkaUrl, exchangeUrl, exchangeName
 
@@ -460,6 +460,54 @@ const AnnouncementList = memo(({ stockSymbol, market = 'hk', announcements = [],
     exchangeUrl = `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&stock=${stockSymbol}`
     exchangeName = '港交所披露易'
   }
+
+  // 公告表格列定义
+  const columns = [
+    { 
+      title: '日期', 
+      dataIndex: 'date', 
+      width: 100,
+      render: (v) => <span style={{ fontSize: 12, color: '#666' }}>{v}</span>
+    },
+    { 
+      title: '公告标题', 
+      dataIndex: 'title', 
+      ellipsis: true,
+      render: (v, record) => (
+        <a 
+          href={record.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={{ fontSize: 13, color: '#333' }}
+        >
+          {v}
+        </a>
+      )
+    },
+    { 
+      title: '分类', 
+      dataIndex: 'category', 
+      width: 120,
+      render: (v) => v ? <span style={{ fontSize: 12, color: '#1890ff' }}>{v}</span> : '-'
+    },
+    { 
+      title: '操作', 
+      width: 80,
+      render: (_, record) => (
+        <Tooltip title="下载PDF">
+          <Button 
+            type="link" 
+            size="small" 
+            icon={<FilePdfOutlined />}
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(record.pdfUrl, '_blank')
+            }}
+          />
+        </Tooltip>
+      )
+    },
+  ]
 
   return (
     <Card 
@@ -479,7 +527,7 @@ const AnnouncementList = memo(({ stockSymbol, market = 'hk', announcements = [],
         </Space>
       } 
       size="small" 
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 12 }}
       extra={
         <Space size="small">
           <Button type="link" size="small" onClick={() => window.open(ths10jqkaUrl, '_blank')}>同花顺</Button>
@@ -487,37 +535,25 @@ const AnnouncementList = memo(({ stockSymbol, market = 'hk', announcements = [],
         </Space>
       }
     >
-      {market === 'a' && announcements.length > 0 ? (
-        <div>
-          {announcements.map((item, index) => (
-            <div 
-              key={item.code || index} 
-              style={{ 
-                padding: '8px 0', 
-                borderBottom: index < announcements.length - 1 ? '1px solid #f0f0f0' : 'none',
-                cursor: 'pointer'
-              }} 
-              onClick={() => window.open(item.url, '_blank')}
-            >
-              <div style={{ fontSize: 13, color: '#333', lineHeight: 1.4, marginBottom: 2 }}>
-                {item.title}
-              </div>
-              <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#999' }}>
-                <span>{item.date}</span>
-                {item.category && <span style={{ color: '#1890ff' }}>{item.category}</span>}
-              </div>
-            </div>
-          ))}
-          {onLoadMore && (
-            <div style={{ textAlign: 'center', marginTop: 8 }}>
-              <Button type="link" size="small" loading={loading} onClick={onLoadMore}>
-                加载更多
-              </Button>
-            </div>
-          )}
-        </div>
-      ) : market === 'a' ? (
-        <Empty description="暂无公告数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      {market === 'a' ? (
+        <Table
+          size="small"
+          loading={loading}
+          dataSource={announcements}
+          columns={columns}
+          rowKey="code"
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            pageSizeOptions: ['10', '20', '50'],
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: onPaginationChange,
+            onShowSizeChange: onPaginationChange,
+          }}
+        />
       ) : (
         <div style={{ color: '#666', fontSize: 13, padding: '12px 0' }}>
           港股公告请点击上方链接查看
@@ -550,9 +586,9 @@ function StockDetail({ stock, market = 'hk' }) {
   const [stockNews, setStockNews] = useState([])
   const [reportType, setReportType] = useState('')
   const [announcements, setAnnouncements] = useState([])
-  const [announcementPage, setAnnouncementPage] = useState(1)
+  const [announcementTotal, setAnnouncementTotal] = useState(0)
+  const [announcementPagination, setAnnouncementPagination] = useState({ current: 1, pageSize: 10 })
   const [announcementLoading, setAnnouncementLoading] = useState(false)
-  const [hasMoreAnnouncements, setHasMoreAnnouncements] = useState(true)
   const [announcementCategory, setAnnouncementCategory] = useState('0')
 
   const financeChartCardRef = useRef(null)
@@ -572,18 +608,15 @@ function StockDetail({ stock, market = 'hk' }) {
     }
   }, [stock, loadFinanceData])
 
-  // 公告分类变化
-  const handleAnnouncementCategoryChange = useCallback(async (value) => {
+  // 加载公告数据
+  const loadAnnouncements = useCallback(async (page, pageSize, category) => {
     if (!stock || market !== 'a') return
     
-    setAnnouncementCategory(value)
     setAnnouncementLoading(true)
-    setAnnouncementPage(1)
-    
     try {
-      const result = await fetchAnnouncements(stock.symbol, 1, 20, value)
+      const result = await fetchAnnouncements(stock.symbol, page, pageSize, category)
       setAnnouncements(result.list)
-      setHasMoreAnnouncements(result.list.length < result.total)
+      setAnnouncementTotal(result.total)
     } catch (error) {
       console.error('加载公告失败:', error)
     } finally {
@@ -591,27 +624,18 @@ function StockDetail({ stock, market = 'hk' }) {
     }
   }, [stock, market])
 
-  // 加载更多公告
-  const loadMoreAnnouncements = useCallback(async () => {
-    if (!stock || market !== 'a' || announcementLoading) return
-    
-    setAnnouncementLoading(true)
-    try {
-      const nextPage = announcementPage + 1
-      const result = await fetchAnnouncements(stock.symbol, nextPage, 20, announcementCategory)
-      if (result.list.length > 0) {
-        setAnnouncements(prev => [...prev, ...result.list])
-        setAnnouncementPage(nextPage)
-        setHasMoreAnnouncements(announcements.length + result.list.length < result.total)
-      } else {
-        setHasMoreAnnouncements(false)
-      }
-    } catch (error) {
-      console.error('加载更多公告失败:', error)
-    } finally {
-      setAnnouncementLoading(false)
-    }
-  }, [stock, market, announcementPage, announcementLoading, announcements.length, announcementCategory])
+  // 公告分类变化
+  const handleAnnouncementCategoryChange = useCallback((value) => {
+    setAnnouncementCategory(value)
+    setAnnouncementPagination({ current: 1, pageSize: announcementPagination.pageSize })
+    loadAnnouncements(1, announcementPagination.pageSize, value)
+  }, [loadAnnouncements, announcementPagination.pageSize])
+
+  // 公告分页变化
+  const handleAnnouncementPaginationChange = useCallback((page, pageSize) => {
+    setAnnouncementPagination({ current: page, pageSize })
+    loadAnnouncements(page, pageSize, announcementCategory)
+  }, [loadAnnouncements, announcementCategory])
 
   // 加载数据
   const loadData = useCallback(async () => {
@@ -624,8 +648,8 @@ function StockDetail({ stock, market = 'hk' }) {
     setFinanceMetric('netProfit')
     setReportType('')
     setAnnouncements([])
-    setAnnouncementPage(1)
-    setHasMoreAnnouncements(true)
+    setAnnouncementTotal(0)
+    setAnnouncementPagination({ current: 1, pageSize: 10 })
     setAnnouncementCategory('0')
 
     try {
@@ -637,7 +661,7 @@ function StockDetail({ stock, market = 'hk' }) {
       
       // A股才加载公告
       if (market === 'a') {
-        promises.push(fetchAnnouncements(stock.symbol, 1, 20, '0'))
+        promises.push(fetchAnnouncements(stock.symbol, 1, 10, '0'))
       }
       
       const results = await Promise.all(promises)
@@ -647,7 +671,7 @@ function StockDetail({ stock, market = 'hk' }) {
       
       if (market === 'a' && results[3]) {
         setAnnouncements(results[3].list)
-        setHasMoreAnnouncements(results[3].list.length < results[3].total)
+        setAnnouncementTotal(results[3].total)
       }
     } catch (error) {
       console.error('加载数据失败:', error)
@@ -796,103 +820,174 @@ function StockDetail({ stock, market = 'hk' }) {
     )
   }
 
-  return (
-    <Spin spinning={loading}>
-      <div style={{ padding: isMobile ? 12 : 20, maxWidth: 1200, margin: '0 auto' }}>
-        <BasicInfoCard stock={stock} isMobile={isMobile} />
+  // 移动端单列布局
+  if (isMobile) {
+    return (
+      <Spin spinning={loading}>
+        <div style={{ padding: 12 }}>
+          <BasicInfoCard stock={stock} isMobile={isMobile} />
+          
+          <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
+            {klineData?.values?.length > 0 ? (
+              <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </div>
+            )}
+          </Card>
 
-        <Card title="K线走势" size="small" style={{ marginBottom: 16 }}>
-          {klineData?.values?.length > 0 ? (
-            <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} />
-          ) : (
-            <div style={{ height: isMobile ? 200 : 350, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            </div>
-          )}
-        </Card>
+          <AnnouncementTable 
+            stockSymbol={stock.symbol} 
+            market={market} 
+            announcements={announcements}
+            total={announcementTotal}
+            loading={announcementLoading}
+            category={announcementCategory}
+            onCategoryChange={handleAnnouncementCategoryChange}
+            pagination={announcementPagination}
+            onPaginationChange={handleAnnouncementPaginationChange}
+          />
 
-        <Card 
-          ref={financeChartCardRef}
-          title="财务数据" 
-          size="small" 
-          style={{ marginBottom: 16 }}
-          extra={
-            <Space size="small" wrap>
-              <Select
-                value={reportType}
-                onChange={handleReportTypeChange}
-                options={reportTypeOptions}
-                size="small"
-                style={{ width: 90 }}
-              />
-              {financeData?.length > 0 && (
-                <>
-                  <span style={{ fontSize: 12, color: '#999' }}>共 {financeData.length} 期</span>
-                  <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
-                  <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
-                  <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceChart} />
-                </>
-              )}
-            </Space>
-          }
-        >
-          <div style={{ marginBottom: 12 }}>
-            <Radio.Group value={financeMetric} onChange={(e) => setFinanceMetric(e.target.value)} size="small" buttonStyle="solid">
-              {financeMetrics.map(m => (
-                <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4 }}>
-                  {m.label}
-                  <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{m.tip}</div>}>
-                    <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 12, color: '#999' }} />
-                  </Tooltip>
-                </Radio.Button>
-              ))}
-            </Radio.Group>
-          </div>
-          {financeData?.length > 0 ? (
-            <FinanceChart data={financeData} metric={financeMetric} isMobile={isMobile} />
-          ) : (
-            <div style={{ height: isMobile ? 220 : 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Empty description="暂无财务数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            </div>
-          )}
-        </Card>
-
-        {financeData?.length > 0 && (
           <Card 
-            ref={financeTableCardRef}
-            title="财务报表明细" 
+            ref={financeChartCardRef}
+            title="财务数据" 
             size="small" 
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 12 }}
             extra={
-              <Space size="small">
-                <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
-                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
-                <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceTable} />
+              <Space size="small" wrap>
+                <Select value={reportType} onChange={handleReportTypeChange} options={reportTypeOptions} size="small" style={{ width: 80 }} />
               </Space>
             }
           >
-            <Table
-              size="small"
-              pagination={{ pageSize: 10, showSizeChanger: true, showQuickJumper: true }}
-              scroll={{ x: 600 }}
-              dataSource={financeData.slice().reverse()}
-              rowKey="period"
-              columns={financeTableColumns}
-            />
+            <div style={{ marginBottom: 8 }}>
+              <Radio.Group value={financeMetric} onChange={(e) => setFinanceMetric(e.target.value)} size="small" buttonStyle="solid">
+                {financeMetrics.slice(0, 4).map(m => (
+                  <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4, fontSize: 12 }}>{m.label}</Radio.Button>
+                ))}
+              </Radio.Group>
+            </div>
+            {financeData?.length > 0 ? (
+              <FinanceChart data={financeData} metric={financeMetric} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Empty description="暂无财务数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </div>
+            )}
           </Card>
-        )}
 
-        <AnnouncementList 
-          stockSymbol={stock.symbol} 
-          market={market} 
-          announcements={announcements}
-          loading={announcementLoading}
-          onLoadMore={hasMoreAnnouncements ? loadMoreAnnouncements : null}
-          category={announcementCategory}
-          onCategoryChange={handleAnnouncementCategoryChange}
-        />
+          {financeData?.length > 0 && (
+            <Card ref={financeTableCardRef} title="财务报表明细" size="small" style={{ marginBottom: 12 }}>
+              <Table size="small" pagination={{ pageSize: 5 }} scroll={{ x: 600 }} dataSource={financeData.slice().reverse()} rowKey="period" columns={financeTableColumns} />
+            </Card>
+          )}
 
-        <NewsList news={stockNews} />
+          <NewsList news={stockNews} />
+        </div>
+      </Spin>
+    )
+  }
+
+  // 桌面端左右布局
+  return (
+    <Spin spinning={loading}>
+      <div style={{ padding: 16, display: 'flex', gap: 16, minHeight: 'calc(100vh - 55px)' }}>
+        {/* 左侧：基础信息、K线走势、公司公告 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <BasicInfoCard stock={stock} isMobile={isMobile} />
+          
+          <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
+            {klineData?.values?.length > 0 ? (
+              <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </div>
+            )}
+          </Card>
+
+          <AnnouncementTable 
+            stockSymbol={stock.symbol} 
+            market={market} 
+            announcements={announcements}
+            total={announcementTotal}
+            loading={announcementLoading}
+            category={announcementCategory}
+            onCategoryChange={handleAnnouncementCategoryChange}
+            pagination={announcementPagination}
+            onPaginationChange={handleAnnouncementPaginationChange}
+          />
+        </div>
+
+        {/* 右侧：财务数据、财务报表明细、相关资讯 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Card 
+            ref={financeChartCardRef}
+            title="财务数据" 
+            size="small" 
+            style={{ marginBottom: 12 }}
+            extra={
+              <Space size="small" wrap>
+                <Select value={reportType} onChange={handleReportTypeChange} options={reportTypeOptions} size="small" style={{ width: 80 }} />
+                {financeData?.length > 0 && (
+                  <>
+                    <span style={{ fontSize: 11, color: '#999' }}>共{financeData.length}期</span>
+                    <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
+                    <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
+                    <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceChart} />
+                  </>
+                )}
+              </Space>
+            }
+          >
+            <div style={{ marginBottom: 8 }}>
+              <Radio.Group value={financeMetric} onChange={(e) => setFinanceMetric(e.target.value)} size="small" buttonStyle="solid">
+                {financeMetrics.map(m => (
+                  <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4 }}>
+                    {m.label}
+                    <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{m.tip}</div>}>
+                      <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11, color: '#999' }} />
+                    </Tooltip>
+                  </Radio.Button>
+                ))}
+              </Radio.Group>
+            </div>
+            {financeData?.length > 0 ? (
+              <FinanceChart data={financeData} metric={financeMetric} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Empty description="暂无财务数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </div>
+            )}
+          </Card>
+
+          {financeData?.length > 0 && (
+            <Card 
+              ref={financeTableCardRef}
+              title="财务报表明细" 
+              size="small" 
+              style={{ marginBottom: 12 }}
+              extra={
+                <Space size="small">
+                  <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
+                  <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
+                  <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceTable} />
+                </Space>
+              }
+            >
+              <Table
+                size="small"
+                pagination={{ pageSize: 8, showSizeChanger: false }}
+                scroll={{ x: 600 }}
+                dataSource={financeData.slice().reverse()}
+                rowKey="period"
+                columns={financeTableColumns}
+              />
+            </Card>
+          )}
+
+          <NewsList news={stockNews} />
+        </div>
       </div>
     </Spin>
   )

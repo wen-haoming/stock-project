@@ -29,9 +29,9 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk' }) {
     <Drawer
       title={stock ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 'bold' }}>{stock.name}</span>
-          <span style={{ color: '#999', fontSize: 12 }}>{stock.symbol}</span>
-          <span style={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: 14 }}>
+          <span style={{ fontWeight: 'bold', fontSize: 16 }}>{stock.name}</span>
+          <span style={{ color: '#999', fontSize: 13 }}>{stock.symbol}</span>
+          <span style={{ color: stock.changePct >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: 15 }}>
             {stock.latestPrice?.toFixed(2)} {stock.changePct >= 0 ? '+' : ''}{stock.changePct?.toFixed(2)}%
           </span>
           <Space size={4} style={{ marginLeft: 8 }}>
@@ -40,7 +40,7 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk' }) {
                 href={getEastMoneyUrl(stock.symbol, market)} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                style={{ fontSize: 12, padding: '2px 6px', background: '#f5f5f5', borderRadius: 4 }}
+                style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}
               >
                 东财
               </a>
@@ -50,7 +50,7 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk' }) {
                 href={getXueqiuUrl(stock.symbol, market)} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                style={{ fontSize: 12, padding: '2px 6px', background: '#f5f5f5', borderRadius: 4 }}
+                style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}
               >
                 雪球
               </a>
@@ -59,11 +59,11 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk' }) {
         </div>
       ) : '股票详情'}
       placement="right"
-      width={800}
+      width="100%"
       onClose={onClose}
       open={visible}
       destroyOnClose
-      styles={{ body: { padding: 0, overflow: 'auto' } }}
+      styles={{ body: { padding: 0, overflow: 'auto', background: '#f5f5f5' } }}
     >
       <StockDetail stock={stock} market={market} />
     </Drawer>
