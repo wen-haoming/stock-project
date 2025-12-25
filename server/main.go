@@ -1,11 +1,13 @@
 package main
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"server/db"
 	"server/scheduler"
@@ -29,6 +31,33 @@ func setupRouter() *gin.Engine {
 	r.GET("/api/v1/stock/detail", stock.GetStockDetail)
 	r.GET("/api/v1/stock/range", stock.GetRangeData)
 	r.POST("/api/v1/stock/range/refresh", stock.RefreshRangeData) // 主动刷新范围数据
+
+	// 新闻代理接口（解决跨域）
+	r.GET("/api/v1/news/forex", func(c *gin.Context) {
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, err := http.NewRequest("GET", "https://feed.mix.sina.com.cn/api/roll/get?pageid=155&lid=1543&num=15&page=1", nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		req.Header.Set("Referer", "https://finance.sina.com.cn/")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.Data(http.StatusOK, "application/json; charset=utf-8", body)
+	})
 
 	// 数据库状态API
 	r.GET("/api/v1/db/status", func(c *gin.Context) {

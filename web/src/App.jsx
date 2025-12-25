@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Grid } from 'antd'
-import { BarChartOutlined } from '@ant-design/icons'
+import { BarChartOutlined, LineChartOutlined } from '@ant-design/icons'
 
 const { Sider, Content, Header } = Layout
 const { useBreakpoint } = Grid
 
 const menuItems = [
   { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
+  { key: '/market-overview', label: '汇率走势', icon: <LineChartOutlined /> },
 ]
 
 function App() {

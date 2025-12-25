@@ -5,6 +5,7 @@ import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import App from './App.jsx'
 import RangeStats from './pages/range-stats/index.jsx'
+import MarketOverview from './pages/market-overview/index.jsx'
 import DetailMobilePage from './pages/range-stats/DetailMobilePage.jsx'
 import './index.css'
 
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/" element={<App />}>
             <Route index element={<RangeStats />} />
             <Route path="range-stats" element={<RangeStats />} />
+            <Route path="market-overview" element={<MarketOverview />} />
           </Route>
           {/* 移动端股票详情页 - 独立路由，全屏显示 */}
           <Route path="/stock/:symbol" element={<DetailMobilePage />} />

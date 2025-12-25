@@ -225,7 +225,7 @@ export default function IndexMobile() {
       }
       if (industry) params.industry = industry
       
-      const response = await axios.get('/api/v1/stock/range', { params })
+      const response = await axios.get('/api/v1/stock/range', { params, timeout: 120000 })
       const result = response.data
       
       if (result.data) {
