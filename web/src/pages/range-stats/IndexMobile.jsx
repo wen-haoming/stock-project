@@ -272,10 +272,12 @@ export default function IndexMobile() {
     }
   }, [selectedIndustry, fetchStockData])
 
-  // 打开详情 - 使用路由跳转
+  // 打开详情 - 使用路由跳转，传递日期区间参数
   const handleStockClick = useCallback((stock) => {
-    navigate(`/stock/${stock.symbol}?name=${encodeURIComponent(stock.name)}`)
-  }, [navigate])
+    const startDate = dateRange[0]?.format('YYYY-MM-DD') || ''
+    const endDate = dateRange[1]?.format('YYYY-MM-DD') || ''
+    navigate(`/stock/${stock.symbol}?name=${encodeURIComponent(stock.name)}&start=${startDate}&end=${endDate}`)
+  }, [navigate, dateRange])
 
   // 加载更多
   const loadMore = async () => {

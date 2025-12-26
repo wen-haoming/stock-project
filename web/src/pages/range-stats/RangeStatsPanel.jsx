@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { Card, DatePicker, Button, Table, Tag, message, InputNumber, Select, Grid, Space } from 'antd'
 import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
 import axios from 'axios'
@@ -188,6 +188,11 @@ export default function RangeStatsPanel({
     setSelectedIndustry('')
     fetchStockData('')
   }
+
+  // 组件挂载时自动查询
+  useEffect(() => {
+    fetchStockData('')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTableChange = (pag, filters, sorter) => {
     if (sorter.field && sorter.order) {
@@ -447,13 +452,13 @@ export default function RangeStatsPanel({
               <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
               {marketCapMode === 'range' && (
                 <>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} addonAfter="亿" />
+                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 120 }} addonAfter="亿" />
                   <span style={{ color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} addonAfter="亿" />
+                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 120 }} addonAfter="亿" />
                 </>
               )}
               {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 90 }} addonAfter="亿" />
+                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 110 }} addonAfter="亿" />
               )}
             </div>
             <div style={{ flex: 1 }} />
@@ -524,7 +529,7 @@ export default function RangeStatsPanel({
       </Card>
 
       {/* 股票详情抽屉 */}
-      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} market={market} />
+      <StockDetailDrawer visible={drawerVisible} stock={selectedStock} onClose={closeDrawer} market={market} dateRange={dateRange} />
     </div>
   )
 }

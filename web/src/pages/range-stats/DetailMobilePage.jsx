@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, memo } from 'react'
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { NavBar, Card, Tabs, Tag, SpinLoading, Empty, Selector, Grid, List, Toast } from 'antd-mobile'
-import Canvas from '@antv/f2-react'
-import { Chart, Line, Axis, Tooltip, Interval } from '@antv/f2'
+import { NavBar, Card as MobileCard, Tabs as MobileTabs, Tag as MobileTag, SpinLoading, Empty as MobileEmpty, Selector, Grid as MobileGrid, List, Toast } from 'antd-mobile'
+import { Card, Tabs, Tag, Empty, Spin, Button, Space, Tooltip } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
+import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
 
@@ -27,45 +28,55 @@ const financeMetrics = [
   { key: 'roe', label: 'ROE', unit: '%' },
 ]
 
-// 获取个股 K 线数据
-const fetchStockKline = async (symbol) => {
+// 获取个股 K 线数据 - 加载全量历史数据
+const fetchStockKline = async (symbol, market = 'hk') => {
   try {
-    const start = dayjs().subtract(6, 'month').format('YYYYMMDD')
+    // 从2023年开始加载全量数据
+    const start = '20230101'
     const end = dayjs().format('YYYYMMDD')
-    const secid = `116.${symbol}`
+    // 根据市场类型设置 secid
+    let secid
+    if (market === 'a') {
+      // A股: 沪市(6开头) -> 1, 深市(0/3开头) -> 0
+      const prefix = symbol.startsWith('6') ? '1' : '0'
+      secid = `${prefix}.${symbol}`
+    } else {
+      // 港股
+      secid = `116.${symbol}`
+    }
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
 
     const response = await axios.get(url)
     const rawData = response.data?.data?.klines || []
 
-    return rawData.map((item) => {
+    const categoryData = []
+    const values = []
+    const volumes = []
+
+    rawData.forEach((item) => {
       const fields = item.split(',')
-      const close = parseFloat(fields[2])
+      categoryData.push(fields[0])
       const open = parseFloat(fields[1])
-      return {
-        date: fields[0].slice(5),
-        close,
-        open,
-        high: parseFloat(fields[3]),
-        low: parseFloat(fields[4]),
-        volume: parseInt(fields[5]),
-        change: close - open,
-      }
+      const close = parseFloat(fields[2])
+      values.push([open, close, parseFloat(fields[4]), parseFloat(fields[3])])
+      volumes.push([categoryData.length - 1, parseInt(fields[5]), open > close ? 1 : -1])
     })
+
+    return { categoryData, values, volumes }
   } catch (error) {
     console.error('获取个股K线失败:', error)
-    return []
+    return { categoryData: [], values: [], volumes: [] }
   }
 }
 
 // 获取个股新闻
 const fetchStockNews = async (name) => {
   try {
-    const url = `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param={"uid":"","keyword":"${encodeURIComponent(name)}","type":["cmsArticleWebOld"],"client":"web","clientType":"web","clientVersion":"curr","param":{"cmsArticleWebOld":{"searchScope":"default","sort":"default","pageIndex":1,"pageSize":10,"preTag":"<em>","postTag":"</em>"}}}`
-    const response = await axios.get(url)
-    const jsonStr = response.data.replace(/^jQuery\(/, '').replace(/\)$/, '')
-    const data = JSON.parse(jsonStr)
-    return (data?.result?.cmsArticleWebOld?.list || []).map(item => ({
+    const response = await axios.get('/api/v1/stock/news', {
+      params: { keyword: name }
+    })
+    const data = response.data
+    return (data?.result?.cmsArticleWebOld || []).map(item => ({
       title: item.title?.replace(/<\/?em>/g, ''),
       url: item.url,
       date: item.date,
@@ -78,18 +89,27 @@ const fetchStockNews = async (name) => {
 }
 
 // 获取港股财务数据
-const fetchFinanceData = async (symbol, reportType = '') => {
+const fetchFinanceData = async (symbol, reportType = '', market = 'hk') => {
   try {
+    let reportName, filter
+    if (market === 'a') {
+      reportName = 'RPT_LICO_FN_CPD'
+      filter = `(SECURITY_CODE="${symbol}")`
+    } else {
+      reportName = 'RPT_HKF10_FN_MAININDICATOR'
+      filter = `(SECUCODE="${symbol}.HK")`
+    }
+    
     const params = new URLSearchParams({
       sortColumns: 'REPORT_DATE',
       sortTypes: '-1',
       pageSize: '50',
       pageNumber: '1',
-      reportName: 'RPT_HKF10_FN_MAININDICATOR',
+      reportName,
       columns: 'ALL',
       source: 'SECURITIES',
       client: 'PC',
-      filter: `(SECUCODE="${symbol}.HK")`,
+      filter,
     })
     
     const url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
@@ -122,6 +142,24 @@ const fetchFinanceData = async (symbol, reportType = '') => {
       else if (month === 12) periodLabel = `${year}Y`
       else periodLabel = date.format('YYYY-MM')
       
+      // A股和港股字段名不同
+      if (market === 'a') {
+        return {
+          period: periodLabel,
+          netProfit: item.PARENT_NETPROFIT ? item.PARENT_NETPROFIT / 100000000 : null,
+          netProfitYoy: item.PARENT_NETPROFIT_YOY ?? null,
+          revenue: item.TOTAL_OPERATE_INCOME ? item.TOTAL_OPERATE_INCOME / 100000000 : null,
+          revenueYoy: item.TOTAL_OPERATE_INCOME_YOY ?? null,
+          grossProfit: item.OPERATE_PROFIT ? item.OPERATE_PROFIT / 100000000 : null,
+          eps: item.BASIC_EPS ?? null,
+          navps: item.BPS ?? null,
+          npm: item.NETPROFIT_MARGIN ?? null,
+          gpm: item.GROSS_PROFIT_MARGIN ?? null,
+          roe: item.ROE ?? null,
+          dar: item.DEBT_ASSET_RATIO ?? null,
+        }
+      }
+      
       return {
         period: periodLabel,
         netProfit: item.HOLDER_PROFIT ? item.HOLDER_PROFIT / 100000000 : null,
@@ -143,89 +181,225 @@ const fetchFinanceData = async (symbol, reportType = '') => {
   }
 }
 
-// 获取股票基本信息（从东方财富实时行情）
-const fetchStockInfo = async (symbol, name = '') => {
+// 获取股票基本信息
+const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
   try {
-    const secid = `116.${symbol}`
+    // 根据市场类型设置 secid
+    let secid
+    if (market === 'a') {
+      // A股: 沪市(6开头) -> 1, 深市(0/3开头) -> 0
+      const prefix = symbol.startsWith('6') ? '1' : '0'
+      secid = `${prefix}.${symbol}`
+    } else {
+      // 港股
+      secid = `116.${symbol}`
+    }
     const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f116,f117,f162,f167,f168,f169,f170`
     const response = await axios.get(url)
     const data = response.data?.data
     
     if (!data) return null
     
+    // A股价格单位是分，港股是厘
+    const priceDiv = market === 'a' ? 100 : 1000
+    
     return {
       symbol: data.f57 || symbol,
       name: data.f58 || name,
-      latestPrice: data.f43 / 1000, // 最新价（需要除以1000）
-      changePct: data.f170 / 100, // 涨跌幅
-      changeAmt: data.f169 / 1000, // 涨跌额
-      open: data.f46 / 1000, // 开盘价
-      high: data.f44 / 1000, // 最高价
-      low: data.f45 / 1000, // 最低价
-      preClose: data.f60 / 1000, // 昨收
-      volume: data.f47, // 成交量
-      amount: data.f48, // 成交额
-      totalMarketCap: data.f116, // 总市值
-      floatMarketCap: data.f117, // 流通市值
-      peRatio: data.f162 / 100, // 市盈率
-      pbRatio: data.f167 / 100, // 市净率
-      turnoverRate: data.f168 / 100, // 换手率
-      amplitude: data.f50 / 100, // 振幅
-      volumeRatio: data.f55 / 100, // 量比
+      latestPrice: data.f43 / priceDiv,
+      changePct: data.f170 / 100,
+      changeAmt: data.f169 / priceDiv,
+      open: data.f46 / priceDiv,
+      high: data.f44 / priceDiv,
+      low: data.f45 / priceDiv,
+      preClose: data.f60 / priceDiv,
+      volume: data.f47,
+      amount: data.f48,
+      totalMarketCap: data.f116,
+      floatMarketCap: data.f117,
+      peRatio: data.f162 / 100,
+      pbRatio: data.f167 / 100,
+      turnoverRate: data.f168 / 100,
+      amplitude: data.f50 / 100,
+      volumeRatio: data.f55 / 100,
     }
   } catch (error) {
     console.error('获取股票信息失败:', error)
-    // 如果获取失败，返回基础信息
     return name ? { symbol, name } : null
   }
 }
 
-// K线图组件
-const KlineChart = memo(({ data }) => {
-  if (!data?.length) return null
+// K线图组件 - 使用 ECharts 支持 brush
+const KlineChart = memo(({ data, stockName, dateRange, height = 280 }) => {
+  const chartRef = useRef(null)
+  const chartInstanceRef = useRef(null)
 
-  return (
-    <Canvas pixelRatio={window.devicePixelRatio}>
-      <Chart data={data}>
-        <Axis field="date" tickCount={5} style={{ label: { fontSize: 10 } }} />
-        <Axis field="close" tickCount={5} style={{ label: { fontSize: 10 } }} />
-        <Line x="date" y="close" color={upColor} />
-        <Tooltip />
-      </Chart>
-    </Canvas>
-  )
+  // 计算 brush 区间的索引
+  const brushRange = useMemo(() => {
+    if (!data?.categoryData?.length || !dateRange?.start || !dateRange?.end) {
+      return null
+    }
+    
+    const startIdx = data.categoryData.findIndex(d => d >= dateRange.start)
+    const endIdx = data.categoryData.findIndex(d => d > dateRange.end)
+    
+    const start = startIdx >= 0 ? (startIdx / data.categoryData.length) * 100 : 80
+    const end = endIdx >= 0 ? (endIdx / data.categoryData.length) * 100 : 100
+    
+    return { start: Math.max(0, start), end: Math.min(100, end) }
+  }, [data, dateRange])
+
+  useEffect(() => {
+    if (!chartRef.current || !data?.values?.length) return
+
+    if (chartInstanceRef.current) chartInstanceRef.current.dispose()
+    
+    const chart = echarts.init(chartRef.current)
+    chartInstanceRef.current = chart
+
+    // 计算选中区间的涨跌幅
+    let rangeInfo = ''
+    if (brushRange && data.values.length > 0) {
+      const startIdx = Math.floor((brushRange.start / 100) * data.categoryData.length)
+      const endIdx = Math.min(Math.floor((brushRange.end / 100) * data.categoryData.length), data.categoryData.length - 1)
+      if (startIdx >= 0 && endIdx >= startIdx && data.values[startIdx] && data.values[endIdx]) {
+        const startPrice = data.values[startIdx][0] // 开盘价
+        const endPrice = data.values[endIdx][1] // 收盘价
+        const changePct = ((endPrice - startPrice) / startPrice * 100).toFixed(2)
+        rangeInfo = `区间涨幅: ${changePct >= 0 ? '+' : ''}${changePct}%`
+      }
+    }
+
+    chart.setOption({
+      animation: false,
+      title: rangeInfo ? {
+        text: rangeInfo,
+        left: 'center',
+        top: 5,
+        textStyle: { fontSize: 12, fontWeight: 'normal', color: '#666' }
+      } : undefined,
+      tooltip: { 
+        trigger: 'axis', 
+        axisPointer: { type: 'cross' },
+        formatter: (params) => {
+          if (!params || !params.length) return ''
+          const date = params[0].axisValue
+          const kline = params.find(p => p.seriesName === stockName)
+          if (!kline || !kline.data) return date
+          const [open, close, low, high] = kline.data
+          const change = ((close - open) / open * 100).toFixed(2)
+          return `
+            <div style="font-size:12px">
+              <div style="font-weight:bold;margin-bottom:4px">${date}</div>
+              <div>开: ${open.toFixed(2)}</div>
+              <div>收: ${close.toFixed(2)}</div>
+              <div>高: ${high.toFixed(2)}</div>
+              <div>低: ${low.toFixed(2)}</div>
+              <div style="color:${change >= 0 ? upColor : downColor}">涨跌: ${change >= 0 ? '+' : ''}${change}%</div>
+            </div>
+          `
+        }
+      },
+      grid: [
+        { left: 45, right: 10, top: 30, bottom: '28%' },
+        { left: 45, right: 10, top: '75%', bottom: 45 }
+      ],
+      xAxis: [
+        { type: 'category', data: data.categoryData, boundaryGap: false, axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { fontSize: 10 } },
+        { type: 'category', gridIndex: 1, data: data.categoryData, boundaryGap: false, axisLine: { onZero: false }, axisLabel: { show: false } }
+      ],
+      yAxis: [
+        { scale: true, splitArea: { show: true }, axisLabel: { fontSize: 10 } },
+        { scale: true, gridIndex: 1, axisLabel: { show: false }, axisLine: { show: false }, splitLine: { show: false } }
+      ],
+      dataZoom: [
+        { 
+          type: 'slider', 
+          xAxisIndex: [0, 1], 
+          start: brushRange?.start ?? 80, 
+          end: brushRange?.end ?? 100,
+          height: 20,
+          bottom: 10,
+          borderColor: 'transparent',
+          backgroundColor: '#f5f5f5',
+          fillerColor: 'rgba(24, 144, 255, 0.2)',
+          handleStyle: { color: '#1890ff' },
+          textStyle: { fontSize: 10 }
+        }
+      ],
+      visualMap: {
+        show: false,
+        seriesIndex: 1,
+        dimension: 2,
+        pieces: [{ value: 1, color: downColor }, { value: -1, color: upColor }]
+      },
+      series: [
+        {
+          name: stockName,
+          type: 'candlestick',
+          data: data.values,
+          itemStyle: { color: upColor, color0: downColor, borderColor: 'transparent', borderColor0: 'transparent', borderWidth: 0 }
+        },
+        { name: 'Volume', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes }
+      ]
+    })
+
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
+    
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+    }
+  }, [data, stockName, brushRange])
+
+  return <div ref={chartRef} style={{ height }} />
 })
 
 // 财务图表组件
-const FinanceChart = memo(({ data, metric }) => {
-  if (!data?.length) return null
+const FinanceChart = memo(({ data, metric, height = 220 }) => {
+  const chartRef = useRef(null)
+  const chartInstanceRef = useRef(null)
 
-  const chartData = data.slice(-12).map(d => ({
-    period: d.period,
-    value: d[metric] ?? 0,
-  }))
+  useEffect(() => {
+    if (!chartRef.current || !data?.length) return
 
-  return (
-    <Canvas pixelRatio={window.devicePixelRatio}>
-      <Chart data={chartData}>
-        <Axis field="period" tickCount={6} style={{ label: { fontSize: 9 } }} />
-        <Axis field="value" tickCount={5} style={{ label: { fontSize: 10 } }} />
-        <Interval
-          x="period"
-          y="value"
-          color={{
-            field: 'value',
-            callback: (val) => val >= 0 ? '#1890ff' : downColor
-          }}
-        />
-        <Tooltip />
-      </Chart>
-    </Canvas>
-  )
+    if (chartInstanceRef.current) chartInstanceRef.current.dispose()
+    
+    const chart = echarts.init(chartRef.current)
+    chartInstanceRef.current = chart
+
+    const metricConfig = financeMetrics.find(m => m.key === metric)
+    const chartData = data.slice(-12)
+    const categories = chartData.map(d => d.period)
+    const values = chartData.map(d => d[metric] ?? 0)
+
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 50, right: 15, top: 20, bottom: 50 },
+      xAxis: { type: 'category', data: categories, axisLabel: { fontSize: 9, rotate: 45 } },
+      yAxis: { type: 'value', name: metricConfig?.unit, nameTextStyle: { fontSize: 10 }, axisLabel: { fontSize: 10 } },
+      series: [{
+        type: 'bar',
+        data: values,
+        itemStyle: { color: (params) => values[params.dataIndex] >= 0 ? '#1890ff' : downColor }
+      }]
+    })
+
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
+    
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+    }
+  }, [data, metric])
+
+  return <div ref={chartRef} style={{ height }} />
 })
 
-// 基础信息组件
-const BasicInfo = memo(({ stock }) => {
+// 基础信息组件 - 移动端
+const BasicInfoMobile = memo(({ stock }) => {
   if (!stock) return null
   
   const items = [
@@ -238,19 +412,46 @@ const BasicInfo = memo(({ stock }) => {
   ]
 
   return (
-    <Grid columns={3} gap={8} style={{ padding: '12px 0' }}>
+    <MobileGrid columns={3} gap={8} style={{ padding: '12px 0' }}>
       {items.map((item, idx) => (
-        <Grid.Item key={idx} style={{ textAlign: 'center' }}>
+        <MobileGrid.Item key={idx} style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>{item.label}</div>
           <div style={{ fontSize: 14, fontWeight: 'bold', color: item.color || '#333' }}>{item.value}</div>
-        </Grid.Item>
+        </MobileGrid.Item>
       ))}
-    </Grid>
+    </MobileGrid>
   )
 })
 
-// 财务数据组件
-const FinanceSection = memo(({ data, reportType, onReportTypeChange }) => {
+// 基础信息组件 - 桌面端
+const BasicInfoDesktop = memo(({ stock }) => {
+  if (!stock) return null
+  
+  const items = [
+    { label: '最新价', value: stock.latestPrice?.toFixed(2) || '-', color: (stock.changePct || 0) >= 0 ? upColor : downColor },
+    { label: '涨幅', value: stock.changePct ? `${stock.changePct >= 0 ? '+' : ''}${stock.changePct?.toFixed(2)}%` : '-', color: (stock.changePct || 0) >= 0 ? upColor : downColor },
+    { label: '市值', value: stock.totalMarketCap ? `${(stock.totalMarketCap / 100000000).toFixed(0)}亿` : '-' },
+    { label: '市盈率', value: stock.peRatio?.toFixed(2) || '-' },
+    { label: '市净率', value: stock.pbRatio?.toFixed(2) || '-' },
+    { label: '换手率', value: stock.turnoverRate ? `${stock.turnoverRate.toFixed(2)}%` : '-' },
+    { label: '振幅', value: stock.amplitude ? `${stock.amplitude.toFixed(2)}%` : '-' },
+    { label: '量比', value: stock.volumeRatio?.toFixed(2) || '-' },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, padding: '16px 0' }}>
+      {items.map((item, idx) => (
+        <div key={idx} style={{ minWidth: 80 }}>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>{item.label}</div>
+          <div style={{ fontSize: 16, fontWeight: 'bold', color: item.color || '#333' }}>{item.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+})
+
+// 财务数据组件 - 移动端
+const FinanceSectionMobile = memo(({ data, reportType, onReportTypeChange }) => {
   const [metric, setMetric] = useState('netProfit')
 
   return (
@@ -266,7 +467,7 @@ const FinanceSection = memo(({ data, reportType, onReportTypeChange }) => {
       
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
         {financeMetrics.map(m => (
-          <Tag
+          <MobileTag
             key={m.key}
             color={metric === m.key ? 'primary' : 'default'}
             fill={metric === m.key ? 'solid' : 'outline'}
@@ -274,16 +475,14 @@ const FinanceSection = memo(({ data, reportType, onReportTypeChange }) => {
             style={{ fontSize: 12, padding: '4px 8px' }}
           >
             {m.label}
-          </Tag>
+          </MobileTag>
         ))}
       </div>
 
       {data?.length > 0 ? (
-        <div style={{ height: 220 }}>
-          <FinanceChart data={data} metric={metric} />
-        </div>
+        <FinanceChart data={data} metric={metric} />
       ) : (
-        <Empty description="暂无财务数据" style={{ padding: 40 }} />
+        <MobileEmpty description="暂无财务数据" style={{ padding: 40 }} />
       )}
 
       {data?.length > 0 && (
@@ -310,8 +509,74 @@ const FinanceSection = memo(({ data, reportType, onReportTypeChange }) => {
   )
 })
 
-// 新闻列表组件
-const NewsSection = memo(({ news }) => (
+// 财务数据组件 - 桌面端
+const FinanceSectionDesktop = memo(({ data, reportType, onReportTypeChange }) => {
+  const [metric, setMetric] = useState('netProfit')
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+        <span style={{ color: '#666' }}>报告类型:</span>
+        <Space>
+          {reportTypeOptions.map(opt => (
+            <Tag
+              key={opt.value}
+              color={reportType === opt.value ? 'blue' : 'default'}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onReportTypeChange(opt.value)}
+            >
+              {opt.label}
+            </Tag>
+          ))}
+        </Space>
+      </div>
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <span style={{ color: '#666' }}>指标:</span>
+        {financeMetrics.map(m => (
+          <Tag
+            key={m.key}
+            color={metric === m.key ? 'blue' : 'default'}
+            style={{ cursor: 'pointer' }}
+            onClick={() => setMetric(m.key)}
+          >
+            {m.label}
+          </Tag>
+        ))}
+      </div>
+
+      {data?.length > 0 ? (
+        <FinanceChart data={data} metric={metric} height={300} />
+      ) : (
+        <Empty description="暂无财务数据" style={{ padding: 60 }} />
+      )}
+
+      {data?.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 'bold', marginBottom: 12 }}>近期数据</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+            {data.slice(-6).reverse().map((item, idx) => (
+              <div key={idx} style={{ padding: 12, background: '#fafafa', borderRadius: 8 }}>
+                <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>{item.period}</div>
+                <div style={{ fontSize: 16, fontWeight: 'bold', color: item.netProfit >= 0 ? '#1890ff' : downColor }}>
+                  {item.netProfit?.toFixed(2)}亿
+                </div>
+                {item.netProfitYoy !== null && (
+                  <div style={{ fontSize: 12, marginTop: 4, color: item.netProfitYoy >= 0 ? upColor : downColor }}>
+                    同比: {item.netProfitYoy >= 0 ? '+' : ''}{item.netProfitYoy?.toFixed(1)}%
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
+
+// 新闻列表组件 - 移动端
+const NewsSectionMobile = memo(({ news }) => (
   <List>
     {news.length > 0 ? (
       news.map((item, idx) => (
@@ -329,33 +594,103 @@ const NewsSection = memo(({ news }) => (
         </List.Item>
       ))
     ) : (
-      <Empty description="暂无相关资讯" style={{ padding: 40 }} />
+      <MobileEmpty description="暂无相关资讯" style={{ padding: 40 }} />
     )}
   </List>
 ))
+
+// 新闻列表组件 - 桌面端
+const NewsSectionDesktop = memo(({ news }) => (
+  <div>
+    {news.length > 0 ? (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {news.map((item, idx) => (
+          <div 
+            key={idx} 
+            onClick={() => window.open(item.url, '_blank')}
+            style={{ 
+              padding: 16, 
+              background: '#fafafa', 
+              borderRadius: 8, 
+              cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#f0f0f0'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#fafafa'}
+          >
+            <div style={{ fontSize: 15, lineHeight: 1.5, marginBottom: 8 }}>{item.title}</div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#999' }}>
+              <span>{item.source}</span>
+              <span>{item.date}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <Empty description="暂无相关资讯" style={{ padding: 60 }} />
+    )}
+  </div>
+))
+
+// 生成东财链接
+const getEastMoneyUrl = (symbol, market = 'hk') => {
+  if (market === 'a') {
+    const prefix = symbol.startsWith('6') ? 'sh' : 'sz'
+    return `https://quote.eastmoney.com/${prefix}${symbol}.html`
+  }
+  return `https://quote.eastmoney.com/hk/${symbol}.html`
+}
+
+// 生成雪球链接
+const getXueqiuUrl = (symbol, market = 'hk') => {
+  if (market === 'a') {
+    const prefix = symbol.startsWith('6') ? 'SH' : 'SZ'
+    return `https://xueqiu.com/S/${prefix}${symbol}`
+  }
+  return `https://xueqiu.com/S/${symbol}`
+}
+
+// 判断是否为移动端
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+  
+  return isMobile
+}
 
 // 主组件 - 路由页面
 export default function DetailMobilePage() {
   const { symbol } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   
   const [loading, setLoading] = useState(true)
   const [stock, setStock] = useState(null)
-  const [klineData, setKlineData] = useState([])
+  const [klineData, setKlineData] = useState(null)
   const [financeData, setFinanceData] = useState([])
   const [stockNews, setStockNews] = useState([])
   const [reportType, setReportType] = useState('')
   const [activeTab, setActiveTab] = useState('kline')
 
-  // 从 URL 参数获取股票名称（用于新闻搜索）
+  // 从 URL 参数获取股票名称、日期区间和市场
   const stockName = searchParams.get('name') || ''
+  const market = searchParams.get('market') || 'hk'
+  const dateRange = useMemo(() => ({
+    start: searchParams.get('start') || '',
+    end: searchParams.get('end') || ''
+  }), [searchParams])
 
   // 加载财务数据
   const loadFinanceData = useCallback(async (sym, type) => {
-    const finance = await fetchFinanceData(sym, type)
+    const finance = await fetchFinanceData(sym, type, market)
     setFinanceData(finance)
-  }, [])
+  }, [market])
 
   // 报告类型变化
   const handleReportTypeChange = useCallback((value) => {
@@ -381,18 +716,16 @@ export default function DetailMobilePage() {
     const loadData = async () => {
       setLoading(true)
       try {
-        // 并行加载所有数据
         const [stockInfo, kline, finance] = await Promise.all([
-          fetchStockInfo(symbol, stockName),
-          fetchStockKline(symbol),
-          fetchFinanceData(symbol, ''),
+          fetchStockInfo(symbol, stockName, market),
+          fetchStockKline(symbol, market),
+          fetchFinanceData(symbol, '', market),
         ])
         
         setStock(stockInfo)
         setKlineData(kline)
         setFinanceData(finance)
         
-        // 新闻使用股票名称搜索
         const newsName = stockInfo?.name || stockName
         if (newsName) {
           const news = await fetchStockNews(newsName)
@@ -400,7 +733,9 @@ export default function DetailMobilePage() {
         }
       } catch (error) {
         console.error('加载数据失败:', error)
-        Toast.show({ content: '加载数据失败', icon: 'fail' })
+        if (isMobile) {
+          Toast.show({ content: '加载数据失败', icon: 'fail' })
+        }
       } finally {
         setLoading(false)
       }
@@ -408,22 +743,41 @@ export default function DetailMobilePage() {
 
     loadData()
     setReportType('')
-  }, [symbol, stockName])
+  }, [symbol, stockName, market, isMobile])
 
   if (loading) {
+    if (isMobile) {
+      return (
+        <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
+          <SpinLoading color="primary" />
+        </div>
+      )
+    }
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-        <SpinLoading color="primary" />
+        <Spin size="large" />
       </div>
     )
   }
 
   if (!stock) {
+    if (isMobile) {
+      return (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f5f5' }}>
+          <NavBar onBack={handleBack} style={{ background: '#fff', borderBottom: '1px solid #eee' }}>
+            股票详情
+          </NavBar>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MobileEmpty description={`未找到股票 ${symbol}`} />
+          </div>
+        </div>
+      )
+    }
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f5f5' }}>
-        <NavBar onBack={handleBack} style={{ background: '#fff', borderBottom: '1px solid #eee' }}>
-          股票详情
-        </NavBar>
+        <div style={{ padding: 16, background: '#fff', borderBottom: '1px solid #eee' }}>
+          <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回</Button>
+        </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Empty description={`未找到股票 ${symbol}`} />
         </div>
@@ -431,6 +785,86 @@ export default function DetailMobilePage() {
     )
   }
 
+  // 桌面端布局
+  if (!isMobile) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
+        {/* 顶部导航 */}
+        <div style={{ padding: '12px 24px', background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回</Button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 20, fontWeight: 'bold' }}>{stock.name}</span>
+              <span style={{ fontSize: 14, color: '#999' }}>{stock.symbol}</span>
+              <span style={{ fontSize: 24, fontWeight: 'bold', color: (stock.changePct || 0) >= 0 ? upColor : downColor }}>
+                {stock.latestPrice?.toFixed(2) || '-'}
+              </span>
+              {stock.changePct !== undefined && (
+                <Tag color={(stock.changePct || 0) >= 0 ? 'red' : 'green'}>
+                  {stock.changePct >= 0 ? '+' : ''}{stock.changePct?.toFixed(2)}%
+                </Tag>
+              )}
+            </div>
+          </div>
+          <Space>
+            <Tooltip title="在东方财富查看">
+              <Button size="small" onClick={() => window.open(getEastMoneyUrl(stock.symbol, market), '_blank')}>东财</Button>
+            </Tooltip>
+            <Tooltip title="在雪球查看">
+              <Button size="small" onClick={() => window.open(getXueqiuUrl(stock.symbol, market), '_blank')}>雪球</Button>
+            </Tooltip>
+          </Space>
+        </div>
+
+        {/* 基本信息 */}
+        <div style={{ padding: '0 24px' }}>
+          <Card style={{ marginTop: 16 }}>
+            <BasicInfoDesktop stock={stock} />
+          </Card>
+        </div>
+
+        {/* 内容区域 */}
+        <div style={{ padding: '16px 24px' }}>
+          <Card>
+            <Tabs activeKey={activeTab} onChange={setActiveTab}>
+              <Tabs.TabPane tab="K线走势" key="kline">
+                <div style={{ padding: '16px 0' }}>
+                  {dateRange.start && dateRange.end && (
+                    <div style={{ fontSize: 13, color: '#999', marginBottom: 12 }}>
+                      查询区间: {dateRange.start} ~ {dateRange.end}
+                    </div>
+                  )}
+                  {klineData?.values?.length > 0 ? (
+                    <KlineChart data={klineData} stockName={stock.name} dateRange={dateRange} height={400} />
+                  ) : (
+                    <Empty description="暂无K线数据" style={{ padding: 60 }} />
+                  )}
+                </div>
+              </Tabs.TabPane>
+
+              <Tabs.TabPane tab="财务数据" key="finance">
+                <div style={{ padding: '16px 0' }}>
+                  <FinanceSectionDesktop
+                    data={financeData}
+                    reportType={reportType}
+                    onReportTypeChange={handleReportTypeChange}
+                  />
+                </div>
+              </Tabs.TabPane>
+
+              <Tabs.TabPane tab="相关资讯" key="news">
+                <div style={{ padding: '16px 0' }}>
+                  <NewsSectionDesktop news={stockNews} />
+                </div>
+              </Tabs.TabPane>
+            </Tabs>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  // 移动端布局
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f5f5f5' }}>
       {/* 顶部导航 */}
@@ -442,7 +876,7 @@ export default function DetailMobilePage() {
       </NavBar>
 
       {/* 价格信息 */}
-      <Card style={{ margin: 0, borderRadius: 0 }}>
+      <MobileCard style={{ margin: 0, borderRadius: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
           <span style={{ fontSize: 28, fontWeight: 'bold', color: (stock.changePct || 0) >= 0 ? upColor : downColor }}>
             {stock.latestPrice?.toFixed(2) || '-'}
@@ -453,41 +887,46 @@ export default function DetailMobilePage() {
             </span>
           )}
         </div>
-        <BasicInfo stock={stock} />
-      </Card>
+        <BasicInfoMobile stock={stock} />
+      </MobileCard>
 
       {/* 内容区域 */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ '--title-font-size': '14px' }}>
-          <Tabs.Tab title="走势" key="kline">
-            <Card style={{ margin: 12, borderRadius: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 'bold', marginBottom: 12 }}>近6个月走势</div>
-              {klineData.length > 0 ? (
-                <div style={{ height: 200 }}>
-                  <KlineChart data={klineData} />
-                </div>
+        <MobileTabs activeKey={activeTab} onChange={setActiveTab} style={{ '--title-font-size': '14px' }}>
+          <MobileTabs.Tab title="走势" key="kline">
+            <MobileCard style={{ margin: 12, borderRadius: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 'bold', marginBottom: 8 }}>
+                K线走势
+                {dateRange.start && dateRange.end && (
+                  <span style={{ fontSize: 11, color: '#999', fontWeight: 'normal', marginLeft: 8 }}>
+                    (首页区间: {dateRange.start} ~ {dateRange.end})
+                  </span>
+                )}
+              </div>
+              {klineData?.values?.length > 0 ? (
+                <KlineChart data={klineData} stockName={stock.name} dateRange={dateRange} />
               ) : (
-                <Empty description="暂无K线数据" style={{ padding: 40 }} />
+                <MobileEmpty description="暂无K线数据" style={{ padding: 40 }} />
               )}
-            </Card>
-          </Tabs.Tab>
+            </MobileCard>
+          </MobileTabs.Tab>
 
-          <Tabs.Tab title="财务" key="finance">
-            <Card style={{ margin: 12, borderRadius: 8 }}>
-              <FinanceSection
+          <MobileTabs.Tab title="财务" key="finance">
+            <MobileCard style={{ margin: 12, borderRadius: 8 }}>
+              <FinanceSectionMobile
                 data={financeData}
                 reportType={reportType}
                 onReportTypeChange={handleReportTypeChange}
               />
-            </Card>
-          </Tabs.Tab>
+            </MobileCard>
+          </MobileTabs.Tab>
 
-          <Tabs.Tab title="资讯" key="news">
-            <Card style={{ margin: 12, borderRadius: 8, padding: 0 }}>
-              <NewsSection news={stockNews} />
-            </Card>
-          </Tabs.Tab>
-        </Tabs>
+          <MobileTabs.Tab title="资讯" key="news">
+            <MobileCard style={{ margin: 12, borderRadius: 8, padding: 0 }}>
+              <NewsSectionMobile news={stockNews} />
+            </MobileCard>
+          </MobileTabs.Tab>
+        </MobileTabs>
       </div>
     </div>
   )

@@ -22,16 +22,7 @@ body {
   white-space: nowrap !important;
 }
 
-/* 预设分组标题样式 */
-.ant-picker-presets ul li:has(span:first-child) span:first-child {
-  font-size: 12px;
-}
-
-.ant-picker-presets ul li:nth-child(1),
-.ant-picker-presets ul li:nth-child(8) {
-  color: #999 !important;
-  font-size: 12px !important;
-  pointer-events: none;
-  background: #f5f5f5 !important;
-  cursor: default !important;
+/* 预设选项样式 */
+.ant-picker-presets ul li {
+  font-size: 13px;
 }
