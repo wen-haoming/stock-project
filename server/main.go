@@ -187,6 +187,7 @@ func setupRouter() *gin.Engine {
 		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(bodyStr))
 	})
 
+<<<<<<< HEAD
 	// PDF代理接口（解决防盗链，使用wget绕过Bot检测）
 	r.GET("/api/v1/stock/pdf", func(c *gin.Context) {
 		pdfUrl := c.Query("url")
@@ -221,6 +222,8 @@ func setupRouter() *gin.Engine {
 		c.Writer.Write(output)
 	})
 
+=======
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
 	return r
 }
 

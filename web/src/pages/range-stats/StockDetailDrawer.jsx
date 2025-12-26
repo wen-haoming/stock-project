@@ -32,12 +32,33 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk', dateRange }
           </span>
           <Space size={4} style={{ marginLeft: 8 }}>
             <Tooltip title="在东方财富查看">
+<<<<<<< HEAD
               <a href={getEastMoneyUrl(stock.symbol, market)} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}>东财</a>
             </Tooltip>
             <Tooltip title="在雪球查看">
               <a href={getXueqiuUrl(stock.symbol, market)} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}>雪球</a>
+=======
+              <a 
+                href={getEastMoneyUrl(stock.symbol, market)} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}
+              >
+                东财
+              </a>
+            </Tooltip>
+            <Tooltip title="在雪球查看">
+              <a 
+                href={getXueqiuUrl(stock.symbol, market)} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ fontSize: 12, padding: '2px 8px', background: '#f5f5f5', borderRadius: 4 }}
+              >
+                雪球
+              </a>
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
             </Tooltip>
           </Space>
         </div>
@@ -46,6 +67,10 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk', dateRange }
       width="100%"
       onClose={onClose}
       open={visible}
+<<<<<<< HEAD
+=======
+      destroyOnClose
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
       styles={{ body: { padding: 0, overflow: 'auto', background: '#f5f5f5' } }}
     >
       {visible && <StockDetail stock={stock} market={market} dateRange={dateRange} />}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { Card, Table, Spin, Empty, Radio, Statistic, Row, Col, Grid, Select, Space, Button, message, Tooltip } from 'antd'
-import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, FileTextOutlined } from '@ant-design/icons'
+import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, FileTextOutlined, FilePdfOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
@@ -111,6 +111,7 @@ const fetchAnnouncements = async (symbol, page = 1, pageSize = 10, category = '0
     })
     const data = response.data?.data || {}
     return {
+<<<<<<< HEAD
       list: (data.list || []).map(item => {
         // 从 eiTime 解析时间戳，格式: "2025-12-22 21:05:29:000"
         let timestamp = Date.now()
@@ -135,6 +136,16 @@ const fetchAnnouncements = async (symbol, page = 1, pageSize = 10, category = '0
           pdfUrl,
         }
       }),
+=======
+      list: (data.list || []).map(item => ({
+        title: item.title_ch || item.title,
+        date: item.notice_date?.split(' ')[0] || '',
+        code: item.art_code,
+        category: item.columns?.[0]?.column_name || '',
+        url: `https://data.eastmoney.com/notices/detail/${symbol}/${item.art_code}.html`,
+        pdfUrl: `https://pdf.dfcfw.com/pdf/H2_${item.art_code}_1.pdf`,
+      })),
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
       total: data.total_hits || 0,
     }
   } catch (error) {
@@ -365,7 +376,11 @@ const KlineChart = memo(({ data, stockName, isMobile, dateRange }) => {
     }
   }, [data, stockName, dateRange])
 
+<<<<<<< HEAD
   return <div ref={chartRef} style={{ height: isMobile ? 250 : 350 }} />
+=======
+  return <div ref={chartRef} style={{ height: isMobile ? 200 : 300 }} />
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
 })
 
 // 财务图表组件
@@ -495,9 +510,12 @@ const AnnouncementTable = memo(({
   pagination,
   onPaginationChange 
 }) => {
+<<<<<<< HEAD
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [downloading, setDownloading] = useState(false)
 
+=======
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
   // 根据市场生成不同的外部链接
   let ths10jqkaUrl, exchangeUrl, exchangeName
 
@@ -511,6 +529,7 @@ const AnnouncementTable = memo(({
     exchangeName = '港交所披露易'
   }
 
+<<<<<<< HEAD
   // 下载单个 PDF
   const downloadPdf = async (record) => {
     try {
@@ -549,6 +568,8 @@ const AnnouncementTable = memo(({
     message.success(`已下载 ${selectedItems.length} 个公告`)
   }
 
+=======
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
   // 公告表格列定义
   const columns = [
     { 
@@ -563,11 +584,18 @@ const AnnouncementTable = memo(({
       ellipsis: true,
       render: (v, record) => (
         <a 
+<<<<<<< HEAD
           href={record.pdfUrl}
           target="_blank" 
           rel="noopener noreferrer"
           style={{ fontSize: 13, color: '#333' }}
           onClick={(e) => e.stopPropagation()}
+=======
+          href={record.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={{ fontSize: 13, color: '#333' }}
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
         >
           {v}
         </a>
@@ -587,10 +615,17 @@ const AnnouncementTable = memo(({
           <Button 
             type="link" 
             size="small" 
+<<<<<<< HEAD
             icon={<DownloadOutlined />}
             onClick={(e) => {
               e.stopPropagation()
               downloadPdf(record)
+=======
+            icon={<FilePdfOutlined />}
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(record.pdfUrl, '_blank')
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
             }}
           />
         </Tooltip>
@@ -598,24 +633,37 @@ const AnnouncementTable = memo(({
     },
   ]
 
+<<<<<<< HEAD
   // 行选择配置
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys) => setSelectedRowKeys(keys),
   }
 
+=======
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
   return (
     <Card 
       title={
         <Space>
           <FileTextOutlined />
           <span>公司公告</span>
+          {market === 'a' && onCategoryChange && (
+            <Select 
+              value={category} 
+              onChange={onCategoryChange} 
+              size="small" 
+              style={{ width: 90, marginLeft: 8 }} 
+              options={announcementCategories}
+            />
+          )}
         </Space>
       } 
       size="small" 
       style={{ marginBottom: 12 }}
       extra={
         <Space size="small">
+<<<<<<< HEAD
           {market === 'a' && selectedRowKeys.length > 0 && (
             <Button 
               type="primary" 
@@ -627,12 +675,15 @@ const AnnouncementTable = memo(({
               下载选中({selectedRowKeys.length})
             </Button>
           )}
+=======
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
           <Button type="link" size="small" onClick={() => window.open(ths10jqkaUrl, '_blank')}>同花顺</Button>
           <Button type="link" size="small" onClick={() => window.open(exchangeUrl, '_blank')}>{exchangeName}</Button>
         </Space>
       }
     >
       {market === 'a' ? (
+<<<<<<< HEAD
         <>
           {onCategoryChange && (
             <div style={{ marginBottom: 12 }}>
@@ -668,6 +719,26 @@ const AnnouncementTable = memo(({
             }}
           />
         </>
+=======
+        <Table
+          size="small"
+          loading={loading}
+          dataSource={announcements}
+          columns={columns}
+          rowKey="code"
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            pageSizeOptions: ['10', '20', '50'],
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: onPaginationChange,
+            onShowSizeChange: onPaginationChange,
+          }}
+        />
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
       ) : (
         <div style={{ color: '#666', fontSize: 13, padding: '12px 0' }}>
           港股公告请点击上方链接查看
@@ -943,9 +1014,15 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
           
           <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
             {klineData?.values?.length > 0 ? (
+<<<<<<< HEAD
               <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} dateRange={dateRange} />
             ) : (
               <div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+=======
+              <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
                 <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
             )}
@@ -1012,9 +1089,15 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
           
           <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
             {klineData?.values?.length > 0 ? (
+<<<<<<< HEAD
               <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} dateRange={dateRange} />
             ) : (
               <div style={{ height: 350, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+=======
+              <KlineChart data={klineData} stockName={stock.name} isMobile={isMobile} />
+            ) : (
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+>>>>>>> 48a6934e88c18234ecc5f50afe78433f1bde73d0
                 <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
             )}
