@@ -249,18 +249,18 @@ func (s *StockService) FetchStockSector(symbol, market string) (string, error) {
 }
 
 // SaveStocks 保存股票数据到数据库
-func (s *StockService) SaveStocks(ctx context.Context, stocks []models.StockData) error {
-	return s.stockRepo.UpsertStocks(ctx, stocks)
+func (s *StockService) SaveStocks(ctx context.Context, stocks []models.StockData, market string) error {
+	return s.stockRepo.UpsertStocks(ctx, stocks, market)
 }
 
 // GetStockBySymbol 获取单只股票
-func (s *StockService) GetStockBySymbol(ctx context.Context, symbol string) (*models.StockData, error) {
-	return s.stockRepo.GetStockBySymbol(ctx, symbol)
+func (s *StockService) GetStockBySymbol(ctx context.Context, symbol, market string) (*models.StockData, error) {
+	return s.stockRepo.GetStockBySymbol(ctx, symbol, market)
 }
 
 // GetStocksBySymbols 批量获取股票
-func (s *StockService) GetStocksBySymbols(ctx context.Context, symbols []string) ([]models.StockData, error) {
-	return s.stockRepo.GetStocksBySymbols(ctx, symbols)
+func (s *StockService) GetStocksBySymbols(ctx context.Context, symbols []string, market string) ([]models.StockData, error) {
+	return s.stockRepo.GetStocksBySymbols(ctx, symbols, market)
 }
 
 // ClearCache 清除缓存
@@ -334,7 +334,7 @@ func (s *StockService) SyncHKStockData(ctx context.Context) error {
 		return err
 	}
 	log.Printf("获取到 %d 条港股数据", len(stocks))
-	return s.SaveStocks(ctx, stocks)
+	return s.SaveStocks(ctx, stocks, "hk")
 }
 
 // SyncAStockData 同步A股数据
@@ -344,5 +344,5 @@ func (s *StockService) SyncAStockData(ctx context.Context) error {
 		return err
 	}
 	log.Printf("获取到 %d 条A股数据", len(stocks))
-	return s.SaveStocks(ctx, stocks)
+	return s.SaveStocks(ctx, stocks, "a")
 }

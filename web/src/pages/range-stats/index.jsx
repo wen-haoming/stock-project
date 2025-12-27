@@ -351,6 +351,11 @@ function RangeStatsPC() {
   useEffect(() => {
     if (!chartContainerRef.current) return
 
+    // 如果已有实例，先销毁
+    if (chartRef.current) {
+      chartRef.current.dispose()
+    }
+
     const chart = echarts.init(chartContainerRef.current)
     chartRef.current = chart
 
@@ -388,13 +393,19 @@ function RangeStatsPC() {
       }
     })
 
-    const handleResize = () => chart.resize()
+    const handleResize = () => {
+      if (chartRef.current && !chartRef.current.isDisposed()) {
+        chartRef.current.resize()
+      }
+    }
     window.addEventListener('resize', handleResize)
-    setTimeout(() => chart.resize(), 0)
+    setTimeout(() => handleResize(), 0)
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      chart.dispose()
+      if (chartRef.current && !chartRef.current.isDisposed()) {
+        chartRef.current.dispose()
+      }
     }
   }, []) // 移除依赖，只在组件挂载时初始化一次
 

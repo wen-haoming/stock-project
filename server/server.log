@@ -1,0 +1,27 @@
+2025/12/28 00:05:11 服务器启动，端口: 8080
+2025/12/28 00:05:11 MongoDB connected: mongodb://localhost:27017/stock_db
+2025/12/28 00:05:11 调度器启动
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /ping                     --> server/routes.SetupRouter.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/stock/all         --> server/controllers.(*StockController).GetAllData-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/hist        --> server/controllers.(*StockController).GetStockHist-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/detail      --> server/controllers.(*StockController).GetStockDetail-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/range       --> server/controllers.(*RangeController).GetRangeData-fm (4 handlers)
+[GIN-debug] POST   /api/v1/stock/range/refresh --> server/controllers.(*RangeController).RefreshRangeData-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/all_kdj     --> server/controllers.(*KDJController).GetAllKDJ-fm (4 handlers)
+[GIN-debug] GET    /api/v1/news/forex        --> server/controllers.(*ProxyController).GetForexNews-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/announcements --> server/controllers.(*ProxyController).GetAnnouncements-fm (4 handlers)
+[GIN-debug] GET    /api/v1/stock/news        --> server/controllers.(*ProxyController).GetStockNews-fm (4 handlers)
+2025/12/28 00:05:11 开始初始数据同步...
+[GIN-debug] GET    /api/v1/stock/pdf         --> server/controllers.(*ProxyController).ProxyPDF-fm (4 handlers)
+[GIN-debug] GET    /api/v1/db/status         --> server/controllers.(*DBController).GetStatus-fm (4 handlers)
+[GIN-debug] POST   /api/v1/db/sync           --> server/controllers.(*DBController).ManualSync-fm (4 handlers)
+[GIN-debug] POST   /api/v1/db/sync-history   --> server/controllers.(*DBController).ManualSyncHistory-fm (4 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN-debug] [ERROR] listen tcp :8080: bind: address already in use
+2025/12/28 00:05:11 服务器启动失败: listen tcp :8080: bind: address already in use

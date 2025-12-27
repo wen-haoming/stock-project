@@ -508,7 +508,8 @@ export default function IndexMobile() {
       )}
 
       {/* 股票列表 - 平铺展示 */}
-      <Card ref={listCardRef} style={{ margin: '0 8px 8px', borderRadius: 8 }} bodyStyle={{ padding: 0 }}>
+      <div ref={listCardRef}>
+      <Card style={{ margin: '0 8px 8px', borderRadius: 8 }} bodyStyle={{ padding: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 'bold' }}>
@@ -554,6 +555,7 @@ export default function IndexMobile() {
           {hasMore ? <SpinLoading /> : null}
         </InfiniteScroll>
       </Card>
+      </div>
 
       {/* 操作菜单 */}
       <ActionSheet

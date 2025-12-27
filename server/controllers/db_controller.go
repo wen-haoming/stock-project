@@ -97,13 +97,34 @@ func (c *DBController) ManualSync(ctx *gin.Context) {
 // POST /api/v1/db/sync-history
 func (c *DBController) ManualSyncHistory(ctx *gin.Context) {
 	mode := ctx.DefaultQuery("mode", "incremental")
+	market := ctx.DefaultQuery("market", "all")
 	dbCtx := ctx.Request.Context()
 
 	var err error
 	if mode == "full" {
-		err = c.klineService.SyncHKHistoryData(dbCtx)
+		switch market {
+		case "hk":
+			err = c.klineService.SyncHKHistoryData(dbCtx)
+		case "a":
+			err = c.klineService.SyncAHistoryData(dbCtx)
+		default:
+			err = c.klineService.SyncHKHistoryData(dbCtx)
+			if err == nil {
+				err = c.klineService.SyncAHistoryData(dbCtx)
+			}
+		}
 	} else {
-		err = c.klineService.SyncHKHistoryDataIncremental(dbCtx)
+		switch market {
+		case "hk":
+			err = c.klineService.SyncHKHistoryDataIncremental(dbCtx)
+		case "a":
+			err = c.klineService.SyncAHistoryDataIncremental(dbCtx)
+		default:
+			err = c.klineService.SyncHKHistoryDataIncremental(dbCtx)
+			if err == nil {
+				err = c.klineService.SyncAHistoryDataIncremental(dbCtx)
+			}
+		}
 	}
 
 	if err != nil {

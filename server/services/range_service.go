@@ -86,8 +86,8 @@ func (s *RangeService) GetRangeData(ctx context.Context, query RangeQuery) ([]mo
 func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery) ([]models.RangeStockData, error) {
 	log.Printf("开始计算区间涨幅: %s ~ %s, market=%s", query.StartDate, query.EndDate, query.Market)
 
-	// 使用聚合查询计算区间涨幅
-	aggResults, err := s.klineRepo.CalculateRangeByAggregation(ctx, query.StartDate, query.EndDate)
+	// 使用聚合查询计算区间涨幅（传入 market 参数查询对应的表）
+	aggResults, err := s.klineRepo.CalculateRangeByAggregation(ctx, query.StartDate, query.EndDate, query.Market)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery)
 		symbols = append(symbols, r.Symbol)
 	}
 
-	stocks, err := s.stockRepo.GetStocksBySymbols(ctx, symbols)
+	stocks, err := s.stockRepo.GetStocksBySymbols(ctx, symbols, query.Market)
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +120,6 @@ func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery)
 
 		stock, exists := stockMap[agg.Symbol]
 		if !exists {
-			continue
-		}
-
-		// 过滤市场
-		if query.Market != "" && stock.Market != query.Market {
 			continue
 		}
 

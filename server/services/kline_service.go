@@ -29,8 +29,8 @@ func NewKlineService() *KlineService {
 }
 
 // GetKlinesBySymbol 获取股票K线数据
-func (s *KlineService) GetKlinesBySymbol(ctx context.Context, symbol, startDate, endDate string) ([]models.StockKline, error) {
-	return s.klineRepo.GetKlinesBySymbol(ctx, symbol, startDate, endDate)
+func (s *KlineService) GetKlinesBySymbol(ctx context.Context, symbol, market, startDate, endDate string) ([]models.StockKline, error) {
+	return s.klineRepo.GetKlinesBySymbol(ctx, symbol, market, startDate, endDate)
 }
 
 // FetchAndSaveKlines 获取并保存K线数据
@@ -44,7 +44,7 @@ func (s *KlineService) FetchAndSaveKlines(ctx context.Context, symbol, market, s
 		return nil
 	}
 
-	return s.klineRepo.UpsertKlines(ctx, klines)
+	return s.klineRepo.UpsertKlines(ctx, klines, market)
 }
 
 // fetchKlineFromAPI 从API获取K线数据
@@ -173,24 +173,87 @@ func (s *KlineService) SyncHKHistoryDataIncremental(ctx context.Context) error {
 	return nil
 }
 
+// SyncAHistoryData 同步A股历史K线数据（全量）
+func (s *KlineService) SyncAHistoryData(ctx context.Context) error {
+	// 获取所有A股
+	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "a", 10000, 0)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("开始同步 %d 只A股的历史K线数据", len(stocks))
+
+	// 2年数据
+	endDate := time.Now().Format("2006-01-02")
+	startDate := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
+
+	successCount := 0
+	for i, stock := range stocks {
+		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "a", startDate, endDate); err != nil {
+			log.Printf("同步 %s K线失败: %v", stock.Symbol, err)
+			continue
+		}
+		successCount++
+
+		// 每100只股票打印进度
+		if (i+1)%100 == 0 {
+			log.Printf("已同步 %d/%d 只A股", i+1, len(stocks))
+		}
+
+		// 限流，避免请求过快
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	log.Printf("A股历史K线同步完成，成功 %d/%d", successCount, len(stocks))
+	return nil
+}
+
+// SyncAHistoryDataIncremental 增量同步A股历史K线
+func (s *KlineService) SyncAHistoryDataIncremental(ctx context.Context) error {
+	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "a", 10000, 0)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("开始增量同步 %d 只A股的K线数据", len(stocks))
+
+	// 最近7天
+	endDate := time.Now().Format("2006-01-02")
+	startDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+
+	successCount := 0
+	for _, stock := range stocks {
+		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "a", startDate, endDate); err != nil {
+			continue
+		}
+		successCount++
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	log.Printf("A股K线增量同步完成，成功 %d/%d", successCount, len(stocks))
+	return nil
+}
+
 // GetLatestKlineDate 获取最新K线日期
-func (s *KlineService) GetLatestKlineDate(ctx context.Context, symbol string) (string, error) {
-	return s.klineRepo.GetLatestKlineDate(ctx, symbol)
+func (s *KlineService) GetLatestKlineDate(ctx context.Context, symbol, market string) (string, error) {
+	return s.klineRepo.GetLatestKlineDate(ctx, symbol, market)
 }
 
 // CountKlines 统计K线数量
 func (s *KlineService) CountKlines(ctx context.Context) (int64, error) {
-	return s.klineRepo.CountKlines(ctx)
+	hkCount, _ := s.klineRepo.CountKlines(ctx, "hk")
+	aCount, _ := s.klineRepo.CountKlines(ctx, "a")
+	return hkCount + aCount, nil
 }
 
 // GetAllSymbols 获取所有有K线数据的股票代码
-func (s *KlineService) GetAllSymbols(ctx context.Context) ([]string, error) {
-	return s.klineRepo.GetAllSymbols(ctx)
+func (s *KlineService) GetAllSymbols(ctx context.Context, market string) ([]string, error) {
+	return s.klineRepo.GetAllSymbols(ctx, market)
 }
 
 // CalculateRangeByAggregation 使用聚合计算区间涨幅
-func (s *KlineService) CalculateRangeByAggregation(ctx context.Context, startDate, endDate string) ([]repositories.RangeAggregationResult, error) {
-	return s.klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate)
+func (s *KlineService) CalculateRangeByAggregation(ctx context.Context, startDate, endDate, market string) ([]repositories.RangeAggregationResult, error) {
+	return s.klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate, market)
 }
 
 // FetchStockHistory 获取历史K线数据（用于API返回）
@@ -284,7 +347,7 @@ func (s *KlineService) FetchStockHistory(symbol, market, period, adjust, startDa
 // GetStockDetailWithIndicators 获取股票详情和技术指标
 func (s *KlineService) GetStockDetailWithIndicators(ctx context.Context, symbol, market string) (*models.StockData, error) {
 	// 获取基础数据
-	stock, err := s.stockRepo.GetStockBySymbol(ctx, symbol)
+	stock, err := s.stockRepo.GetStockBySymbol(ctx, symbol, market)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +355,7 @@ func (s *KlineService) GetStockDetailWithIndicators(ctx context.Context, symbol,
 	// 获取历史K线计算指标
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, -3, 0).Format("2006-01-02")
-	klines, err := s.klineRepo.GetKlinesBySymbol(ctx, symbol, startDate, endDate)
+	klines, err := s.klineRepo.GetKlinesBySymbol(ctx, symbol, market, startDate, endDate)
 	if err != nil || len(klines) < 26 {
 		return stock, nil
 	}

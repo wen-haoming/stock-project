@@ -76,10 +76,6 @@ func IsConnected() bool {
 // InitIndexes 初始化股票数据索引
 func InitIndexes() error {
 	ctx := context.Background()
-	collection := GetCollection("stocks")
-	if collection == nil {
-		return nil
-	}
 
 	indexes := []mongo.IndexModel{
 		{
@@ -87,28 +83,36 @@ func InitIndexes() error {
 			Options: options.Index().SetUnique(true),
 		},
 		{
-			Keys: bson.D{{Key: "market", Value: 1}},
-		},
-		{
 			Keys: bson.D{{Key: "updatedAt", Value: -1}},
 		},
 		{
-			Keys: bson.D{{Key: "market", Value: 1}, {Key: "changePct", Value: -1}},
+			Keys: bson.D{{Key: "changePct", Value: -1}},
 		},
 	}
 
-	_, err := collection.Indexes().CreateMany(ctx, indexes)
-	return err
+	// 港股表
+	hkCollection := GetCollection("stocks_hk")
+	if hkCollection != nil {
+		if _, err := hkCollection.Indexes().CreateMany(ctx, indexes); err != nil {
+			return err
+		}
+	}
+
+	// A 股表
+	aCollection := GetCollection("stocks_a")
+	if aCollection != nil {
+		if _, err := aCollection.Indexes().CreateMany(ctx, indexes); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // InitKlineIndexes 初始化K线数据索引
 func InitKlineIndexes() error {
 	ctx := context.Background()
-	collection := GetCollection("klines")
-	if collection == nil {
-		return nil
-	}
-
+	
 	indexes := []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}},
@@ -122,8 +126,23 @@ func InitKlineIndexes() error {
 		},
 	}
 
-	_, err := collection.Indexes().CreateMany(ctx, indexes)
-	return err
+	// 港股 K 线表
+	hkCollection := GetCollection("klines_hk")
+	if hkCollection != nil {
+		if _, err := hkCollection.Indexes().CreateMany(ctx, indexes); err != nil {
+			return err
+		}
+	}
+
+	// A 股 K 线表
+	aCollection := GetCollection("klines_a")
+	if aCollection != nil {
+		if _, err := aCollection.Indexes().CreateMany(ctx, indexes); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // InitRangeCacheIndexes 初始化区间缓存索引

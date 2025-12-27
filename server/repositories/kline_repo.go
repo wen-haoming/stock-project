@@ -11,22 +11,33 @@ import (
 
 // KlineRepository K线数据仓库
 type KlineRepository struct {
-	collection *mongo.Collection
+	hkCollection *mongo.Collection
+	aCollection  *mongo.Collection
 }
 
 // NewKlineRepository 创建K线仓库实例
 func NewKlineRepository() *KlineRepository {
 	return &KlineRepository{
-		collection: GetCollection("klines"),
+		hkCollection: GetCollection("klines_hk"), // 港股 K 线
+		aCollection:  GetCollection("klines_a"),  // A 股 K 线
 	}
 }
 
+// getCollection 根据市场获取对应的集合
+func (r *KlineRepository) getCollection(market string) *mongo.Collection {
+	if market == "a" {
+		return r.aCollection
+	}
+	return r.hkCollection
+}
+
 // UpsertKlines 批量插入或更新K线数据
-func (r *KlineRepository) UpsertKlines(ctx context.Context, klines []models.StockKline) error {
+func (r *KlineRepository) UpsertKlines(ctx context.Context, klines []models.StockKline, market string) error {
 	if len(klines) == 0 {
 		return nil
 	}
 
+	collection := r.getCollection(market)
 	var operations []mongo.WriteModel
 	for _, kline := range klines {
 		filter := bson.M{"symbol": kline.Symbol, "date": kline.Date}
@@ -36,12 +47,12 @@ func (r *KlineRepository) UpsertKlines(ctx context.Context, klines []models.Stoc
 	}
 
 	opts := options.BulkWrite().SetOrdered(false)
-	_, err := r.collection.BulkWrite(ctx, operations, opts)
+	_, err := collection.BulkWrite(ctx, operations, opts)
 	return err
 }
 
 // GetKlinesBySymbol 获取指定股票的K线数据
-func (r *KlineRepository) GetKlinesBySymbol(ctx context.Context, symbol string, startDate, endDate string) ([]models.StockKline, error) {
+func (r *KlineRepository) GetKlinesBySymbol(ctx context.Context, symbol, market, startDate, endDate string) ([]models.StockKline, error) {
 	filter := bson.M{"symbol": symbol}
 	if startDate != "" && endDate != "" {
 		filter["date"] = bson.M{"$gte": startDate, "$lte": endDate}
@@ -51,8 +62,9 @@ func (r *KlineRepository) GetKlinesBySymbol(ctx context.Context, symbol string, 
 		filter["date"] = bson.M{"$lte": endDate}
 	}
 
+	collection := r.getCollection(market)
 	opts := options.Find().SetSort(bson.D{{Key: "date", Value: 1}})
-	cursor, err := r.collection.Find(ctx, filter, opts)
+	cursor, err := collection.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +78,11 @@ func (r *KlineRepository) GetKlinesBySymbol(ctx context.Context, symbol string, 
 }
 
 // GetLatestKlineDate 获取最新K线日期
-func (r *KlineRepository) GetLatestKlineDate(ctx context.Context, symbol string) (string, error) {
+func (r *KlineRepository) GetLatestKlineDate(ctx context.Context, symbol, market string) (string, error) {
+	collection := r.getCollection(market)
 	opts := options.FindOne().SetSort(bson.D{{Key: "date", Value: -1}})
 	var kline models.StockKline
-	err := r.collection.FindOne(ctx, bson.M{"symbol": symbol}, opts).Decode(&kline)
+	err := collection.FindOne(ctx, bson.M{"symbol": symbol}, opts).Decode(&kline)
 	if err != nil {
 		return "", err
 	}
@@ -77,8 +90,9 @@ func (r *KlineRepository) GetLatestKlineDate(ctx context.Context, symbol string)
 }
 
 // GetAllSymbols 获取所有有K线数据的股票代码
-func (r *KlineRepository) GetAllSymbols(ctx context.Context) ([]string, error) {
-	symbols, err := r.collection.Distinct(ctx, "symbol", bson.M{})
+func (r *KlineRepository) GetAllSymbols(ctx context.Context, market string) ([]string, error) {
+	collection := r.getCollection(market)
+	symbols, err := collection.Distinct(ctx, "symbol", bson.M{})
 	if err != nil {
 		return nil, err
 	}
@@ -93,13 +107,15 @@ func (r *KlineRepository) GetAllSymbols(ctx context.Context) ([]string, error) {
 }
 
 // CountKlines 统计K线数量
-func (r *KlineRepository) CountKlines(ctx context.Context) (int64, error) {
-	return r.collection.CountDocuments(ctx, bson.M{})
+func (r *KlineRepository) CountKlines(ctx context.Context, market string) (int64, error) {
+	collection := r.getCollection(market)
+	return collection.CountDocuments(ctx, bson.M{})
 }
 
 // CountKlinesBySymbol 统计指定股票的K线数量
-func (r *KlineRepository) CountKlinesBySymbol(ctx context.Context, symbol string) (int64, error) {
-	return r.collection.CountDocuments(ctx, bson.M{"symbol": symbol})
+func (r *KlineRepository) CountKlinesBySymbol(ctx context.Context, symbol, market string) (int64, error) {
+	collection := r.getCollection(market)
+	return collection.CountDocuments(ctx, bson.M{"symbol": symbol})
 }
 
 // RangeAggregationResult 区间聚合结果
@@ -112,12 +128,14 @@ type RangeAggregationResult struct {
 }
 
 // CalculateRangeByAggregation 使用聚合计算区间涨幅
-func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, startDate, endDate string) ([]RangeAggregationResult, error) {
+func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, startDate, endDate, market string) ([]RangeAggregationResult, error) {
+	collection := r.getCollection(market)
 	pipeline := mongo.Pipeline{
-		// 筛选日期范围
+		// 先按日期排序，确保 $first/$last 正确
 		{{Key: "$match", Value: bson.M{
 			"date": bson.M{"$gte": startDate, "$lte": endDate},
 		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}}}},
 		// 按股票分组，获取首尾价格
 		{{Key: "$group", Value: bson.M{
 			"_id":        "$symbol",
@@ -128,7 +146,7 @@ func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, start
 		}}},
 	}
 
-	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	cursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +160,9 @@ func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, start
 }
 
 // DeleteKlinesBySymbol 删除指定股票的K线数据
-func (r *KlineRepository) DeleteKlinesBySymbol(ctx context.Context, symbol string) (int64, error) {
-	result, err := r.collection.DeleteMany(ctx, bson.M{"symbol": symbol})
+func (r *KlineRepository) DeleteKlinesBySymbol(ctx context.Context, symbol, market string) (int64, error) {
+	collection := r.getCollection(market)
+	result, err := collection.DeleteMany(ctx, bson.M{"symbol": symbol})
 	if err != nil {
 		return 0, err
 	}

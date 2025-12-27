@@ -134,8 +134,9 @@ export default function RangeStatsPanel({
   }
 
   // 获取区间涨幅股票数据
-  const fetchStockData = useCallback(async (industry = '') => {
-    if (!dateRange[0] || !dateRange[1]) return
+  const fetchStockData = useCallback(async (industry = '', customDateRange = null) => {
+    const useDateRange = customDateRange || dateRange
+    if (!useDateRange[0] || !useDateRange[1]) return
     
     setTableLoading(true)
     try {
@@ -149,8 +150,8 @@ export default function RangeStatsPanel({
       }
       
       const params = {
-        start_date: dateRange[0].format('YYYYMMDD'),
-        end_date: dateRange[1].format('YYYYMMDD'),
+        start_date: useDateRange[0].format('YYYYMMDD'),
+        end_date: useDateRange[1].format('YYYYMMDD'),
         min_change_pct: minChangePct,
         min_market_cap: actualMinCap,
         max_market_cap: actualMaxCap,
@@ -191,6 +192,8 @@ export default function RangeStatsPanel({
 
   // 首次加载标记
   const isFirstMount = useRef(true)
+  // 上一次的市场值
+  const prevMarketRef = useRef(market)
 
   // 组件挂载时自动查询
   useEffect(() => {
@@ -198,11 +201,18 @@ export default function RangeStatsPanel({
     isFirstMount.current = false
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 市场切换时自动重新查询
+  // 市场切换时自动重新查询（等待 dateRange 更新后再查询）
   useEffect(() => {
     if (isFirstMount.current) return
-    fetchStockData('')
-  }, [market]) // eslint-disable-line react-hooks/exhaustive-deps
+    // 只有市场变化时才触发查询
+    if (prevMarketRef.current !== market) {
+      prevMarketRef.current = market
+      // 使用 setTimeout 确保 dateRange 已更新
+      setTimeout(() => {
+        fetchStockData('')
+      }, 0)
+    }
+  }, [market, dateRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTableChange = (pag, filters, sorter) => {
     if (sorter.field && sorter.order) {
@@ -462,13 +472,13 @@ export default function RangeStatsPanel({
               <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
               {marketCapMode === 'range' && (
                 <>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 120 }} addonAfter="亿" />
+                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} suffix="亿" />
                   <span style={{ color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 120 }} addonAfter="亿" />
+                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} suffix="亿" />
                 </>
               )}
               {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 110 }} addonAfter="亿" />
+                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 100 }} suffix="亿" />
               )}
             </div>
             <div style={{ flex: 1 }} />
