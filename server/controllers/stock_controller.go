@@ -3,6 +3,7 @@ package controllers
 import (
 	"net/http"
 	"server/services"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -88,5 +89,36 @@ func (c *StockController) GetStockDetail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": stock,
+	})
+}
+
+// SearchStocks 搜索股票
+// GET /api/v1/stock/search
+func (c *StockController) SearchStocks(ctx *gin.Context) {
+	keyword := ctx.Query("keyword")
+	if keyword == "" {
+		ctx.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": []interface{}{},
+		})
+		return
+	}
+
+	limit := 20
+	if l := ctx.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	stocks, err := c.stockService.SearchStocks(ctx.Request.Context(), keyword, limit)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": stocks,
 	})
 }

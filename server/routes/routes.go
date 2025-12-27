@@ -29,6 +29,7 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/stock/all", stockCtrl.GetAllData)
 		v1.GET("/stock/hist", stockCtrl.GetStockHist)
 		v1.GET("/stock/detail", stockCtrl.GetStockDetail)
+		v1.GET("/stock/search", stockCtrl.SearchStocks)
 
 		// 区间涨幅
 		rangeCtrl := controllers.NewRangeController()

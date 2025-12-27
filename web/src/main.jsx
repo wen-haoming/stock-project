@@ -7,6 +7,7 @@ import App from './App.jsx'
 import RangeStats from './pages/range-stats/index.jsx'
 import MarketOverview from './pages/market-overview/index.jsx'
 import CommodityPage from './pages/commodity/index.jsx'
+import WatchlistPage from './pages/watchlist/index.jsx'
 import DetailMobilePage from './pages/range-stats/DetailMobilePage.jsx'
 import './index.css'
 
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/" element={<App />}>
             <Route index element={<RangeStats />} />
             <Route path="range-stats" element={<RangeStats />} />
+            <Route path="watchlist" element={<WatchlistPage />} />
             <Route path="market-overview" element={<MarketOverview />} />
             <Route path="commodity" element={<CommodityPage />} />
           </Route>

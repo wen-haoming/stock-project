@@ -1,13 +1,36 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { Card, Table, Spin, Empty, Radio, Select, Space, Button, message, Tooltip, Grid } from 'antd'
-import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, PlusOutlined, MinusOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
-import { fetchStockKline, fetchStockNews, fetchFinanceData, fetchAnnouncements } from '@/api/stock'
+import { fetchStockKline, fetchStockTrend, fetchStockNews, fetchFinanceData, fetchAnnouncements } from '@/api/stock'
 import { reportTypeOptions, financeMetrics, financeTableColumns } from '@/constants/finance'
 import { StockKlineChart, FinanceChart, BasicInfoCard, NewsList, AnnouncementTable } from './components'
 
 const { useBreakpoint } = Grid
+
+// K线周期配置，包含默认时间范围索引
+const KLINE_PERIODS = [
+  { key: 'trend', label: '分时', defaultRangeIndex: -1 },   // 分时图
+  { key: 'day', label: '日K', defaultRangeIndex: 4 },      // 默认1年
+  { key: 'week', label: '周K', defaultRangeIndex: 5 },     // 默认2年
+  { key: 'month', label: '月K', defaultRangeIndex: 6 },    // 默认3年
+  { key: 'quarter', label: '季K', defaultRangeIndex: 7 },  // 默认5年
+  { key: 'year', label: '年K', defaultRangeIndex: 8 },     // 默认10年
+]
+
+// 时间范围配置（月数）
+const TIME_RANGES = [
+  { months: 1, label: '1月' },
+  { months: 3, label: '3月' },
+  { months: 6, label: '6月' },
+  { months: 12, label: '1年' },
+  { months: 24, label: '2年' },
+  { months: 36, label: '3年' },
+  { months: 60, label: '5年' },
+  { months: 120, label: '10年' },
+  { months: 240, label: '20年' },
+]
 
 /**
  * 股票详情组件
@@ -18,6 +41,9 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
 
   const [loading, setLoading] = useState(false)
   const [klineData, setKlineData] = useState(null)
+  const [klinePeriod, setKlinePeriod] = useState('day')
+  const [klineRangeIndex, setKlineRangeIndex] = useState(4) // 默认1年
+  const [klineLoading, setKlineLoading] = useState(false)
   const [financeData, setFinanceData] = useState(null)
   const [financeMetric, setFinanceMetric] = useState('netProfit')
   const [stockNews, setStockNews] = useState([])
@@ -31,11 +57,63 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   const financeChartCardRef = useRef(null)
   const financeTableCardRef = useRef(null)
 
+  // 加载K线数据
+  const loadKlineData = useCallback(async (months, period) => {
+    if (!stock) return
+    setKlineLoading(true)
+    try {
+      let data
+      if (period === 'trend') {
+        // 分时图数据
+        data = await fetchStockTrend(stock.symbol, market, 1)
+        data.isTrend = true
+      } else {
+        data = await fetchStockKline(stock.symbol, market, months, period)
+      }
+      setKlineData(data)
+    } catch (error) {
+      console.error('加载K线数据失败:', error)
+    } finally {
+      setKlineLoading(false)
+    }
+  }, [stock, market])
+
   // 加载财务数据
   const loadFinanceData = useCallback(async (symbol, type) => {
     const finance = await fetchFinanceData(symbol, type, market)
     setFinanceData(finance)
   }, [market])
+
+  // 放大（减少时间范围）
+  const handleZoomIn = useCallback(() => {
+    if (klineRangeIndex > 0) {
+      const newIndex = klineRangeIndex - 1
+      setKlineRangeIndex(newIndex)
+      loadKlineData(TIME_RANGES[newIndex].months, klinePeriod)
+    }
+  }, [klineRangeIndex, klinePeriod, loadKlineData])
+
+  // 缩小（增加时间范围）
+  const handleZoomOut = useCallback(() => {
+    if (klineRangeIndex < TIME_RANGES.length - 1) {
+      const newIndex = klineRangeIndex + 1
+      setKlineRangeIndex(newIndex)
+      loadKlineData(TIME_RANGES[newIndex].months, klinePeriod)
+    }
+  }, [klineRangeIndex, klinePeriod, loadKlineData])
+
+  // 切换K线周期 - 自动调整时间范围
+  const handlePeriodChange = useCallback((period) => {
+    const periodConfig = KLINE_PERIODS.find(p => p.key === period)
+    const newRangeIndex = periodConfig?.defaultRangeIndex ?? 4
+    setKlinePeriod(period)
+    setKlineRangeIndex(newRangeIndex)
+    if (period === 'trend') {
+      loadKlineData(1, period)
+    } else {
+      loadKlineData(TIME_RANGES[newRangeIndex].months, period)
+    }
+  }, [loadKlineData])
 
   // 报告类型变化
   const handleReportTypeChange = useCallback((value) => {
@@ -80,6 +158,8 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     
     setLoading(true)
     setKlineData(null)
+    setKlinePeriod('day')
+    setKlineRangeIndex(4) // 默认1年
     setFinanceData(null)
     setStockNews([])
     setFinanceMetric('netProfit')
@@ -91,7 +171,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
 
     try {
       const promises = [
-        fetchStockKline(stock.symbol, market),
+        fetchStockKline(stock.symbol, market, 12, 'day'),  // 默认加载1年日K
         fetchStockNews(stock.name),
         fetchFinanceData(stock.symbol, '', market),
       ]
@@ -255,6 +335,47 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     )
   }
 
+  // K线控制栏
+  const klineExtra = (
+    <Space size="small">
+      <Radio.Group 
+        value={klinePeriod} 
+        onChange={(e) => handlePeriodChange(e.target.value)} 
+        size="small"
+        buttonStyle="solid"
+      >
+        {KLINE_PERIODS.map(p => (
+          <Radio.Button key={p.key} value={p.key} style={{ padding: '0 6px' }}>{p.label}</Radio.Button>
+        ))}
+      </Radio.Group>
+      {klinePeriod !== 'trend' && (
+        <>
+          <Button
+            type="default"
+            shape="circle"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={handleZoomIn}
+            disabled={klineRangeIndex === 0}
+            title="放大"
+          />
+          <span style={{ fontSize: 12, color: '#666', minWidth: 32, textAlign: 'center' }}>
+            {TIME_RANGES[klineRangeIndex].label}
+          </span>
+          <Button
+            type="default"
+            shape="circle"
+            size="small"
+            icon={<MinusOutlined />}
+            onClick={handleZoomOut}
+            disabled={klineRangeIndex === TIME_RANGES.length - 1}
+            title="缩小"
+          />
+        </>
+      )}
+    </Space>
+  )
+
   // 移动端单列布局
   if (isMobile) {
     return (
@@ -262,14 +383,21 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         <div style={{ padding: 12 }}>
           <BasicInfoCard stock={stock} isMobile={isMobile} />
           
-          <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
-            {klineData?.values?.length > 0 ? (
-              <StockKlineChart data={klineData} stockName={stock.name} isMobile={isMobile} dateRange={dateRange} />
-            ) : (
-              <div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              </div>
-            )}
+          <Card title="K线走势" size="small" style={{ marginBottom: 12 }} extra={klineExtra}>
+            <Spin spinning={klineLoading}>
+              {klineData?.values?.length > 0 ? (
+                <StockKlineChart 
+                  data={klineData} 
+                  stockName={stock.name} 
+                  isMobile={isMobile} 
+                  dateRange={dateRange}
+                />
+              ) : (
+                <div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                </div>
+              )}
+            </Spin>
           </Card>
 
           <AnnouncementTable 
@@ -331,14 +459,21 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <BasicInfoCard stock={stock} isMobile={isMobile} />
           
-          <Card title="K线走势" size="small" style={{ marginBottom: 12 }}>
-            {klineData?.values?.length > 0 ? (
-              <StockKlineChart data={klineData} stockName={stock.name} isMobile={isMobile} dateRange={dateRange} />
-            ) : (
-              <div style={{ height: 350, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              </div>
-            )}
+          <Card title="K线走势" size="small" style={{ marginBottom: 12 }} extra={klineExtra}>
+            <Spin spinning={klineLoading}>
+              {klineData?.values?.length > 0 ? (
+                <StockKlineChart 
+                  data={klineData} 
+                  stockName={stock.name} 
+                  isMobile={isMobile} 
+                  dateRange={dateRange}
+                />
+              ) : (
+                <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                </div>
+              )}
+            </Spin>
           </Card>
 
           <AnnouncementTable 

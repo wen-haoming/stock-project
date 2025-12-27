@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Grid } from 'antd'
-import { BarChartOutlined, LineChartOutlined, GoldOutlined } from '@ant-design/icons'
+import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined } from '@ant-design/icons'
 
 const { Sider, Content, Header } = Layout
 const { useBreakpoint } = Grid
 
 const menuItems = [
   { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
+  { key: '/watchlist', label: '自选股', icon: <StarOutlined /> },
   { key: '/market-overview', label: '汇率走势', icon: <LineChartOutlined /> },
   { key: '/commodity', label: '大宗商品', icon: <GoldOutlined /> },
 ]
@@ -52,6 +53,9 @@ function App() {
     )
   }
 
+  // 自选股页面需要全高度布局
+  const isWatchlist = currentPath === '/watchlist'
+
   // 桌面端布局
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -82,7 +86,7 @@ function App() {
         />
       </Sider>
       <Layout>
-        <Content style={{ margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
+        <Content style={isWatchlist ? { background: '#fff' } : { margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
           <Outlet />
         </Content>
       </Layout>

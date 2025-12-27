@@ -62,6 +62,17 @@ func (s *StockService) GetStocksByMarketWithCache(ctx context.Context, market st
 	return stocks, nil
 }
 
+// SearchStocks 搜索股票（支持代码和名称模糊搜索）
+func (s *StockService) SearchStocks(ctx context.Context, keyword string, limit int) ([]models.StockData, error) {
+	if keyword == "" {
+		return []models.StockData{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	return s.stockRepo.SearchStocks(ctx, keyword, limit)
+}
+
 // FetchHKStockData 从东方财富获取港股数据（分页获取全部）
 func (s *StockService) FetchHKStockData() ([]models.StockData, error) {
 	return s.fetchStockDataPaginated("m:116,m:117", "hk")

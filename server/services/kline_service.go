@@ -449,6 +449,11 @@ func (s *KlineService) CountKlinesByMarket(ctx context.Context, market string) (
 	return s.klineRepo.CountKlines(ctx, market)
 }
 
+// GetLastKlineDate 获取最后一条K线的日期
+func (s *KlineService) GetLastKlineDate(ctx context.Context, market string) (string, error) {
+	return s.klineRepo.GetLastKlineDate(ctx, market)
+}
+
 // GetAllSymbols 获取所有有K线数据的股票代码
 func (s *KlineService) GetAllSymbols(ctx context.Context, market string) ([]string, error) {
 	return s.klineRepo.GetAllSymbols(ctx, market)

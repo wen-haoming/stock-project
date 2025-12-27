@@ -5,14 +5,76 @@ import axios from 'axios'
 import dayjs from 'dayjs'
 
 /**
+ * 获取分时数据
+ * @param {string} symbol - 股票代码
+ * @param {string} market - 市场类型 'a' | 'hk'
+ * @param {number} ndays - 天数 1-5
+ */
+export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
+  try {
+    let secid
+    if (market === 'a') {
+      secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
+    } else {
+      secid = `116.${symbol}`
+    }
+    
+    const url = `https://push2his.eastmoney.com/api/qt/stock/trends2/get?fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=7eea3edcaed734bea9cbfc24409ed989&ndays=${ndays}&iscr=0&secid=${secid}`
+    
+    const response = await axios.get(url)
+    const data = response.data?.data
+    
+    if (!data) return { categoryData: [], values: [], volumes: [], preClose: 0 }
+    
+    const preClose = data.preClose / (market === 'a' ? 100 : 1000)
+    const trends = data.trends || []
+    
+    const categoryData = []
+    const values = []
+    const volumes = []
+    
+    trends.forEach((item, index) => {
+      const fields = item.split(',')
+      // f51:时间, f52:现价, f53:均价, f54:成交量, f55:成交额
+      const time = fields[0].split(' ')[1] || fields[0]
+      const price = parseFloat(fields[1])
+      const avgPrice = parseFloat(fields[2])
+      const vol = parseInt(fields[4]) || 0
+      
+      categoryData.push(time)
+      values.push([price, avgPrice])
+      volumes.push([index, vol, price >= preClose ? -1 : 1])
+    })
+    
+    return { categoryData, values, volumes, preClose }
+  } catch (error) {
+    console.error('获取分时数据失败:', error)
+    return { categoryData: [], values: [], volumes: [], preClose: 0 }
+  }
+}
+
+/**
  * 获取个股 K 线数据
  * @param {string} symbol - 股票代码
  * @param {string} market - 市场类型 'a' | 'hk'
- * @param {number} years - 获取年数，默认3年
+ * @param {number} months - 获取月数，默认2个月
+ * @param {string} period - K线周期: 'day'(日) | 'week'(周) | 'month'(月) | 'quarter'(季) | 'year'(年)
  */
-export const fetchStockKline = async (symbol, market = 'hk', years = 3) => {
+export const fetchStockKline = async (symbol, market = 'hk', months = 2, period = 'day') => {
   try {
-    const start = dayjs().subtract(years, 'year').format('YYYYMMDD')
+    // 根据周期类型调整最小时间范围，确保有足够的K线数据
+    let actualMonths = months
+    if (period === 'year') {
+      actualMonths = Math.max(months, 240) // 至少20年
+    } else if (period === 'quarter') {
+      actualMonths = Math.max(months, 120) // 至少10年
+    } else if (period === 'month') {
+      actualMonths = Math.max(months, 60) // 至少5年
+    } else if (period === 'week') {
+      actualMonths = Math.max(months, 36) // 至少3年
+    }
+    
+    const start = dayjs().subtract(actualMonths, 'month').format('YYYYMMDD')
     const end = dayjs().format('YYYYMMDD')
     
     // 根据市场类型构建 secid
@@ -23,7 +85,11 @@ export const fetchStockKline = async (symbol, market = 'hk', years = 3) => {
       secid = `116.${symbol}`
     }
     
-    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
+    // K线周期映射: 101=日, 102=周, 103=月, 104=季, 105=年
+    const kltMap = { day: 101, week: 102, month: 103, quarter: 104, year: 105 }
+    const klt = kltMap[period] || 101
+    
+    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=${start}&end=${end}`
 
     const response = await axios.get(url)
     const rawData = response.data?.data?.klines || []
@@ -296,5 +362,22 @@ export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
   } catch (error) {
     console.error('获取股票信息失败:', error)
     return name ? { symbol, name } : null
+  }
+}
+
+/**
+ * 搜索股票（支持代码和名称模糊搜索）
+ * @param {string} keyword - 搜索关键词
+ * @param {number} limit - 返回数量限制
+ */
+export const searchStocks = async (keyword, limit = 20) => {
+  try {
+    const response = await axios.get('/api/v1/stock/search', {
+      params: { keyword, limit }
+    })
+    return response.data
+  } catch (error) {
+    console.error('搜索股票失败:', error)
+    return { code: -1, data: [] }
   }
 }

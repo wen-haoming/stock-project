@@ -3,6 +3,9 @@ package repositories
 import (
 	"context"
 	"server/models"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -165,7 +168,12 @@ func (r *StockRepository) SearchStocks(ctx context.Context, keyword string, limi
 		},
 	}
 
-	opts := options.Find().SetLimit(int64(limit / 2)) // 每个市场取一半
+	// 搜索更多结果以确保个股不被衍生品挤掉
+	searchLimit := int64(limit * 10)
+	if searchLimit < 100 {
+		searchLimit = 100
+	}
+	opts := options.Find().SetLimit(searchLimit)
 	var allStocks []models.StockData
 
 	// 搜索港股
@@ -188,7 +196,52 @@ func (r *StockRepository) SearchStocks(ctx context.Context, keyword string, limi
 		aCursor.Close(ctx)
 	}
 
+	// 排序：个股优先（有行业信息的优先），然后按市值排序
+	sort.Slice(allStocks, func(i, j int) bool {
+		// 判断是否为衍生品
+		iIsDerivative := isDerivativeStock(allStocks[i])
+		jIsDerivative := isDerivativeStock(allStocks[j])
+
+		// 个股优先
+		if iIsDerivative != jIsDerivative {
+			return !iIsDerivative
+		}
+
+		// 同类型按市值排序
+		return allStocks[i].TotalMarketCap > allStocks[j].TotalMarketCap
+	})
+
+	// 限制返回数量
+	if len(allStocks) > limit {
+		allStocks = allStocks[:limit]
+	}
+
 	return allStocks, nil
+}
+
+// isDerivativeStock 判断是否为衍生品
+func isDerivativeStock(stock models.StockData) bool {
+	// 港股衍生品判断
+	if stock.Market == "hk" {
+		// 行业为空或"-"
+		if stock.Industry == "" || stock.Industry == "-" {
+			return true
+		}
+		// 代码 >= 10000 通常是衍生品
+		if len(stock.Symbol) == 5 {
+			if code, err := strconv.Atoi(stock.Symbol); err == nil && code >= 10000 {
+				return true
+			}
+		}
+		// 名称包含衍生品关键词
+		keywords := []string{"牛", "熊", "购", "沽", "轮", "界内证"}
+		for _, kw := range keywords {
+			if strings.Contains(stock.Name, kw) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetLastUpdateTime 获取最后更新时间

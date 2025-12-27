@@ -163,6 +163,21 @@ func (r *KlineRepository) CountKlinesBySymbol(ctx context.Context, symbol, marke
 	return collection.CountDocuments(ctx, bson.M{"symbol": symbol})
 }
 
+// GetLastKlineDate 获取最后一条K线的日期
+func (r *KlineRepository) GetLastKlineDate(ctx context.Context, market string) (string, error) {
+	collection := r.getCollection(market)
+	opts := options.FindOne().SetSort(bson.D{{Key: "date", Value: -1}})
+
+	var result struct {
+		Date string `bson:"date"`
+	}
+	err := collection.FindOne(ctx, bson.M{}, opts).Decode(&result)
+	if err != nil {
+		return "", err
+	}
+	return result.Date, nil
+}
+
 // RangeAggregationResult 区间聚合结果
 type RangeAggregationResult struct {
 	Symbol     string  `bson:"_id"`

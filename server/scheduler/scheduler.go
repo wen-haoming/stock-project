@@ -47,56 +47,110 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) initialSync() {
 	ctx := context.Background()
 
-	log.Println("========== 启动初始数据同步 ==========")
+	log.Println("========== 检查数据状态 ==========")
 
-	// 1. 先同步股票列表（实时数据）
-	log.Println("[1/3] 同步股票列表...")
-	if err := s.stockService.SyncHKStockData(ctx); err != nil {
-		log.Printf("同步港股列表失败: %v", err)
-	}
-	if err := s.stockService.SyncAStockData(ctx); err != nil {
-		log.Printf("同步A股列表失败: %v", err)
-	}
+	// 1. 检查股票列表是否需要更新
+	log.Println("[1/3] 检查股票列表...")
+	s.checkAndSyncStockList(ctx)
 
 	// 2. 检查各市场K线数据完整性
 	log.Println("[2/3] 检查K线数据完整性...")
 	s.checkAndSyncKlines(ctx)
 
-	log.Println("========== 初始数据同步任务已启动 ==========")
+	log.Println("========== 数据检查完成 ==========")
+}
+
+// checkAndSyncStockList 检查并同步股票列表
+func (s *Scheduler) checkAndSyncStockList(ctx context.Context) {
+	now := utils.GetChinaTime()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// 检查港股
+	hkLastUpdate, err := s.stockService.GetLastUpdateTime(ctx, "hk")
+	if err != nil || hkLastUpdate.Before(today) {
+		log.Printf("[港股] 数据需要更新（上次更新: %v）", hkLastUpdate)
+		if err := s.stockService.SyncHKStockData(ctx); err != nil {
+			log.Printf("同步港股列表失败: %v", err)
+		}
+	} else {
+		hkCount, _ := s.stockService.CountByMarket(ctx, "hk")
+		log.Printf("[港股] 数据已是最新（%d只，更新于 %v）", hkCount, hkLastUpdate.Format("2006-01-02 15:04"))
+	}
+
+	// 检查A股
+	aLastUpdate, err := s.stockService.GetLastUpdateTime(ctx, "a")
+	if err != nil || aLastUpdate.Before(today) {
+		log.Printf("[A股] 数据需要更新（上次更新: %v）", aLastUpdate)
+		if err := s.stockService.SyncAStockData(ctx); err != nil {
+			log.Printf("同步A股列表失败: %v", err)
+		}
+	} else {
+		aCount, _ := s.stockService.CountByMarket(ctx, "a")
+		log.Printf("[A股] 数据已是最新（%d只，更新于 %v）", aCount, aLastUpdate.Format("2006-01-02 15:04"))
+	}
 }
 
 // checkAndSyncKlines 检查并同步K线数据
 func (s *Scheduler) checkAndSyncKlines(ctx context.Context) {
-	// 分别检查 A 股和港股
-	aStockCount, _ := s.stockService.CountByMarket(ctx, "a")
-	hkStockCount, _ := s.stockService.CountByMarket(ctx, "hk")
+	now := utils.GetChinaTime()
+	today := now.Format("2006-01-02")
+	// 获取上一个交易日（简单处理：如果是周一则取上周五，否则取前一天）
+	var lastTradingDay string
+	if now.Weekday() == time.Monday {
+		lastTradingDay = now.AddDate(0, 0, -3).Format("2006-01-02")
+	} else if now.Weekday() == time.Sunday {
+		lastTradingDay = now.AddDate(0, 0, -2).Format("2006-01-02")
+	} else {
+		lastTradingDay = now.AddDate(0, 0, -1).Format("2006-01-02")
+	}
 
+	// 分别检查 A 股和港股
 	aKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "a")
 	hkKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "hk")
 
-	log.Printf("A股: %d只股票, %d条K线", aStockCount, aKlineCount)
-	log.Printf("港股: %d只股票, %d条K线", hkStockCount, hkKlineCount)
+	aLastDate, aErr := s.klineService.GetLastKlineDate(ctx, "a")
+	hkLastDate, hkErr := s.klineService.GetLastKlineDate(ctx, "hk")
+
+	log.Printf("A股K线: %d条, 最新日期: %s", aKlineCount, aLastDate)
+	log.Printf("港股K线: %d条, 最新日期: %s", hkKlineCount, hkLastDate)
+
+	// 判断是否需要同步
+	needSyncA := aKlineCount == 0 || aErr != nil || aLastDate < lastTradingDay
+	needSyncHK := hkKlineCount == 0 || hkErr != nil || hkLastDate < lastTradingDay
+
+	if !needSyncA && !needSyncHK {
+		log.Printf("[K线] 数据已是最新（A股最新: %s, 港股最新: %s, 上个交易日: %s）", aLastDate, hkLastDate, lastTradingDay)
+		return
+	}
 
 	// 异步同步，不阻塞启动
 	go func() {
 		bgCtx := context.Background()
 
-		// 检查 A 股 - 使用智能同步（根据缺失天数决定）
-		if aKlineCount == 0 {
-			log.Printf("[A股] 无K线数据，启动全量同步...")
-			s.klineService.SyncAHistoryDataFull(bgCtx)
+		// 检查 A 股
+		if needSyncA {
+			if aKlineCount == 0 {
+				log.Printf("[A股] 无K线数据，启动全量同步...")
+				s.klineService.SyncAHistoryDataFull(bgCtx)
+			} else {
+				log.Printf("[A股] K线数据需要更新（最新: %s < %s），启动增量同步...", aLastDate, today)
+				s.klineService.SyncAHistoryData(bgCtx)
+			}
 		} else {
-			log.Printf("[A股] 启动智能同步（根据缺失天数）...")
-			s.klineService.SyncAHistoryData(bgCtx)
+			log.Printf("[A股] K线数据已是最新")
 		}
 
-		// 检查港股 - 使用智能同步（根据缺失天数决定）
-		if hkKlineCount == 0 {
-			log.Printf("[港股] 无K线数据，启动全量同步...")
-			s.klineService.SyncHKHistoryDataFull(bgCtx)
+		// 检查港股
+		if needSyncHK {
+			if hkKlineCount == 0 {
+				log.Printf("[港股] 无K线数据，启动全量同步...")
+				s.klineService.SyncHKHistoryDataFull(bgCtx)
+			} else {
+				log.Printf("[港股] K线数据需要更新（最新: %s < %s），启动增量同步...", hkLastDate, today)
+				s.klineService.SyncHKHistoryData(bgCtx)
+			}
 		} else {
-			log.Printf("[港股] 启动智能同步（根据缺失天数）...")
-			s.klineService.SyncHKHistoryData(bgCtx)
+			log.Printf("[港股] K线数据已是最新")
 		}
 	}()
 }
