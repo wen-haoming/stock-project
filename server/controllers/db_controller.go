@@ -95,38 +95,105 @@ func (c *DBController) ManualSync(ctx *gin.Context) {
 
 // ManualSyncHistory 手动同步历史K线
 // POST /api/v1/db/sync-history
+// 参数:
+//   - mode: smart(智能，默认) / incremental(增量7天) / full(强制全量)
+//   - market: a / hk / all(默认)
 func (c *DBController) ManualSyncHistory(ctx *gin.Context) {
-	mode := ctx.DefaultQuery("mode", "incremental")
+	mode := ctx.DefaultQuery("mode", "smart")
 	market := ctx.DefaultQuery("market", "all")
-	dbCtx := ctx.Request.Context()
 
-	var err error
-	if mode == "full" {
-		switch market {
-		case "hk":
-			err = c.klineService.SyncHKHistoryData(dbCtx)
-		case "a":
-			err = c.klineService.SyncAHistoryData(dbCtx)
-		default:
-			err = c.klineService.SyncHKHistoryData(dbCtx)
-			if err == nil {
-				err = c.klineService.SyncAHistoryData(dbCtx)
-			}
-		}
-	} else {
-		switch market {
-		case "hk":
-			err = c.klineService.SyncHKHistoryDataIncremental(dbCtx)
-		case "a":
-			err = c.klineService.SyncAHistoryDataIncremental(dbCtx)
-		default:
-			err = c.klineService.SyncHKHistoryDataIncremental(dbCtx)
-			if err == nil {
-				err = c.klineService.SyncAHistoryDataIncremental(dbCtx)
-			}
-		}
+	modeDesc := map[string]string{
+		"smart":       "智能同步（有数据则增量30天，无数据则全量）",
+		"incremental": "增量同步（最近7天）",
+		"full":        "强制全量同步",
 	}
 
+	// 使用独立的 context，不依赖请求 context
+	go func() {
+		bgCtx := context.Background()
+		switch mode {
+		case "full":
+			// 强制全量同步
+			switch market {
+			case "hk":
+				c.klineService.SyncHKHistoryDataFull(bgCtx)
+			case "a":
+				c.klineService.SyncAHistoryDataFull(bgCtx)
+			default:
+				c.klineService.SyncAHistoryDataFull(bgCtx)
+				c.klineService.SyncHKHistoryDataFull(bgCtx)
+			}
+		case "incremental":
+			// 增量同步（最近7天）
+			switch market {
+			case "hk":
+				c.klineService.SyncHKHistoryDataIncremental(bgCtx)
+			case "a":
+				c.klineService.SyncAHistoryDataIncremental(bgCtx)
+			default:
+				c.klineService.SyncAHistoryDataIncremental(bgCtx)
+				c.klineService.SyncHKHistoryDataIncremental(bgCtx)
+			}
+		default:
+			// 智能同步（有数据则增量30天，无数据则全量）
+			switch market {
+			case "hk":
+				c.klineService.SyncHKHistoryData(bgCtx)
+			case "a":
+				c.klineService.SyncAHistoryData(bgCtx)
+			default:
+				c.klineService.SyncAHistoryData(bgCtx)
+				c.klineService.SyncHKHistoryData(bgCtx)
+			}
+		}
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "同步任务已启动，请通过 /api/v1/db/sync-progress 查看进度",
+		"mode":    modeDesc[mode],
+	})
+}
+
+// GetSyncProgress 获取同步进度
+// GET /api/v1/db/sync-progress
+func (c *DBController) GetSyncProgress(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "")
+	
+	if market != "" {
+		progress := services.GetSyncProgress(market)
+		ctx.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": progress,
+		})
+		return
+	}
+	
+	// 返回所有市场的进度
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": services.GetAllSyncProgress(),
+	})
+}
+
+// GetKlineDebug 调试接口：查询单只股票的K线数据
+// GET /api/v1/db/kline-debug?symbol=09992&market=hk
+func (c *DBController) GetKlineDebug(ctx *gin.Context) {
+	symbol := ctx.Query("symbol")
+	market := ctx.DefaultQuery("market", "hk")
+	
+	if symbol == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":  -1,
+			"error": "symbol is required",
+		})
+		return
+	}
+	
+	dbCtx, cancel := context.WithTimeout(ctx.Request.Context(), 10*time.Second)
+	defer cancel()
+	
+	klines, err := c.klineService.GetKlinesBySymbol(dbCtx, symbol, market, "", "")
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"code":  -1,
@@ -134,9 +201,12 @@ func (c *DBController) ManualSyncHistory(ctx *gin.Context) {
 		})
 		return
 	}
-
+	
 	ctx.JSON(http.StatusOK, gin.H{
-		"code":    0,
-		"message": "历史数据同步完成",
+		"code":   0,
+		"count":  len(klines),
+		"symbol": symbol,
+		"market": market,
+		"data":   klines,
 	})
 }

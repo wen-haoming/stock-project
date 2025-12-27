@@ -405,8 +405,12 @@ export default function IndexMobile() {
   // 初始化
   useEffect(() => {
     fetchKlineData()
+  }, [fetchKlineData])
+
+  // 筛选条件变化时自动查询
+  useEffect(() => {
     fetchStockData(true, '')
-  }, [])
+  }, [dateRange, minChangePct, marketCapFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>

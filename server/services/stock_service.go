@@ -62,48 +62,61 @@ func (s *StockService) GetStocksByMarketWithCache(ctx context.Context, market st
 	return stocks, nil
 }
 
-// FetchHKStockData 从东方财富获取港股数据
+// FetchHKStockData 从东方财富获取港股数据（分页获取全部）
 func (s *StockService) FetchHKStockData() ([]models.StockData, error) {
-	params := url.Values{}
-	params.Set("pn", "1")
-	params.Set("pz", "5000")
-	params.Set("po", "1")
-	params.Set("np", "1")
-	params.Set("fltt", "2")
-	params.Set("invt", "2")
-	params.Set("fid", "f3")
-	params.Set("fs", "m:116,m:117")
-	params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100")
-
-	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
-	body, err := utils.FetchURL(apiURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.parseEastMoneyResponse(body, "hk")
+	return s.fetchStockDataPaginated("m:116,m:117", "hk")
 }
 
-// FetchAStockData 从东方财富获取A股数据
+// FetchAStockData 从东方财富获取A股数据（分页获取全部）
 func (s *StockService) FetchAStockData() ([]models.StockData, error) {
-	params := url.Values{}
-	params.Set("pn", "1")
-	params.Set("pz", "5000")
-	params.Set("po", "1")
-	params.Set("np", "1")
-	params.Set("fltt", "2")
-	params.Set("invt", "2")
-	params.Set("fid", "f3")
-	params.Set("fs", "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
-	params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100")
+	return s.fetchStockDataPaginated("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "a")
+}
 
-	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
-	body, err := utils.FetchURL(apiURL)
-	if err != nil {
-		return nil, err
+// fetchStockDataPaginated 分页获取股票数据
+func (s *StockService) fetchStockDataPaginated(fs, market string) ([]models.StockData, error) {
+	var allStocks []models.StockData
+	pageSize := 100 // 东方财富API每页最多100条
+	page := 1
+
+	for {
+		params := url.Values{}
+		params.Set("pn", strconv.Itoa(page))
+		params.Set("pz", strconv.Itoa(pageSize))
+		params.Set("po", "1")
+		params.Set("np", "1")
+		params.Set("fltt", "2")
+		params.Set("invt", "2")
+		params.Set("fid", "f3")
+		params.Set("fs", fs)
+		params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100")
+
+		apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+		body, err := utils.FetchURL(apiURL)
+		if err != nil {
+			return nil, err
+		}
+
+		stocks, err := s.parseEastMoneyResponse(body, market)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(stocks) == 0 {
+			break
+		}
+
+		allStocks = append(allStocks, stocks...)
+		log.Printf("获取%s第%d页，本页%d条，累计%d条", market, page, len(stocks), len(allStocks))
+
+		if len(stocks) < pageSize {
+			break // 最后一页
+		}
+
+		page++
+		time.Sleep(100 * time.Millisecond) // 限流
 	}
 
-	return s.parseEastMoneyResponse(body, "a")
+	return allStocks, nil
 }
 
 func (s *StockService) parseEastMoneyResponse(body []byte, market string) ([]models.StockData, error) {
@@ -143,7 +156,8 @@ func (s *StockService) parseEastMoneyResponse(body []byte, market string) ([]mod
 			CreatedAt:      time.Now(),
 		}
 
-		if stock.Symbol != "" && stock.LatestPrice > 0 {
+		// 只要有股票代码就保存，停牌股票价格可能为0
+		if stock.Symbol != "" {
 			stocks = append(stocks, stock)
 		}
 	}

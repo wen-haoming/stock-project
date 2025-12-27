@@ -33,7 +33,7 @@ function App() {
           height: 48,
           lineHeight: '48px'
         }}>
-          <div style={{ color: '#fff', fontWeight: 'bold', marginRight: 16, fontSize: 14 }}>
+          <div style={{ color: '#fff', fontWeight: 'bold', marginRight: 12, fontSize: 14 }}>
             📈 港股分析
           </div>
           <Menu

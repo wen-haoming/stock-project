@@ -11,8 +11,77 @@ import (
 	"server/utils"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// SyncProgress 同步进度
+type SyncProgress struct {
+	Market    string    `json:"market"`
+	Status    string    `json:"status"` // idle, syncing, completed, failed
+	Total     int       `json:"total"`
+	Current   int       `json:"current"`
+	Success   int       `json:"success"`
+	Failed    int       `json:"failed"`
+	StartTime time.Time `json:"startTime"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Message   string    `json:"message"`
+}
+
+// 全局同步进度
+var (
+	syncProgressMu sync.RWMutex
+	syncProgress   = map[string]*SyncProgress{
+		"a":  {Market: "a", Status: "idle"},
+		"hk": {Market: "hk", Status: "idle"},
+	}
+)
+
+// GetSyncProgress 获取同步进度
+func GetSyncProgress(market string) *SyncProgress {
+	syncProgressMu.RLock()
+	defer syncProgressMu.RUnlock()
+	if p, ok := syncProgress[market]; ok {
+		return p
+	}
+	return &SyncProgress{Market: market, Status: "idle"}
+}
+
+// GetAllSyncProgress 获取所有同步进度
+func GetAllSyncProgress() map[string]*SyncProgress {
+	syncProgressMu.RLock()
+	defer syncProgressMu.RUnlock()
+	result := make(map[string]*SyncProgress)
+	for k, v := range syncProgress {
+		result[k] = v
+	}
+	return result
+}
+
+// updateSyncProgress 更新同步进度
+func updateSyncProgress(market, status string, current, total, success, failed int, message string) {
+	syncProgressMu.Lock()
+	defer syncProgressMu.Unlock()
+
+	p := syncProgress[market]
+	if p == nil {
+		p = &SyncProgress{Market: market}
+		syncProgress[market] = p
+	}
+
+	if status == "syncing" && p.Status != "syncing" {
+		p.StartTime = time.Now()
+	}
+
+	p.Status = status
+	p.Total = total
+	p.Current = current
+	p.Success = success
+	p.Failed = failed
+	p.Message = message
+	p.UpdatedAt = time.Now()
+}
 
 // KlineService K线服务
 type KlineService struct {
@@ -112,125 +181,254 @@ func (s *KlineService) fetchKlineFromAPI(symbol, market, startDate, endDate stri
 	return klines, nil
 }
 
-// SyncHKHistoryData 同步港股历史K线数据（全量）
+// SyncHKHistoryData 智能同步港股历史K线数据
+// 根据实际缺失天数决定同步范围
 func (s *KlineService) SyncHKHistoryData(ctx context.Context) error {
-	// 获取所有港股
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "hk", 10000, 0)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("开始同步 %d 只港股的历史K线数据", len(stocks))
-
-	// 2年数据
-	endDate := time.Now().Format("2006-01-02")
-	startDate := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
-
-	successCount := 0
-	for i, stock := range stocks {
-		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "hk", startDate, endDate); err != nil {
-			log.Printf("同步 %s K线失败: %v", stock.Symbol, err)
-			continue
-		}
-		successCount++
-
-		// 每100只股票打印进度
-		if (i+1)%100 == 0 {
-			log.Printf("已同步 %d/%d 只股票", i+1, len(stocks))
-		}
-
-		// 限流，避免请求过快
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	log.Printf("港股历史K线同步完成，成功 %d/%d", successCount, len(stocks))
-	return nil
+	return s.syncHistoryDataSmart(ctx, "hk")
 }
 
-// SyncHKHistoryDataIncremental 增量同步港股历史K线
-func (s *KlineService) SyncHKHistoryDataIncremental(ctx context.Context) error {
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "hk", 10000, 0)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("开始增量同步 %d 只港股的K线数据", len(stocks))
-
-	// 最近7天
-	endDate := time.Now().Format("2006-01-02")
-	startDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
-
-	successCount := 0
-	for _, stock := range stocks {
-		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "hk", startDate, endDate); err != nil {
-			continue
-		}
-		successCount++
-		time.Sleep(30 * time.Millisecond)
-	}
-
-	log.Printf("港股K线增量同步完成，成功 %d/%d", successCount, len(stocks))
-	return nil
-}
-
-// SyncAHistoryData 同步A股历史K线数据（全量）
+// SyncAHistoryData 智能同步A股历史K线数据
+// 根据实际缺失天数决定同步范围
 func (s *KlineService) SyncAHistoryData(ctx context.Context) error {
-	// 获取所有A股
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "a", 10000, 0)
+	return s.syncHistoryDataSmart(ctx, "a")
+}
+
+// syncHistoryDataSmart 智能同步历史K线数据
+// 根据最新K线日期与今天的差距决定同步范围
+func (s *KlineService) syncHistoryDataSmart(ctx context.Context, market string) error {
+	marketName := "港股"
+	if market == "a" {
+		marketName = "A股"
+	}
+
+	// 获取全局最新K线日期
+	latestDate, err := s.klineRepo.GetGlobalLatestKlineDate(ctx, market)
+	if err != nil {
+		// 无数据，需要全量同步
+		log.Printf("[%s] 无K线数据，启动后台全量同步...", marketName)
+		return s.syncFullData(ctx, market)
+	}
+
+	// 计算缺失天数
+	missingDays := s.calculateMissingDays(latestDate)
+	log.Printf("[%s] 最新K线日期: %s, 缺失约 %d 个交易日", marketName, latestDate, missingDays)
+
+	if missingDays <= 0 {
+		log.Printf("[%s] K线数据已是最新，无需同步", marketName)
+		return nil
+	}
+
+	// 根据缺失天数决定同步范围（多同步几天以确保覆盖）
+	syncDays := missingDays + 3 // 多同步3天作为缓冲
+	if syncDays > 365 {
+		// 如果缺失超过一年，执行全量同步
+		log.Printf("[%s] 缺失超过一年，启动全量同步...", marketName)
+		return s.syncFullData(ctx, market)
+	}
+
+	log.Printf("[%s] 启动增量同步（最近 %d 天）...", marketName, syncDays)
+	return s.syncIncrementalData(ctx, market, syncDays)
+}
+
+// calculateMissingDays 计算缺失的交易日天数
+func (s *KlineService) calculateMissingDays(latestDateStr string) int {
+	// 解析最新K线日期
+	latestDate, err := time.Parse("2006-01-02", latestDateStr)
+	if err != nil {
+		return 365 // 解析失败，返回较大值触发全量同步
+	}
+
+	now := utils.GetChinaTime()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// 计算自然日差距
+	daysDiff := int(today.Sub(latestDate).Hours() / 24)
+
+	// 粗略估算交易日（约70%是交易日，考虑周末和节假日）
+	tradingDays := int(float64(daysDiff) * 0.7)
+
+	// 如果是当天或前一天，检查是否需要更新
+	if daysDiff <= 1 {
+		// 如果今天是交易日且已收盘，需要更新1天
+		if utils.IsTradingDay(now) && now.Hour() >= 16 {
+			return 1
+		}
+		return 0
+	}
+
+	return tradingDays
+}
+
+// SyncHKHistoryDataIncremental 增量同步港股历史K线（最近7天）
+func (s *KlineService) SyncHKHistoryDataIncremental(ctx context.Context) error {
+	return s.syncIncrementalData(ctx, "hk", 7)
+}
+
+// SyncAHistoryDataIncremental 增量同步A股历史K线（最近7天）
+func (s *KlineService) SyncAHistoryDataIncremental(ctx context.Context) error {
+	return s.syncIncrementalData(ctx, "a", 7)
+}
+
+// syncIncrementalData 增量同步K线数据（并发版本）
+func (s *KlineService) syncIncrementalData(ctx context.Context, market string, days int) error {
+	limit := 50000
+	if market == "a" {
+		limit = 10000
+	}
+
+	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, limit, 0)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("开始同步 %d 只A股的历史K线数据", len(stocks))
-
-	// 2年数据
-	endDate := time.Now().Format("2006-01-02")
-	startDate := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
-
-	successCount := 0
-	for i, stock := range stocks {
-		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "a", startDate, endDate); err != nil {
-			log.Printf("同步 %s K线失败: %v", stock.Symbol, err)
-			continue
-		}
-		successCount++
-
-		// 每100只股票打印进度
-		if (i+1)%100 == 0 {
-			log.Printf("已同步 %d/%d 只A股", i+1, len(stocks))
-		}
-
-		// 限流，避免请求过快
-		time.Sleep(50 * time.Millisecond)
+	total := len(stocks)
+	marketName := "港股"
+	if market == "a" {
+		marketName = "A股"
 	}
 
-	log.Printf("A股历史K线同步完成，成功 %d/%d", successCount, len(stocks))
+	log.Printf("开始增量同步 %d 只%s的K线数据（最近%d天）", total, marketName, days)
+	updateSyncProgress(market, "syncing", 0, total, 0, 0, fmt.Sprintf("开始增量同步%sK线...", marketName))
+
+	endDate := time.Now().Format("2006-01-02")
+	startDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+
+	// 并发控制
+	const workerCount = 10 // 10个并发worker
+	var wg sync.WaitGroup
+	stockChan := make(chan models.StockData, workerCount*2)
+
+	var successCount, failedCount, processedCount int64
+
+	// 启动worker
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for stock := range stockChan {
+				if err := s.FetchAndSaveKlines(ctx, stock.Symbol, market, startDate, endDate); err != nil {
+					atomic.AddInt64(&failedCount, 1)
+				} else {
+					atomic.AddInt64(&successCount, 1)
+				}
+				current := atomic.AddInt64(&processedCount, 1)
+
+				// 每500只更新一次进度
+				if current%500 == 0 {
+					success := atomic.LoadInt64(&successCount)
+					failed := atomic.LoadInt64(&failedCount)
+					progress := float64(current) / float64(total) * 100
+					msg := fmt.Sprintf("%sK线增量同步中 %.1f%% (%d/%d)", marketName, progress, current, total)
+					updateSyncProgress(market, "syncing", int(current), total, int(success), int(failed), msg)
+					log.Printf("%s增量同步 %d/%d (成功:%d 失败:%d)", marketName, current, total, success, failed)
+				}
+
+				time.Sleep(10 * time.Millisecond) // 每个worker稍微延迟，避免API限流
+			}
+		}()
+	}
+
+	// 发送任务
+	for _, stock := range stocks {
+		stockChan <- stock
+	}
+	close(stockChan)
+
+	// 等待完成
+	wg.Wait()
+
+	success := atomic.LoadInt64(&successCount)
+	failed := atomic.LoadInt64(&failedCount)
+	msg := fmt.Sprintf("%sK线增量同步完成，成功 %d/%d", marketName, success, total)
+	updateSyncProgress(market, "completed", total, total, int(success), int(failed), msg)
+	log.Println(msg)
 	return nil
 }
 
-// SyncAHistoryDataIncremental 增量同步A股历史K线
-func (s *KlineService) SyncAHistoryDataIncremental(ctx context.Context) error {
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, "a", 10000, 0)
+// SyncHKHistoryDataFull 强制全量同步港股历史K线
+func (s *KlineService) SyncHKHistoryDataFull(ctx context.Context) error {
+	return s.syncFullData(ctx, "hk")
+}
+
+// SyncAHistoryDataFull 强制全量同步A股历史K线
+func (s *KlineService) SyncAHistoryDataFull(ctx context.Context) error {
+	return s.syncFullData(ctx, "a")
+}
+
+// syncFullData 强制全量同步K线数据（并发版本）
+func (s *KlineService) syncFullData(ctx context.Context, market string) error {
+	limit := 50000
+	if market == "a" {
+		limit = 10000
+	}
+
+	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, limit, 0)
 	if err != nil {
+		updateSyncProgress(market, "failed", 0, 0, 0, 0, fmt.Sprintf("获取股票列表失败: %v", err))
 		return err
 	}
 
-	log.Printf("开始增量同步 %d 只A股的K线数据", len(stocks))
-
-	// 最近7天
-	endDate := time.Now().Format("2006-01-02")
-	startDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
-
-	successCount := 0
-	for _, stock := range stocks {
-		if err := s.FetchAndSaveKlines(ctx, stock.Symbol, "a", startDate, endDate); err != nil {
-			continue
-		}
-		successCount++
-		time.Sleep(30 * time.Millisecond)
+	total := len(stocks)
+	marketName := "港股"
+	if market == "a" {
+		marketName = "A股"
 	}
 
-	log.Printf("A股K线增量同步完成，成功 %d/%d", successCount, len(stocks))
+	log.Printf("开始全量同步 %d 只%s的历史K线数据", total, marketName)
+	updateSyncProgress(market, "syncing", 0, total, 0, 0, fmt.Sprintf("开始全量同步%sK线...", marketName))
+
+	endDate := time.Now().Format("2006-01-02")
+	startDate := "1990-01-01"
+
+	// 并发控制（全量同步用5个worker，因为数据量大）
+	const workerCount = 5
+	var wg sync.WaitGroup
+	stockChan := make(chan models.StockData, workerCount*2)
+
+	var successCount, failedCount, processedCount int64
+
+	// 启动worker
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for stock := range stockChan {
+				if err := s.FetchAndSaveKlines(ctx, stock.Symbol, market, startDate, endDate); err != nil {
+					atomic.AddInt64(&failedCount, 1)
+				} else {
+					atomic.AddInt64(&successCount, 1)
+				}
+				current := atomic.AddInt64(&processedCount, 1)
+
+				// 每100只更新一次进度
+				if current%100 == 0 {
+					success := atomic.LoadInt64(&successCount)
+					failed := atomic.LoadInt64(&failedCount)
+					progress := float64(current) / float64(total) * 100
+					msg := fmt.Sprintf("%sK线全量同步中 %.1f%% (%d/%d)", marketName, progress, current, total)
+					updateSyncProgress(market, "syncing", int(current), total, int(success), int(failed), msg)
+					log.Printf("全量同步 %d/%d 只%s (成功:%d 失败:%d)", current, total, marketName, success, failed)
+				}
+
+				time.Sleep(20 * time.Millisecond) // 全量同步稍微慢一点，避免API限流
+			}
+		}()
+	}
+
+	// 发送任务
+	for _, stock := range stocks {
+		stockChan <- stock
+	}
+	close(stockChan)
+
+	// 等待完成
+	wg.Wait()
+
+	success := atomic.LoadInt64(&successCount)
+	failed := atomic.LoadInt64(&failedCount)
+	msg := fmt.Sprintf("%sK线全量同步完成，成功 %d/%d", marketName, success, total)
+	updateSyncProgress(market, "completed", total, total, int(success), int(failed), msg)
+	log.Println(msg)
 	return nil
 }
 
@@ -244,6 +442,11 @@ func (s *KlineService) CountKlines(ctx context.Context) (int64, error) {
 	hkCount, _ := s.klineRepo.CountKlines(ctx, "hk")
 	aCount, _ := s.klineRepo.CountKlines(ctx, "a")
 	return hkCount + aCount, nil
+}
+
+// CountKlinesByMarket 统计指定市场的K线数量
+func (s *KlineService) CountKlinesByMarket(ctx context.Context, market string) (int64, error) {
+	return s.klineRepo.CountKlines(ctx, market)
 }
 
 // GetAllSymbols 获取所有有K线数据的股票代码

@@ -47,26 +47,58 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) initialSync() {
 	ctx := context.Background()
 
-	log.Println("开始初始数据同步...")
+	log.Println("========== 启动初始数据同步 ==========")
 
-	// 同步港股实时数据
+	// 1. 先同步股票列表（实时数据）
+	log.Println("[1/3] 同步股票列表...")
 	if err := s.stockService.SyncHKStockData(ctx); err != nil {
-		log.Printf("初始同步港股失败: %v", err)
+		log.Printf("同步港股列表失败: %v", err)
 	}
-
-	// 同步 A 股实时数据
 	if err := s.stockService.SyncAStockData(ctx); err != nil {
-		log.Printf("初始同步A股失败: %v", err)
+		log.Printf("同步A股列表失败: %v", err)
 	}
 
-	// 检查是否需要同步历史 K 线
-	klineCount, _ := s.klineService.CountKlines(ctx)
-	if klineCount == 0 {
-		log.Println("K线数据为空，开始全量同步历史数据...")
-		go s.klineService.SyncHKHistoryData(ctx)
-	}
+	// 2. 检查各市场K线数据完整性
+	log.Println("[2/3] 检查K线数据完整性...")
+	s.checkAndSyncKlines(ctx)
 
-	log.Println("初始数据同步完成")
+	log.Println("========== 初始数据同步任务已启动 ==========")
+}
+
+// checkAndSyncKlines 检查并同步K线数据
+func (s *Scheduler) checkAndSyncKlines(ctx context.Context) {
+	// 分别检查 A 股和港股
+	aStockCount, _ := s.stockService.CountByMarket(ctx, "a")
+	hkStockCount, _ := s.stockService.CountByMarket(ctx, "hk")
+
+	aKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "a")
+	hkKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "hk")
+
+	log.Printf("A股: %d只股票, %d条K线", aStockCount, aKlineCount)
+	log.Printf("港股: %d只股票, %d条K线", hkStockCount, hkKlineCount)
+
+	// 异步同步，不阻塞启动
+	go func() {
+		bgCtx := context.Background()
+
+		// 检查 A 股 - 使用智能同步（根据缺失天数决定）
+		if aKlineCount == 0 {
+			log.Printf("[A股] 无K线数据，启动全量同步...")
+			s.klineService.SyncAHistoryDataFull(bgCtx)
+		} else {
+			log.Printf("[A股] 启动智能同步（根据缺失天数）...")
+			s.klineService.SyncAHistoryData(bgCtx)
+		}
+
+		// 检查港股 - 使用智能同步（根据缺失天数决定）
+		if hkKlineCount == 0 {
+			log.Printf("[港股] 无K线数据，启动全量同步...")
+			s.klineService.SyncHKHistoryDataFull(bgCtx)
+		} else {
+			log.Printf("[港股] 启动智能同步（根据缺失天数）...")
+			s.klineService.SyncHKHistoryData(bgCtx)
+		}
+	}()
 }
 
 // runScheduledTasks 运行定时任务

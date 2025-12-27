@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"log"
 	"server/models"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,9 +18,41 @@ type KlineRepository struct {
 
 // NewKlineRepository 创建K线仓库实例
 func NewKlineRepository() *KlineRepository {
-	return &KlineRepository{
-		hkCollection: GetCollection("klines_hk"), // 港股 K 线
-		aCollection:  GetCollection("klines_a"),  // A 股 K 线
+	repo := &KlineRepository{
+		hkCollection: GetCollection("klines_hk"),
+		aCollection:  GetCollection("klines_a"),
+	}
+	// 确保索引存在
+	repo.ensureIndexes()
+	return repo
+}
+
+// ensureIndexes 创建必要的索引
+func (r *KlineRepository) ensureIndexes() {
+	ctx := context.Background()
+	
+	// 为两个集合创建复合索引
+	for _, coll := range []*mongo.Collection{r.hkCollection, r.aCollection} {
+		if coll == nil {
+			continue
+		}
+		indexes := []mongo.IndexModel{
+			// 复合索引：symbol + date（用于聚合查询）
+			{
+				Keys:    bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}},
+				Options: options.Index().SetBackground(true),
+			},
+			// 日期索引（用于范围查询）
+			{
+				Keys:    bson.D{{Key: "date", Value: 1}},
+				Options: options.Index().SetBackground(true),
+			},
+		}
+		
+		_, err := coll.Indexes().CreateMany(ctx, indexes)
+		if err != nil {
+			log.Printf("创建索引失败: %v", err)
+		}
 	}
 }
 
@@ -89,6 +122,18 @@ func (r *KlineRepository) GetLatestKlineDate(ctx context.Context, symbol, market
 	return kline.Date, nil
 }
 
+// GetGlobalLatestKlineDate 获取整个市场最新的K线日期
+func (r *KlineRepository) GetGlobalLatestKlineDate(ctx context.Context, market string) (string, error) {
+	collection := r.getCollection(market)
+	opts := options.FindOne().SetSort(bson.D{{Key: "date", Value: -1}})
+	var kline models.StockKline
+	err := collection.FindOne(ctx, bson.M{}, opts).Decode(&kline)
+	if err != nil {
+		return "", err
+	}
+	return kline.Date, nil
+}
+
 // GetAllSymbols 获取所有有K线数据的股票代码
 func (r *KlineRepository) GetAllSymbols(ctx context.Context, market string) ([]string, error) {
 	collection := r.getCollection(market)
@@ -127,26 +172,38 @@ type RangeAggregationResult struct {
 	EndDate    string  `bson:"endDate"`
 }
 
-// CalculateRangeByAggregation 使用聚合计算区间涨幅
+// CalculateRangeByAggregation 使用聚合计算区间涨幅（优化版）
 func (r *KlineRepository) CalculateRangeByAggregation(ctx context.Context, startDate, endDate, market string) ([]RangeAggregationResult, error) {
 	collection := r.getCollection(market)
+	
+	// 优化的聚合管道：使用 $facet 并行获取首尾记录
 	pipeline := mongo.Pipeline{
-		// 先按日期排序，确保 $first/$last 正确
+		// 1. 筛选日期范围
 		{{Key: "$match", Value: bson.M{
 			"date": bson.M{"$gte": startDate, "$lte": endDate},
 		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}}}},
-		// 按股票分组，获取首尾价格
+		// 2. 按股票分组，直接获取首尾价格（利用索引排序）
 		{{Key: "$group", Value: bson.M{
-			"_id":        "$symbol",
-			"startPrice": bson.M{"$first": "$open"},
-			"endPrice":   bson.M{"$last": "$close"},
-			"startDate":  bson.M{"$first": "$date"},
-			"endDate":    bson.M{"$last": "$date"},
+			"_id": "$symbol",
+			"dates": bson.M{"$push": bson.M{
+				"date":  "$date",
+				"open":  "$open",
+				"close": "$close",
+			}},
+		}}},
+		// 3. 提取首尾数据
+		{{Key: "$project", Value: bson.M{
+			"_id":        1,
+			"startPrice": bson.M{"$arrayElemAt": bson.A{"$dates.open", 0}},
+			"endPrice":   bson.M{"$arrayElemAt": bson.A{"$dates.close", -1}},
+			"startDate":  bson.M{"$arrayElemAt": bson.A{"$dates.date", 0}},
+			"endDate":    bson.M{"$arrayElemAt": bson.A{"$dates.date", -1}},
 		}}},
 	}
 
-	cursor, err := collection.Aggregate(ctx, pipeline)
+	// 设置允许使用磁盘
+	opts := options.Aggregate().SetAllowDiskUse(true)
+	cursor, err := collection.Aggregate(ctx, pipeline, opts)
 	if err != nil {
 		return nil, err
 	}

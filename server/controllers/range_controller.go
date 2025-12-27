@@ -60,7 +60,6 @@ func (c *RangeController) RefreshRangeData(ctx *gin.Context) {
 		"start_date": ctx.Query("start_date"),
 		"end_date":   ctx.Query("end_date"),
 		"market":     ctx.Query("market"),
-		"refresh":    "true",
 	}
 
 	query := services.ParseRangeQuery(params)
@@ -70,7 +69,8 @@ func (c *RangeController) RefreshRangeData(ctx *gin.Context) {
 		return
 	}
 
-	data, err := c.rangeService.RefreshRangeData(ctx.Request.Context(), query)
+	// 直接查询（已禁用缓存）
+	data, err := c.rangeService.GetRangeData(ctx.Request.Context(), query)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

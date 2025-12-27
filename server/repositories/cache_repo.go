@@ -154,11 +154,17 @@ func (r *RangeCacheRepository) SetCache(ctx context.Context, cache *models.Range
 
 // IsCacheValid 检查缓存是否有效
 // 策略：
-// 1. 纯历史数据（EndDate < 今天）：24小时有效
-// 2. 包含今天的数据 + 交易中：15分钟有效
-// 3. 包含今天的数据 + 收盘后：4小时有效
+// 1. 缓存数据为空：视为无效
+// 2. 纯历史数据（EndDate < 今天）：24小时有效
+// 3. 包含今天的数据 + 交易中：15分钟有效
+// 4. 包含今天的数据 + 收盘后：4小时有效
 func (r *RangeCacheRepository) IsCacheValid(cache *models.RangeCacheData) bool {
 	if cache == nil {
+		return false
+	}
+
+	// 缓存数据为空，视为无效，需要重新计算
+	if len(cache.Data) == 0 {
 		return false
 	}
 

@@ -192,8 +192,9 @@ export default function RangeStatsPanel({
 
   // 首次加载标记
   const isFirstMount = useRef(true)
-  // 上一次的市场值
+  // 上一次的市场值和日期范围
   const prevMarketRef = useRef(market)
+  const prevDateRangeRef = useRef(dateRange)
 
   // 组件挂载时自动查询
   useEffect(() => {
@@ -201,14 +202,22 @@ export default function RangeStatsPanel({
     isFirstMount.current = false
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 市场切换时自动重新查询（等待 dateRange 更新后再查询）
+  // 市场或日期区间切换时自动重新查询
   useEffect(() => {
     if (isFirstMount.current) return
-    // 只有市场变化时才触发查询
-    if (prevMarketRef.current !== market) {
-      prevMarketRef.current = market
-      // 使用 setTimeout 确保 dateRange 已更新
+    
+    const marketChanged = prevMarketRef.current !== market
+    const dateChanged = prevDateRangeRef.current[0]?.format('YYYY-MM-DD') !== dateRange[0]?.format('YYYY-MM-DD') ||
+                        prevDateRangeRef.current[1]?.format('YYYY-MM-DD') !== dateRange[1]?.format('YYYY-MM-DD')
+    
+    prevMarketRef.current = market
+    prevDateRangeRef.current = dateRange
+    
+    // 市场或日期变化时触发查询
+    if (marketChanged || dateChanged) {
+      // 使用 setTimeout 确保状态已更新
       setTimeout(() => {
+        setSelectedIndustry('')
         fetchStockData('')
       }, 0)
     }
