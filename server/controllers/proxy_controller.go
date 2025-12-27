@@ -43,13 +43,14 @@ func (c *ProxyController) GetAnnouncements(ctx *gin.Context) {
 	category := ctx.DefaultQuery("category", "0")
 
 	params := url.Values{}
-	params.Set("stock", symbol)
+	params.Set("stock_list", symbol)
 	params.Set("page_index", page)
 	params.Set("page_size", pageSize)
 	params.Set("ann_type", "A")
 	params.Set("client_source", "web")
 	params.Set("f_node", category)
 	params.Set("s_node", "0")
+	params.Set("sr", "-1")
 
 	targetURL := "https://np-anotice-stock.eastmoney.com/api/security/ann?" + params.Encode()
 

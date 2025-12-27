@@ -58,7 +58,7 @@ function App() {
 
   // 桌面端布局
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', height: '100vh' }}>
       <Sider
         collapsible
         collapsed={collapsed}
@@ -85,8 +85,8 @@ function App() {
           onClick={({ key }) => navigate(key)}
         />
       </Sider>
-      <Layout>
-        <Content style={isWatchlist ? { background: '#fff' } : { margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
+      <Layout style={{ overflow: 'hidden' }}>
+        <Content style={isWatchlist ? { background: '#fff', height: '100%', overflow: 'hidden' } : { margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
           <Outlet />
         </Content>
       </Layout>

@@ -105,9 +105,12 @@ const StockKlineChart = memo(({ data, stockName, isMobile }) => {
       const prices = data.values.map(v => v[0])
       const minPrice = Math.min(...prices)
       const maxPrice = Math.max(...prices)
-      const maxDiff = Math.max(Math.abs(maxPrice - preClose), Math.abs(minPrice - preClose))
+      // 以昨收为中心，取最大偏差的对称范围
+      const maxDiff = Math.max(Math.abs(maxPrice - preClose), Math.abs(minPrice - preClose), preClose * 0.01)
       const yMin = preClose - maxDiff * 1.1
       const yMax = preClose + maxDiff * 1.1
+      // 计算涨跌幅范围
+      const pctRange = ((yMax - preClose) / preClose * 100).toFixed(2)
 
       chart.setOption({
         animation: false,
@@ -128,95 +131,140 @@ const StockKlineChart = memo(({ data, stockName, isMobile }) => {
             html += `<div style="font-weight:bold;margin-bottom:4px">${priceData.axisValue}</div>`
             html += `<div>价格: <span style="color:${color}">${price.toFixed(2)}</span></div>`
             html += `<div>涨跌: <span style="color:${color}">${changePct}%</span></div>`
-            if (avgData) html += `<div>均价: ${avgData.data.toFixed(2)}</div>`
+            if (avgData) html += `<div style="color:#ffb800">均价: ${avgData.data.toFixed(2)}</div>`
             if (volData) html += `<div>成交量: ${(volData.data[1] / 10000).toFixed(0)}万</div>`
             html += `</div>`
             return html
           }
         },
+        axisPointer: {
+          link: [{ xAxisIndex: 'all' }],
+          label: { backgroundColor: '#777' }
+        },
         grid: [
-          { left: 50, right: 10, top: 20, height: '60%' },
-          { left: 50, right: 10, top: '75%', height: '18%' }
+          { left: 60, right: 50, top: 20, height: '60%' },
+          { left: 60, right: 50, top: '82%', height: '12%' }
         ],
         xAxis: [
           { 
             type: 'category', 
             data: data.categoryData, 
             boundaryGap: false,
-            axisLine: { onZero: false },
-            axisLabel: { show: true, fontSize: 10 },
-            splitLine: { show: false }
+            axisLine: { lineStyle: { color: '#ddd' } },
+            axisLabel: { show: true, fontSize: 10, color: '#666' },
+            splitLine: { show: false },
+            axisTick: { show: false }
           },
           { 
             type: 'category', 
             gridIndex: 1, 
             data: data.categoryData, 
             boundaryGap: false,
+            axisLine: { lineStyle: { color: '#ddd' } },
             axisLabel: { show: false },
-            splitLine: { show: false }
+            splitLine: { show: false },
+            axisTick: { show: false }
           }
         ],
         yAxis: [
           { 
-            scale: true, 
+            type: 'value',
+            position: 'left',
             min: yMin,
             max: yMax,
-            splitArea: { show: true },
+            splitNumber: 4,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
             axisLabel: {
-              formatter: (value) => {
-                const pct = preClose ? ((value - preClose) / preClose * 100).toFixed(2) : '0'
-                return `${value.toFixed(2)}\n${pct}%`
-              }
-            }
+              fontSize: 10,
+              color: (value) => {
+                if (value > preClose) return upColor
+                if (value < preClose) return downColor
+                return '#666'
+              },
+              formatter: (value) => value.toFixed(2)
+            },
+            axisPointer: { show: true }
+          },
+          {
+            type: 'value',
+            position: 'right',
+            min: -parseFloat(pctRange),
+            max: parseFloat(pctRange),
+            splitNumber: 4,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: {
+              fontSize: 10,
+              color: (value) => {
+                if (value > 0) return upColor
+                if (value < 0) return downColor
+                return '#666'
+              },
+              formatter: (value) => `${value.toFixed(2)}%`
+            },
+            axisPointer: { show: true }
           },
           { 
-            scale: true, 
-            gridIndex: 1, 
+            type: 'value',
+            gridIndex: 1,
+            min: 0,
             axisLabel: { show: false }, 
-            axisLine: { show: false }, 
-            splitLine: { show: false } 
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisPointer: { 
+              show: true, 
+              label: { formatter: (p) => (p.value / 10000).toFixed(0) + '万' } 
+            }
           }
         ],
         visualMap: {
           show: false,
           seriesIndex: 2,
           dimension: 2,
-          pieces: [{ value: 1, color: downColor }, { value: -1, color: upColor }]
+          pieces: [{ value: 1, color: upColor }, { value: -1, color: downColor }]
         },
         series: [
+          // 价格线 - 白色/蓝色
           {
             name: '价格',
             type: 'line',
             data: data.values.map(v => v[0]),
             symbol: 'none',
-            lineStyle: { width: 1, color: '#2196f3' },
+            lineStyle: { width: 1, color: '#1890ff' },
             areaStyle: {
               color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(33, 150, 243, 0.3)' },
-                { offset: 1, color: 'rgba(33, 150, 243, 0.05)' }
+                { offset: 0, color: 'rgba(24, 144, 255, 0.2)' },
+                { offset: 1, color: 'rgba(24, 144, 255, 0.02)' }
               ])
             },
             markLine: {
               silent: true,
               symbol: 'none',
-              lineStyle: { type: 'dashed', color: '#999' },
-              data: [{ yAxis: preClose, label: { formatter: `昨收:${preClose.toFixed(2)}` } }]
+              lineStyle: { type: 'dashed', color: '#999', width: 1 },
+              label: { show: false },
+              data: [{ yAxis: preClose }]
             }
           },
+          // 均价线 - 黄色（VWAP成交量加权均价）
           {
             name: '均价',
             type: 'line',
             data: data.values.map(v => v[1]),
             symbol: 'none',
-            lineStyle: { width: 1, color: '#ff9800' }
+            lineStyle: { width: 1, color: '#ffb800' }
           },
+          // 成交量
           {
             name: '成交量',
             type: 'bar',
             xAxisIndex: 1,
-            yAxisIndex: 1,
+            yAxisIndex: 2,
             data: data.volumes,
-            barWidth: '60%'
+            barWidth: '80%'
           }
         ]
       })

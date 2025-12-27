@@ -26,24 +26,45 @@ export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
     
     if (!data) return { categoryData: [], values: [], volumes: [], preClose: 0 }
     
-    const preClose = data.preClose / (market === 'a' ? 100 : 1000)
+    const preClose = data.preClose
     const trends = data.trends || []
     
     const categoryData = []
     const values = []
     const volumes = []
     
+    let prevPrice = preClose
+    
+    // 累计值用于计算分时均线
+    let totalVolume = 0
+    let totalAmount = 0
+    
+    // A股成交量单位是手(100股)，港股成交量单位是股
+    const volumeMultiplier = market === 'a' ? 100 : 1
+    
     trends.forEach((item, index) => {
       const fields = item.split(',')
-      // f51:时间, f52:现价, f53:均价, f54:成交量, f55:成交额
+      // 东方财富分时数据字段（8个）: 
+      // fields[0]=时间, fields[1]=开盘, fields[2]=收盘(现价), 
+      // fields[3]=最高, fields[4]=最低, fields[5]=成交量, 
+      // fields[6]=成交额(元), fields[7]=均价
       const time = fields[0].split(' ')[1] || fields[0]
-      const price = parseFloat(fields[1])
-      const avgPrice = parseFloat(fields[2])
-      const vol = parseInt(fields[4]) || 0
+      const price = parseFloat(fields[2])         // 现价是收盘价
+      const volume = parseFloat(fields[5]) || 0   // 当前分钟成交量
+      const amount = parseFloat(fields[6]) || 0   // 当前分钟成交额(元)
+      
+      // 累加计算分时均线
+      totalVolume += volume * volumeMultiplier
+      totalAmount += amount
+      
+      // 分时均线 = 累计成交额 / 累计成交量(股)
+      const avgPrice = totalVolume > 0 ? totalAmount / totalVolume : price
       
       categoryData.push(time)
       values.push([price, avgPrice])
-      volumes.push([index, vol, price >= preClose ? -1 : 1])
+      // 成交量颜色：当前价格>=前一个价格为红(涨)，否则为绿(跌)
+      volumes.push([index, volume, price >= prevPrice ? 1 : -1])
+      prevPrice = price
     })
     
     return { categoryData, values, volumes, preClose }
