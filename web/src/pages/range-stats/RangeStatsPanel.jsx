@@ -189,10 +189,20 @@ export default function RangeStatsPanel({
     fetchStockData('')
   }
 
+  // 首次加载标记
+  const isFirstMount = useRef(true)
+
   // 组件挂载时自动查询
   useEffect(() => {
     fetchStockData('')
+    isFirstMount.current = false
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 市场切换时自动重新查询
+  useEffect(() => {
+    if (isFirstMount.current) return
+    fetchStockData('')
+  }, [market]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTableChange = (pag, filters, sorter) => {
     if (sorter.field && sorter.order) {
