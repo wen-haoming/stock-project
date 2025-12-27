@@ -152,12 +152,32 @@ func (r *RangeCacheRepository) SetCache(ctx context.Context, cache *models.Range
 	return err
 }
 
-// IsCacheValid 检查缓存是否有效（24小时内）
+// IsCacheValid 检查缓存是否有效
+// 策略：
+// 1. 纯历史数据（EndDate < 今天）：24小时有效
+// 2. 包含今天的数据 + 交易中：15分钟有效
+// 3. 包含今天的数据 + 收盘后：4小时有效
 func (r *RangeCacheRepository) IsCacheValid(cache *models.RangeCacheData) bool {
 	if cache == nil {
 		return false
 	}
-	return time.Since(cache.UpdatedAt) < 24*time.Hour
+
+	now := time.Now()
+	today := utils.FormatDate(now)
+
+	// 1. 纯历史数据：24小时有效
+	if cache.EndDate < today {
+		return time.Since(cache.UpdatedAt) < 24*time.Hour
+	}
+
+	// 2. 包含今天的数据：根据交易时间判断
+	if utils.IsTradingTime(now, cache.Market) {
+		// 交易中：15分钟有效
+		return time.Since(cache.UpdatedAt) < 15*time.Minute
+	}
+
+	// 3. 收盘后：4小时有效
+	return time.Since(cache.UpdatedAt) < 4*time.Hour
 }
 
 // ClearOldCache 清理旧缓存（7天前）
@@ -177,4 +197,26 @@ func GetCacheTTL(market string) time.Duration {
 		return cfg.Cache.TradingTTL
 	}
 	return cfg.Cache.NonTradingTTL
+}
+
+// GetSmartCacheTTL 根据数据类型和交易时间智能计算 TTL
+// endDate: 数据的结束日期
+// market: 市场类型 (sh/sz/hk)
+func GetSmartCacheTTL(endDate, market string) time.Duration {
+	now := time.Now()
+	today := utils.FormatDate(now)
+
+	// 1. 纯历史数据：1小时（内存缓存不需要太长）
+	if endDate < today {
+		return 1 * time.Hour
+	}
+
+	// 2. 包含今天的数据：根据交易时间判断
+	if utils.IsTradingTime(now, market) {
+		// 交易中：10分钟
+		return 10 * time.Minute
+	}
+
+	// 3. 收盘后：30分钟
+	return 30 * time.Minute
 }

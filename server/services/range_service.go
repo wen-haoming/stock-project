@@ -7,7 +7,6 @@ import (
 	"server/models"
 	"server/repositories"
 	"strconv"
-	"time"
 )
 
 // RangeService 区间涨幅服务
@@ -59,7 +58,9 @@ func (s *RangeService) GetRangeData(ctx context.Context, query RangeQuery) ([]mo
 		cache, err := s.rangeCacheRepo.GetCache(ctx, query.StartDate, query.EndDate, query.Market)
 		if err == nil && s.rangeCacheRepo.IsCacheValid(cache) {
 			log.Printf("命中 MongoDB 缓存: %s", cacheKey)
-			s.memoryCache.Set(cacheKey, cache.Data, 30*time.Minute)
+			// 使用智能 TTL
+			ttl := repositories.GetSmartCacheTTL(query.EndDate, query.Market)
+			s.memoryCache.Set(cacheKey, cache.Data, ttl)
 			return s.filterRangeData(cache.Data, query), nil
 		}
 	}
@@ -70,8 +71,9 @@ func (s *RangeService) GetRangeData(ctx context.Context, query RangeQuery) ([]mo
 		return nil, err
 	}
 
-	// 4. 缓存结果
-	s.memoryCache.Set(cacheKey, data, 30*time.Minute)
+	// 4. 缓存结果（使用智能 TTL）
+	ttl := repositories.GetSmartCacheTTL(query.EndDate, query.Market)
+	s.memoryCache.Set(cacheKey, data, ttl)
 	s.rangeCacheRepo.SetCache(ctx, &models.RangeCacheData{
 		StartDate: query.StartDate,
 		EndDate:   query.EndDate,
