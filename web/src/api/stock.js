@@ -352,7 +352,13 @@ export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
       secid = `116.${symbol}`
     }
     
-    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f116,f117,f162,f167,f168,f169,f170`
+    // 扩展字段获取更多数据
+    // f43最新价 f44最高 f45最低 f46今开 f47成交量 f48成交额 f50振幅 f51涨停 f52跌停 
+    // f55量比 f57代码 f58名称 f60昨收 f71均价 f100行业 f112板块
+    // f116总市值 f117流通市值 f162市盈率 f163市盈率TTM f164市净率 f167市净率
+    // f168换手率 f169涨跌额 f170涨跌幅 f173ROE f183总股本 f184流通股本 f185外盘 f186内盘
+    // f187每股收益 f188每股净资产
+    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f71,f100,f116,f117,f162,f164,f167,f168,f169,f170,f173,f183,f184,f185,f186,f187,f188`
     const response = await axios.get(url)
     const data = response.data?.data
     
@@ -363,22 +369,33 @@ export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
     return {
       symbol: data.f57 || symbol,
       name: data.f58 || name,
-      latestPrice: data.f43 / priceDiv,
-      changePct: data.f170 / 100,
-      changeAmt: data.f169 / priceDiv,
-      open: data.f46 / priceDiv,
-      high: data.f44 / priceDiv,
-      low: data.f45 / priceDiv,
-      preClose: data.f60 / priceDiv,
-      volume: data.f47,
-      amount: data.f48,
-      totalMarketCap: data.f116,
-      floatMarketCap: data.f117,
-      peRatio: data.f162 / 100,
-      pbRatio: data.f167 / 100,
-      turnoverRate: data.f168 / 100,
-      amplitude: data.f50 / 100,
-      volumeRatio: data.f55 / 100,
+      industry: data.f100 || '',           // 行业
+      latestPrice: data.f43 / priceDiv,    // 最新价
+      changePct: data.f170 / 100,          // 涨跌幅
+      changeAmt: data.f169 / priceDiv,     // 涨跌额
+      open: data.f46 / priceDiv,           // 今开
+      high: data.f44 / priceDiv,           // 最高
+      low: data.f45 / priceDiv,            // 最低
+      preClose: data.f60 / priceDiv,       // 昨收
+      limitUp: data.f51 / priceDiv,        // 涨停价
+      limitDown: data.f52 / priceDiv,      // 跌停价
+      avgPrice: data.f71 / priceDiv,       // 均价
+      volume: data.f47,                    // 成交量（手）
+      amount: data.f48,                    // 成交额
+      outerVol: data.f185,                 // 外盘
+      innerVol: data.f186,                 // 内盘
+      totalMarketCap: data.f116,           // 总市值
+      floatMarketCap: data.f117,           // 流通市值
+      totalShares: data.f183,              // 总股本
+      floatShares: data.f184,              // 流通股本
+      peRatio: data.f162 / 100,            // 市盈率(动)
+      pbRatio: data.f167 / 100,            // 市净率
+      turnoverRate: data.f168 / 100,       // 换手率
+      amplitude: data.f50 / 100,           // 振幅
+      volumeRatio: data.f55 / 100,         // 量比
+      eps: data.f187 / 100,                // 每股收益
+      navps: data.f188 / 100,              // 每股净资产
+      roe: data.f173 / 100,                // ROE
     }
   } catch (error) {
     console.error('获取股票信息失败:', error)

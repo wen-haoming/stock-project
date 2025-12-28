@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Card, Tag, Spin, message, Grid } from 'antd'
+import { Card, Tag, Spin, message, Grid, DatePicker, Select, InputNumber, Button } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
@@ -7,12 +8,47 @@ import dayjs from 'dayjs'
 import RangeStatsPanel from './RangeStatsPanel'
 import IndexMobile from './IndexMobile'
 
+const { RangePicker } = DatePicker
+
 const { useBreakpoint } = Grid
 
 // 指数配置（根据市场切换）
 const indexConfigs = {
   hk: { secid: '100.HSI', name: '恒生指数' },
   a: { secid: '1.000001', name: '上证指数' },
+}
+
+// 市场配置
+const marketOptions = [
+  { label: '港股', value: 'hk' },
+  { label: 'A股', value: 'a' },
+]
+
+// 获取日期预设（包含通用预设 + 市场特定牛市阶段预设）
+const getDatePresets = (market) => {
+  const commonPresets = [
+    { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
+    { label: '近2周', value: [dayjs().subtract(14, 'day'), dayjs().subtract(1, 'day')] },
+    { label: '近1月', value: [dayjs().subtract(1, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近半年', value: [dayjs().subtract(6, 'month'), dayjs().subtract(1, 'day')] },
+    { label: '近1年', value: [dayjs().subtract(1, 'year'), dayjs().subtract(1, 'day')] },
+    { label: '近2年', value: [dayjs().subtract(2, 'year'), dayjs().subtract(1, 'day')] },
+  ]
+
+  const marketPresets = market === 'a' 
+    ? [
+        { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
+        { label: '19.01-21.02 核心资产牛', value: [dayjs('2019-01-04'), dayjs('2021-02-18')] },
+        { label: '14.07-15.06 杠杆牛', value: [dayjs('2014-07-01'), dayjs('2015-06-12')] },
+        { label: '05.06-07.10 股改牛', value: [dayjs('2005-06-06'), dayjs('2007-10-16')] },
+      ]
+    : [
+        { label: '24.01-至今 AI浪潮', value: [dayjs('2024-01-02'), dayjs().subtract(1, 'day')] },
+        { label: '16.02-18.01 南下资金', value: [dayjs('2016-02-01'), dayjs('2018-01-31')] },
+        { label: '03.04-07.10 SARS后', value: [dayjs('2003-04-01'), dayjs('2007-10-31')] },
+      ]
+
+  return [...marketPresets, ...commonPresets]
 }
 
 // ECharts 颜色配置
@@ -106,8 +142,18 @@ function RangeStatsPC() {
   const [loading, setLoading] = useState(false)
   const [indexChangePct, setIndexChangePct] = useState(null)
 
+  // 查询条件状态
+  const [minChangePct, setMinChangePct] = useState(60)
+  const [marketCapMode, setMarketCapMode] = useState('range')
+  const [marketCapValue, setMarketCapValue] = useState(null)
+  const [minMarketCap, setMinMarketCap] = useState(20)
+  const [maxMarketCap, setMaxMarketCap] = useState(1000)
+
   // 当前市场的指数配置
   const indexConfig = useMemo(() => indexConfigs[market] || indexConfigs.hk, [market])
+
+  // 当前市场的日期预设
+  const datePresets = useMemo(() => getDatePresets(market), [market])
 
   // 计算指数区间涨幅
   const calculateIndexChange = useCallback((startDate, endDate) => {
@@ -238,8 +284,8 @@ function RangeStatsPC() {
     brush: { xAxisIndex: 'all', brushLink: 'all', outOfBrush: { colorAlpha: 1 } },
     visualMap: { show: false, seriesIndex: 6, dimension: 2, pieces: [{ value: 1, color: downColor }, { value: -1, color: upColor }] },
     grid: [
-      { left: 60, right: 80, top: 10, bottom: '25%' },
-      { left: 60, right: 80, top: '78%', bottom: 30 }
+      { left: 60, right: 80, top: 10, bottom: '22%' },
+      { left: 60, right: 80, top: '82%', bottom: 20 }
     ],
     xAxis: [
       { type: 'category', data: data.categoryData, boundaryGap: false, axisLine: { onZero: false }, splitLine: { show: false }, min: 'dataMin', max: 'dataMax', axisPointer: { z: 100 }, axisLabel: { fontSize: 12 } },
@@ -453,13 +499,70 @@ function RangeStatsPC() {
     }
   }
 
+  // 市值模式变化
+  const handleMarketCapModeChange = (v) => {
+    setMarketCapMode(v)
+    if (v === 'range') {
+      setMinMarketCap(20)
+      setMaxMarketCap(500)
+      setMarketCapValue(null)
+    } else if (v === 'less') {
+      setMarketCapValue(50)
+      setMinMarketCap(null)
+      setMaxMarketCap(null)
+    } else if (v === 'greater') {
+      setMarketCapValue(1000)
+      setMinMarketCap(null)
+      setMaxMarketCap(null)
+    } else {
+      setMarketCapValue(null)
+      setMinMarketCap(null)
+      setMaxMarketCap(null)
+    }
+  }
+
+  // 查询条件对象（传递给 RangeStatsPanel）
+  const queryParams = useMemo(() => ({
+    minChangePct,
+    marketCapMode,
+    marketCapValue,
+    minMarketCap,
+    maxMarketCap,
+  }), [minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap])
+
+  // 触发查询的标记
+  const [searchTrigger, setSearchTrigger] = useState(0)
+  const handleSearch = useCallback(() => {
+    setSearchTrigger(prev => prev + 1)
+  }, [])
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 16 }}>
-      {/* K 线图区域 - 放在最上面 */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
+      {/* K 线图区域 - 放在最上面，title 包含查询条件 */}
       <Card
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span>{indexConfig.name} K线走势</span>
+            <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
+            <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="middle" style={{ width: 260 }} presets={datePresets} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 13, color: '#666' }}>涨幅≥</span>
+              <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="middle" style={{ width: 80 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 13, color: '#666' }}>市值</span>
+              <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
+              {marketCapMode === 'range' && (
+                <>
+                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} suffix="亿" />
+                  <span style={{ color: '#999' }}>~</span>
+                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} suffix="亿" />
+                </>
+              )}
+              {(marketCapMode === 'less' || marketCapMode === 'greater') && (
+                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 100 }} suffix="亿" />
+              )}
+            </div>
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>查询</Button>
             {indexChangePct !== null && (
               <Tag color={indexChangePct >= 0 ? 'red' : 'green'} style={{ margin: 0, fontWeight: 'bold', fontSize: 13 }}>
                 {indexChangePct >= 0 ? '+' : ''}{indexChangePct.toFixed(2)}%
@@ -477,7 +580,7 @@ function RangeStatsPC() {
               <Spin size="large" />
             </div>
           )}
-          <div ref={chartContainerRef} style={{ height: 400 }} />
+          <div ref={chartContainerRef} style={{ height: 280 }} />
         </div>
       </Card>
 
@@ -487,8 +590,10 @@ function RangeStatsPC() {
         onDateRangeChange={handleDateRangeChange}
         market={market}
         onMarketChange={handleMarketChange}
-        showDatePicker={true}
-        showMarketSelect={true}
+        showDatePicker={false}
+        showMarketSelect={false}
+        queryParams={queryParams}
+        searchTrigger={searchTrigger}
       />
     </div>
   )

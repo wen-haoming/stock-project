@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Card, DatePicker, Button, Table, Tag, message, InputNumber, Select, Grid, Space } from 'antd'
+import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Space, Spin, Dropdown } from 'antd'
 import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
+import { SheetComponent } from '@antv/s2-react'
+import '@antv/s2-react/dist/s2-react.min.css'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -62,6 +64,8 @@ const getDatePresets = (market) => {
  * @param {Function} props.onMarketChange - 市场变化回调
  * @param {boolean} props.showDatePicker - 是否显示日期选择器（默认true）
  * @param {boolean} props.showMarketSelect - 是否显示市场选择（默认true）
+ * @param {Object} props.queryParams - 外部传入的查询参数（从K线图title传入）
+ * @param {number} props.searchTrigger - 外部触发查询的标记
  */
 export default function RangeStatsPanel({
   dateRange: externalDateRange,
@@ -70,6 +74,8 @@ export default function RangeStatsPanel({
   onMarketChange,
   showDatePicker = true,
   showMarketSelect = true,
+  queryParams,
+  searchTrigger,
 }) {
   const screens = useBreakpoint()
   const isMobile = !screens.md
@@ -86,18 +92,39 @@ export default function RangeStatsPanel({
   // 当前市场的日期预设（包含牛市阶段 + 通用预设）
   const datePresets = useMemo(() => getDatePresets(market), [market])
 
-  // 查询条件状态
-  const [minChangePct, setMinChangePct] = useState(60)
-  const [marketCapMode, setMarketCapMode] = useState('range')
-  const [marketCapValue, setMarketCapValue] = useState(null)
-  const [minMarketCap, setMinMarketCap] = useState(20)
-  const [maxMarketCap, setMaxMarketCap] = useState(1000)
+  // 查询条件状态 - 优先使用外部传入的值
+  const [minChangePct, setMinChangePct] = useState(queryParams?.minChangePct ?? 60)
+  const [marketCapMode, setMarketCapMode] = useState(queryParams?.marketCapMode ?? 'range')
+  const [marketCapValue, setMarketCapValue] = useState(queryParams?.marketCapValue ?? null)
+  const [minMarketCap, setMinMarketCap] = useState(queryParams?.minMarketCap ?? 20)
+  const [maxMarketCap, setMaxMarketCap] = useState(queryParams?.maxMarketCap ?? 1000)
   const [selectedIndustry, setSelectedIndustry] = useState('')
+
+  // 同步外部查询参数变化
+  useEffect(() => {
+    if (queryParams) {
+      if (queryParams.minChangePct !== undefined) setMinChangePct(queryParams.minChangePct)
+      if (queryParams.marketCapMode !== undefined) setMarketCapMode(queryParams.marketCapMode)
+      if (queryParams.marketCapValue !== undefined) setMarketCapValue(queryParams.marketCapValue)
+      if (queryParams.minMarketCap !== undefined) setMinMarketCap(queryParams.minMarketCap)
+      if (queryParams.maxMarketCap !== undefined) setMaxMarketCap(queryParams.maxMarketCap)
+    }
+  }, [queryParams])
+
+  // 外部触发查询 - 直接使用 queryParams 的值
+  useEffect(() => {
+    if (searchTrigger > 0 && queryParams) {
+      setSelectedIndustry('')
+      fetchStockData('', null, queryParams)
+    }
+  }, [searchTrigger]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 数据状态
   const [tableLoading, setTableLoading] = useState(false)
   const [allStockData, setAllStockData] = useState([])
   const [industryStats, setIndustryStats] = useState([])
+  // 排序状态
+  const [sortParams, setSortParams] = useState([{ sortFieldId: 'changePct', sortMethod: 'DESC' }])
 
   // 抽屉状态
   const [drawerVisible, setDrawerVisible] = useState(false)
@@ -134,25 +161,32 @@ export default function RangeStatsPanel({
   }
 
   // 获取区间涨幅股票数据
-  const fetchStockData = useCallback(async (industry = '', customDateRange = null) => {
+  const fetchStockData = useCallback(async (industry = '', customDateRange = null, customQueryParams = null) => {
     const useDateRange = customDateRange || dateRange
     if (!useDateRange[0] || !useDateRange[1]) return
+    
+    // 使用传入的参数或内部状态
+    const useMinChangePct = customQueryParams?.minChangePct ?? minChangePct
+    const useMarketCapMode = customQueryParams?.marketCapMode ?? marketCapMode
+    const useMarketCapValue = customQueryParams?.marketCapValue ?? marketCapValue
+    const useMinMarketCap = customQueryParams?.minMarketCap ?? minMarketCap
+    const useMaxMarketCap = customQueryParams?.maxMarketCap ?? maxMarketCap
     
     setTableLoading(true)
     try {
       let actualMinCap = 0, actualMaxCap = 0
       
-      if (marketCapMode === 'less' && marketCapValue) actualMaxCap = marketCapValue
-      else if (marketCapMode === 'greater' && marketCapValue) actualMinCap = marketCapValue
-      else if (marketCapMode === 'range') {
-        actualMinCap = minMarketCap || 0
-        actualMaxCap = maxMarketCap || 0
+      if (useMarketCapMode === 'less' && useMarketCapValue) actualMaxCap = useMarketCapValue
+      else if (useMarketCapMode === 'greater' && useMarketCapValue) actualMinCap = useMarketCapValue
+      else if (useMarketCapMode === 'range') {
+        actualMinCap = useMinMarketCap || 0
+        actualMaxCap = useMaxMarketCap || 0
       }
       
       const params = {
         start_date: useDateRange[0].format('YYYYMMDD'),
         end_date: useDateRange[1].format('YYYYMMDD'),
-        min_change_pct: minChangePct,
+        min_change_pct: useMinChangePct,
         min_market_cap: actualMinCap,
         max_market_cap: actualMaxCap,
         market: market,
@@ -222,20 +256,6 @@ export default function RangeStatsPanel({
       }, 0)
     }
   }, [market, dateRange]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleTableChange = (pag, filters, sorter) => {
-    if (sorter.field && sorter.order) {
-      const sorted = [...allStockData].sort((a, b) => {
-        const aVal = a[sorter.field] || 0
-        const bVal = b[sorter.field] || 0
-        if (typeof aVal === 'string') {
-          return sorter.order === 'ascend' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-        }
-        return sorter.order === 'ascend' ? aVal - bVal : bVal - aVal
-      })
-      setAllStockData(sorted)
-    }
-  }
 
   const handleIndustryClick = (industry) => {
     if (selectedIndustry === industry) {
@@ -383,136 +403,354 @@ export default function RangeStatsPanel({
     }
   }, [allStockData, dateRange])
 
-  // 表格列定义
-  const columns = useMemo(() => [
-    {
-      title: '#',
-      dataIndex: 'rank',
-      width: isMobile ? 36 : 60,
-      fixed: 'left',
-      render: (_, __, index) => {
-        const rank = index + 1
-        const color = rank <= 3 ? 'red' : rank <= 10 ? 'orange' : 'default'
-        return <Tag color={color} style={{ margin: 0, fontSize: isMobile ? 10 : 12 }}>{rank}</Tag>
+  // S2 表格配置
+  // 根据排序参数对数据进行排序
+  const sortedStockData = useMemo(() => {
+    if (!allStockData.length) return allStockData
+    if (!sortParams.length) return allStockData
+    
+    const { sortFieldId, sortMethod } = sortParams[0]
+    console.log('执行排序:', sortFieldId, sortMethod, '数据量:', allStockData.length)
+    
+    const sorted = [...allStockData].sort((a, b) => {
+      let aVal, bVal
+      
+      // 根据字段获取对应的原始数据值
+      switch (sortFieldId) {
+        case 'rank':
+          return 0 // rank 按原始顺序
+        case 'symbol':
+          aVal = a.symbol || ''
+          bVal = b.symbol || ''
+          break
+        case 'name':
+          aVal = a.name || ''
+          bVal = b.name || ''
+          break
+        case 'startPrice':
+          aVal = a.startPrice ?? -Infinity
+          bVal = b.startPrice ?? -Infinity
+          break
+        case 'endPrice':
+          aVal = a.endPrice ?? -Infinity
+          bVal = b.endPrice ?? -Infinity
+          break
+        case 'changePct':
+          aVal = a.changePct ?? -Infinity
+          bVal = b.changePct ?? -Infinity
+          break
+        case 'latestPrice':
+          aVal = a.latestPrice ?? -Infinity
+          bVal = b.latestPrice ?? -Infinity
+          break
+        case 'marketCap':
+          aVal = a.totalMarketCap ?? -Infinity
+          bVal = b.totalMarketCap ?? -Infinity
+          break
+        case 'peRatio':
+          aVal = a.peRatio ?? -Infinity
+          bVal = b.peRatio ?? -Infinity
+          break
+        case 'pbRatio':
+          aVal = a.pbRatio ?? -Infinity
+          bVal = b.pbRatio ?? -Infinity
+          break
+        case 'turnoverRate':
+          aVal = a.turnoverRate ?? -Infinity
+          bVal = b.turnoverRate ?? -Infinity
+          break
+        default:
+          return 0
+      }
+      
+      // 字符串比较
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal, 'zh-CN')
+        return sortMethod === 'DESC' ? -cmp : cmp
+      }
+      
+      // 数值比较
+      const result = sortMethod === 'DESC' ? bVal - aVal : aVal - bVal
+      return result
+    })
+    
+    // 打印前3条排序后的数据
+    console.log('排序后前3条:', sorted.slice(0, 3).map(s => ({ name: s.name, changePct: s.changePct })))
+    
+    return sorted
+  }, [allStockData, sortParams])
+
+  const s2DataCfg = useMemo(() => ({
+    fields: {
+      columns: ['rank', 'symbol', 'name', 'startPrice', 'endPrice', 'changePct', 'latestPrice', 'marketCap', 'peRatio', 'pbRatio', 'turnoverRate'],
+    },
+    meta: [
+      { field: 'rank', name: '#' },
+      { field: 'symbol', name: '代码' },
+      { field: 'name', name: '名称' },
+      { field: 'startPrice', name: '起始价' },
+      { field: 'endPrice', name: '结束价' },
+      { field: 'changePct', name: '涨幅' },
+      { field: 'latestPrice', name: '现价' },
+      { field: 'marketCap', name: '市值' },
+      { field: 'peRatio', name: '市盈率' },
+      { field: 'pbRatio', name: '市净率' },
+      { field: 'turnoverRate', name: '换手率' },
+    ],
+    data: sortedStockData.map((item, index) => ({
+      rank: index + 1,
+      symbol: item.symbol,
+      name: item.name,
+      startPrice: item.startPrice?.toFixed(3) || '-',
+      endPrice: item.endPrice?.toFixed(3) || '-',
+      changePct: item.changePct?.toFixed(2) || '-',
+      latestPrice: item.latestPrice?.toFixed(2) || '-',
+      marketCap: item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(0) : '-',
+      peRatio: item.peRatio?.toFixed(2) || '-',
+      pbRatio: item.pbRatio?.toFixed(2) || '-',
+      turnoverRate: item.turnoverRate ? item.turnoverRate.toFixed(2) + '%' : '-',
+    })),
+    // 不传 sortParams，由前端排序后直接显示
+  }), [sortedStockData])
+
+  const s2Options = useMemo(() => ({
+    width: tableCardRef.current?.clientWidth || 800,
+    height: queryParams ? window.innerHeight - 360 : window.innerHeight - 420,
+    showSeriesNumber: false,
+    interaction: {
+      selectedCellsSpotlight: false,
+      hoverHighlight: true,
+    },
+    // 启用 tooltip 排序功能
+    tooltip: {
+      enable: true,
+      operation: {
+        sort: true,
+        menu: {
+          render: (props) => {
+            const items = props.items?.map(item => ({
+              key: item.key,
+              label: item.label,
+              onClick: item.onClick,
+            })) || []
+            return (
+              <Dropdown menu={{ items }} trigger={['click']} open>
+                <div style={{ display: 'none' }} />
+              </Dropdown>
+            )
+          },
+        },
       },
     },
-    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'], sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      width: isMobile ? 60 : 100,
-      fixed: 'left',
-      ellipsis: true,
-      sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (text, record) => (
-        <a onClick={() => openStockDetail(record)} style={{ color: '#1677ff', fontSize: isMobile ? 12 : 14 }}>{text}</a>
-      ),
+    style: {
+      layoutWidthType: 'adaptive',
+      dataCell: {
+        height: 32,
+      },
+      colCell: {
+        height: 36,
+      },
     },
-    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.startPrice || 0) - (b.startPrice || 0), render: (v) => v?.toFixed(3) },
-    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.endPrice || 0) - (b.endPrice || 0), render: (v) => v?.toFixed(3) },
-    {
-      title: '涨幅',
-      dataIndex: 'changePct',
-      width: isMobile ? 60 : 90,
-      align: 'right',
-      sorter: (a, b) => (a.changePct || 0) - (b.changePct || 0),
-      defaultSortOrder: 'descend',
-      render: (v) => <span style={{ color: v >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: isMobile ? 12 : 14 }}>{v >= 0 ? '+' : ''}{v?.toFixed(1)}%</span>,
+    // 启用表头排序图标
+    showDefaultHeaderActionIcon: true,
+    conditions: {
+      text: [
+        {
+          field: 'changePct',
+          mapping: (value) => {
+            const num = parseFloat(value)
+            return {
+              fill: num >= 0 ? '#ec5a5a' : '#47b262',
+              fontWeight: 600,
+            }
+          },
+        },
+        {
+          field: 'rank',
+          mapping: (value) => {
+            const rank = parseInt(value)
+            if (rank <= 3) return { fill: '#ec5a5a', fontWeight: 600 }
+            if (rank <= 10) return { fill: '#fa8c16', fontWeight: 600 }
+            return { fill: '#333' }
+          },
+        },
+        {
+          field: 'name',
+          mapping: () => ({ fill: '#1677ff' }),
+        },
+      ],
     },
-    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', sorter: (a, b) => (a.latestPrice || 0) - (b.latestPrice || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
-    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', sorter: (a, b) => (a.totalMarketCap || 0) - (b.totalMarketCap || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
-    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.peRatio || 0) - (b.peRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.pbRatio || 0) - (b.pbRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.turnoverRate || 0) - (b.turnoverRate || 0), render: (v) => v ? v.toFixed(2) + '%' : '-' },
-  ], [isMobile, openStockDetail])
+  }), [queryParams])
+
+  // S2 ref 用于绑定事件
+  const s2Ref = useRef(null)
+  // 保存原始数据的引用，用于点击时获取完整数据
+  const stockDataRef = useRef([])
+  // 保存排序状态的引用
+  const sortParamsRef = useRef(sortParams)
+  
+  // 同步数据到 ref（使用排序后的数据）
+  useEffect(() => {
+    stockDataRef.current = sortedStockData
+  }, [sortedStockData])
+  
+  // 同步排序状态到 ref
+  useEffect(() => {
+    sortParamsRef.current = sortParams
+  }, [sortParams])
+
+  // 处理排序事件
+  const handleRangeSort = useCallback((params) => {
+    console.log('排序参数:', params)
+    // S2 排序参数格式: { sortKey, sortMethod } 或 [{ sortFieldId, sortMethod }]
+    if (Array.isArray(params) && params.length > 0) {
+      const { sortFieldId, sortMethod } = params[0]
+      if (sortFieldId && sortMethod) {
+        setSortParams([{ sortFieldId, sortMethod: sortMethod.toUpperCase() }])
+      }
+    } else if (params.sortKey && params.sortMethod) {
+      setSortParams([{ sortFieldId: params.sortKey, sortMethod: params.sortMethod.toUpperCase() }])
+    }
+  }, [])
+
+  // 处理列头点击排序
+  const handleColCellClick = useCallback((field) => {
+    if (field && field !== 'rank') {
+      const current = sortParamsRef.current[0]
+      if (current?.sortFieldId === field) {
+        // 同一字段，切换排序方向
+        const newMethod = current.sortMethod === 'DESC' ? 'ASC' : 'DESC'
+        setSortParams([{ sortFieldId: field, sortMethod: newMethod }])
+      } else {
+        // 新字段，默认降序
+        setSortParams([{ sortFieldId: field, sortMethod: 'DESC' }])
+      }
+    }
+  }, [])
+
+  // 使用 onMounted 绑定点击事件
+  const handleS2Mounted = useCallback((spreadsheet) => {
+    s2Ref.current = spreadsheet
+    
+    // 监听列头点击事件实现排序
+    spreadsheet.on('col-cell:click', (event) => {
+      const cell = spreadsheet.getCell(event.target)
+      const meta = cell?.getMeta?.()
+      const field = meta?.field
+      console.log('列头点击:', field, meta)
+      handleColCellClick(field)
+    })
+    
+    // 监听 data-cell:click 事件
+    spreadsheet.on('data-cell:click', (event) => {
+      const cell = spreadsheet.getCell(event.target)
+      const meta = cell?.getMeta?.()
+      const field = meta?.valueField
+      // 只有点击名称列才打开详情
+      if (field === 'name') {
+        // 从表格获取当前行的完整数据
+        const rowData = spreadsheet.dataSet.getRowData(meta)
+        // 用 symbol 匹配原始数据
+        const symbol = rowData?.symbol
+        if (symbol) {
+          const originalData = stockDataRef.current.find(item => item.symbol === symbol)
+          if (originalData) {
+            openStockDetail(originalData)
+          }
+        }
+      }
+    })
+  }, [openStockDetail, handleColCellClick])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 4 : 12 }}>
-      {/* 查询条件区 - 一排布局 */}
-      <Card size="small" styles={{ body: { padding: isMobile ? 8 : '8px 12px' } }}>
-        {isMobile ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {showDatePicker && (
-              <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="small" style={{ width: '100%' }} presets={datePresets} />
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅≥</span>
-                <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="small" style={{ flex: 1, minWidth: 60 }} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>市值</span>
-                <Select value={marketCapMode} onChange={handleMarketCapModeChange} size="small" style={{ flex: 1, minWidth: 60 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {marketCapMode === 'range' && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 4 : 6 }}>
+      {/* 查询条件区 - 一排布局（仅在没有外部 queryParams 时显示） */}
+      {!queryParams && (
+        <Card size="small" styles={{ body: { padding: isMobile ? 6 : '4px 10px' } }}>
+          {isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {showDatePicker && (
+                <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="small" style={{ width: '100%' }} presets={datePresets} />
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最小" suffix="亿" />
-                  <span style={{ fontSize: 12, color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最大" suffix="亿" />
+                  <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅≥</span>
+                  <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="small" style={{ flex: 1, minWidth: 60 }} />
                 </div>
-              )}
-              {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} size="small" style={{ flex: 1 }} placeholder={marketCapMode === 'less' ? '小于' : '大于'} suffix="亿" />
-              )}
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading} size="small" style={{ flexShrink: 0 }}>查询</Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                  <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>市值</span>
+                  <Select value={marketCapMode} onChange={handleMarketCapModeChange} size="small" style={{ flex: 1, minWidth: 60 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {marketCapMode === 'range' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                    <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最小" suffix="亿" />
+                    <span style={{ fontSize: 12, color: '#999' }}>~</span>
+                    <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最大" suffix="亿" />
+                  </div>
+                )}
+                {(marketCapMode === 'less' || marketCapMode === 'greater') && (
+                  <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} size="small" style={{ flex: 1 }} placeholder={marketCapMode === 'less' ? '小于' : '大于'} suffix="亿" />
+                )}
+                <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading} size="small" style={{ flexShrink: 0 }}>查询</Button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {showMarketSelect && (
-              <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
-            )}
-            {showDatePicker && (
-              <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="middle" style={{ width: 260 }} presets={datePresets} />
-            )}
-            {!showDatePicker && dateRange[0] && dateRange[1] && (
-              <span style={{ fontSize: 13, color: '#666', padding: '0 8px', background: '#f5f5f5', borderRadius: 4, lineHeight: '30px' }}>
-                {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')}
-              </span>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>涨幅≥</span>
-              <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="middle" style={{ width: 80 }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>市值</span>
-              <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
-              {marketCapMode === 'range' && (
-                <>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} suffix="亿" />
-                  <span style={{ color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} suffix="亿" />
-                </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {showMarketSelect && (
+                <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
               )}
-              {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 100 }} suffix="亿" />
+              {showDatePicker && (
+                <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="middle" style={{ width: 260 }} presets={datePresets} />
               )}
+              {!showDatePicker && dateRange[0] && dateRange[1] && (
+                <span style={{ fontSize: 13, color: '#666', padding: '0 8px', background: '#f5f5f5', borderRadius: 4, lineHeight: '30px' }}>
+                  {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')}
+                </span>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#666' }}>涨幅≥</span>
+                <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="middle" style={{ width: 80 }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#666' }}>市值</span>
+                <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
+                {marketCapMode === 'range' && (
+                  <>
+                    <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} suffix="亿" />
+                    <span style={{ color: '#999' }}>~</span>
+                    <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} suffix="亿" />
+                  </>
+                )}
+                {(marketCapMode === 'less' || marketCapMode === 'greater') && (
+                  <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 100 }} suffix="亿" />
+                )}
+              </div>
+              <div style={{ flex: 1 }} />
+              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading}>查询</Button>
             </div>
-            <div style={{ flex: 1 }} />
-            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading}>查询</Button>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+      )}
 
       {/* 行业统计 */}
       {industryStats.length > 0 && (
         <Card 
           title={
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: isMobile ? 12 : 14 }}>行业分布</span>
+              <span style={{ fontSize: isMobile ? 12 : 13 }}>行业分布</span>
               {selectedIndustry && (
                 <Tag color="red" closable onClose={() => handleIndustryClick(selectedIndustry)} style={{ fontSize: 11, margin: 0 }}>{selectedIndustry}</Tag>
               )}
             </div>
           } 
           size="small"
-          styles={{ body: { padding: isMobile ? 6 : 12 } }}
+          styles={{ body: { padding: isMobile ? 4 : '4px 8px' } }}
         >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 3 : 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 3 : 6 }}>
             {industryStats.map((item) => (
-              <Tag key={item.name} color={selectedIndustry === item.name ? 'red' : 'blue'} style={{ margin: 0, cursor: 'pointer', fontSize: isMobile ? 10 : 12, padding: isMobile ? '0 4px' : undefined }} onClick={() => handleIndustryClick(item.name)}>
+              <Tag key={item.name} color={selectedIndustry === item.name ? 'red' : 'blue'} style={{ margin: 0, cursor: 'pointer', fontSize: isMobile ? 10 : 11, padding: isMobile ? '0 4px' : '0 6px' }} onClick={() => handleIndustryClick(item.name)}>
                 {item.name}: {item.count}
               </Tag>
             ))}
@@ -524,12 +762,12 @@ export default function RangeStatsPanel({
       <Card
         ref={tableCardRef}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: isMobile ? 12 : 14 }}>
+              <span style={{ fontSize: isMobile ? 12 : 13 }}>
                 {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : getQueryTitle()}
               </span>
-              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{allStockData.length}只</Tag>}
+              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>共{allStockData.length}只</Tag>}
             </div>
             {!isMobile && allStockData.length > 0 && (
               <Space size="small">
@@ -542,19 +780,26 @@ export default function RangeStatsPanel({
         }
         size="small"
         style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-        styles={{ body: { flex: 1, overflow: 'auto', padding: 0 } }}
+        styles={{ body: { flex: 1, overflow: 'hidden', padding: 0 } }}
       >
-        <Table
-          columns={columns}
-          dataSource={allStockData}
-          rowKey="symbol"
-          loading={tableLoading}
-          pagination={false}
-          onChange={handleTableChange}
-          size="small"
-          scroll={{ x: isMobile ? 280 : 800, y: 'calc(100vh - 450px)' }}
-          sticky
-        />
+        <Spin spinning={tableLoading} style={{ minHeight: 200 }}>
+          {allStockData.length > 0 ? (
+            <SheetComponent
+              sheetType="table"
+              dataCfg={s2DataCfg}
+              options={s2Options}
+              onMounted={handleS2Mounted}
+              onRangeSort={handleRangeSort}
+              adaptive={{ width: true, height: false }}
+            />
+          ) : !tableLoading ? (
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+              暂无数据
+            </div>
+          ) : (
+            <div style={{ height: 200 }} />
+          )}
+        </Spin>
       </Card>
 
       {/* 股票详情抽屉 */}
