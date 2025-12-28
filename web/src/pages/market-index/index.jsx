@@ -1,10 +1,11 @@
-import { useMemo, useCallback, useRef, useEffect } from 'react'
+import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { Card, Spin, Empty, Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useRequest, useInterval } from 'ahooks'
 import { ListTable } from '@visactor/react-vtable'
 import ReactECharts from 'echarts-for-react'
 import axios from 'axios'
+import StockDetailDrawer from '../range-stats/StockDetailDrawer'
 
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
@@ -54,7 +55,7 @@ const getIndexChartOption = (index) => {
 }
 
 // 单个市场面板组件
-function MarketPanel({ market, title }) {
+function MarketPanel({ market, title, onStockClick }) {
   const vtableRef = useRef(null)
 
   // 获取指数行情
@@ -105,7 +106,7 @@ function MarketPanel({ market, title }) {
     { field: 'amount', title: '成交额', width: 60, fieldFormat: (r) => r.amount ? `${(r.amount / 100000000).toFixed(1)}亿` : '-' },
   ], [])
 
-  const tableRecords = useMemo(() => topGainers.map((item, i) => ({ ...item, rank: i + 1 })), [topGainers])
+  const tableRecords = useMemo(() => topGainers.map((item, i) => ({ ...item, rank: i + 1, market })), [topGainers, market])
 
   const vtableOption = useMemo(() => ({
     columns,
@@ -115,15 +116,25 @@ function MarketPanel({ market, title }) {
     widthMode: 'adaptive',
     autoWrapText: false,
     hover: { highlightMode: 'row' },
+    select: { disableSelect: true },
     theme: {
-      defaultStyle: { fontSize: 10, fontFamily: 'Consolas, Monaco, monospace', color: '#333', borderColor: '#f0f0f0', borderLineWidth: 1 },
+      defaultStyle: { fontSize: 10, fontFamily: 'Consolas, Monaco, monospace', color: '#333', borderColor: '#f0f0f0', borderLineWidth: 1, cursor: 'pointer' },
       headerStyle: { fontSize: 10, fontWeight: 600, color: '#666', bgColor: '#fafafa', borderColor: '#e8e8e8' },
       bodyStyle: { bgColor: '#fff', hover: { cellBgColor: '#f5f5f5', inlineRowBgColor: '#f5f5f5' } },
       frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1, cornerRadius: 4 },
     },
   }), [columns, tableRecords])
 
-  const handleVTableReady = useCallback((instance) => { vtableRef.current = instance }, [])
+  const handleVTableReady = useCallback((instance) => {
+    vtableRef.current = instance
+    // 监听行点击事件
+    instance.on('click_cell', (args) => {
+      const { row } = args
+      if (row > 0 && tableRecords[row - 1]) {
+        onStockClick?.(tableRecords[row - 1])
+      }
+    })
+  }, [tableRecords, onStockClick])
 
   useEffect(() => {
     if (vtableRef.current && tableRecords.length > 0) {
@@ -232,13 +243,33 @@ function MarketPanel({ market, title }) {
 }
 
 export default function MarketIndexPage() {
+  const [selectedStock, setSelectedStock] = useState(null)
+  const [drawerVisible, setDrawerVisible] = useState(false)
+
+  const handleStockClick = useCallback((stock) => {
+    setSelectedStock(stock)
+    setDrawerVisible(true)
+  }, [])
+
+  const handleCloseDrawer = useCallback(() => {
+    setDrawerVisible(false)
+  }, [])
+
   return (
     <div style={{ height: '100%', display: 'flex', gap: 10, padding: 10, background: '#f5f5f5', overflow: 'auto' }}>
       {/* 左侧 A股 */}
-      <MarketPanel market="a" title="A股行情" />
+      <MarketPanel market="a" title="A股行情" onStockClick={handleStockClick} />
       
       {/* 右侧 港股 */}
-      <MarketPanel market="hk" title="港股行情" />
+      <MarketPanel market="hk" title="港股行情" onStockClick={handleStockClick} />
+
+      {/* 股票详情抽屉 - 使用已有组件 */}
+      <StockDetailDrawer 
+        visible={drawerVisible}
+        stock={selectedStock} 
+        market={selectedStock?.market || 'hk'}
+        onClose={handleCloseDrawer} 
+      />
     </div>
   )
 }
