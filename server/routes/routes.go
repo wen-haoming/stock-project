@@ -54,6 +54,13 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/db/kline-debug", dbCtrl.GetKlineDebug)
 		v1.POST("/db/sync", dbCtrl.ManualSync)
 		v1.POST("/db/sync-history", dbCtrl.ManualSyncHistory)
+
+		// 大盘行情
+		marketCtrl := controllers.NewMarketController()
+		v1.GET("/market/index", marketCtrl.GetIndexList)
+		v1.GET("/market/distribution", marketCtrl.GetDistribution)
+		v1.GET("/market/sectors", marketCtrl.GetHotSectors)
+		v1.GET("/market/top-gainers", marketCtrl.GetTopGainers)
 	}
 
 	return r

@@ -1,8 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Space, Spin, Dropdown } from 'antd'
+import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Space, Spin } from 'antd'
 import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
-import { SheetComponent } from '@antv/s2-react'
-import '@antv/s2-react/dist/s2-react.min.css'
+import { ListTable } from '@visactor/react-vtable'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -24,9 +23,8 @@ const marketDefaultPresets = {
   a: { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
 }
 
-// 获取日期预设（包含通用预设 + 市场特定牛市阶段预设）
+// 获取日期预设
 const getDatePresets = (market) => {
-  // 通用预设
   const commonPresets = [
     { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
     { label: '近2周', value: [dayjs().subtract(14, 'day'), dayjs().subtract(1, 'day')] },
@@ -36,7 +34,6 @@ const getDatePresets = (market) => {
     { label: '近2年', value: [dayjs().subtract(2, 'year'), dayjs().subtract(1, 'day')] },
   ]
 
-  // 市场特定的牛市阶段预设
   const marketPresets = market === 'a' 
     ? [
         { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
@@ -53,20 +50,10 @@ const getDatePresets = (market) => {
   return [...marketPresets, ...commonPresets]
 }
 
-/**
- * RangeStatsPanel - 区间涨幅查询面板
- * 包含：查询条件 + 行业分布 + 区间涨幅排行
- * 
- * @param {Object} props
- * @param {Array} props.dateRange - 日期范围 [dayjs, dayjs]
- * @param {Function} props.onDateRangeChange - 日期变化回调
- * @param {string} props.market - 市场 'hk' | 'a'
- * @param {Function} props.onMarketChange - 市场变化回调
- * @param {boolean} props.showDatePicker - 是否显示日期选择器（默认true）
- * @param {boolean} props.showMarketSelect - 是否显示市场选择（默认true）
- * @param {Object} props.queryParams - 外部传入的查询参数（从K线图title传入）
- * @param {number} props.searchTrigger - 外部触发查询的标记
- */
+// 颜色配置
+const upColor = '#ec5a5a'
+const downColor = '#47b262'
+
 export default function RangeStatsPanel({
   dateRange: externalDateRange,
   onDateRangeChange,
@@ -80,19 +67,16 @@ export default function RangeStatsPanel({
   const screens = useBreakpoint()
   const isMobile = !screens.md
   const tableCardRef = useRef(null)
+  const vtableRef = useRef(null)
 
-  // 内部状态（如果外部没传则使用内部状态）
   const [internalDateRange, setInternalDateRange] = useState([dayjs('2024-01-02'), dayjs().subtract(1, 'day')])
   const [internalMarket, setInternalMarket] = useState('hk')
   
-  // 实际使用的值
   const dateRange = externalDateRange || internalDateRange
   const market = externalMarket ?? internalMarket
 
-  // 当前市场的日期预设（包含牛市阶段 + 通用预设）
   const datePresets = useMemo(() => getDatePresets(market), [market])
 
-  // 查询条件状态 - 优先使用外部传入的值
   const [minChangePct, setMinChangePct] = useState(queryParams?.minChangePct ?? 60)
   const [marketCapMode, setMarketCapMode] = useState(queryParams?.marketCapMode ?? 'range')
   const [marketCapValue, setMarketCapValue] = useState(queryParams?.marketCapValue ?? null)
@@ -100,7 +84,6 @@ export default function RangeStatsPanel({
   const [maxMarketCap, setMaxMarketCap] = useState(queryParams?.maxMarketCap ?? 1000)
   const [selectedIndustry, setSelectedIndustry] = useState('')
 
-  // 同步外部查询参数变化
   useEffect(() => {
     if (queryParams) {
       if (queryParams.minChangePct !== undefined) setMinChangePct(queryParams.minChangePct)
@@ -111,7 +94,6 @@ export default function RangeStatsPanel({
     }
   }, [queryParams])
 
-  // 外部触发查询 - 直接使用 queryParams 的值
   useEffect(() => {
     if (searchTrigger > 0 && queryParams) {
       setSelectedIndustry('')
@@ -119,18 +101,14 @@ export default function RangeStatsPanel({
     }
   }, [searchTrigger]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 数据状态
   const [tableLoading, setTableLoading] = useState(false)
   const [allStockData, setAllStockData] = useState([])
   const [industryStats, setIndustryStats] = useState([])
-  // 排序状态
-  const [sortParams, setSortParams] = useState([{ sortFieldId: 'changePct', sortMethod: 'DESC' }])
+  const [sortState, setSortState] = useState({ field: 'changePct', order: 'desc' })
 
-  // 抽屉状态
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedStock, setSelectedStock] = useState(null)
 
-  // 日期变化处理
   const handleDateRangeChange = (dates) => {
     if (dates?.[0] && dates?.[1]) {
       if (onDateRangeChange) {
@@ -141,14 +119,12 @@ export default function RangeStatsPanel({
     }
   }
 
-  // 市场变化处理
   const handleMarketChange = (newMarket) => {
     if (onMarketChange) {
       onMarketChange(newMarket)
     } else {
       setInternalMarket(newMarket)
     }
-    // 切换市场时使用该市场的默认预设
     const defaultPreset = marketDefaultPresets[newMarket]
     if (defaultPreset && onDateRangeChange) {
       onDateRangeChange(defaultPreset.value)
@@ -160,12 +136,10 @@ export default function RangeStatsPanel({
     setSelectedIndustry('')
   }
 
-  // 获取区间涨幅股票数据
   const fetchStockData = useCallback(async (industry = '', customDateRange = null, customQueryParams = null) => {
     const useDateRange = customDateRange || dateRange
     if (!useDateRange[0] || !useDateRange[1]) return
     
-    // 使用传入的参数或内部状态
     const useMinChangePct = customQueryParams?.minChangePct ?? minChangePct
     const useMarketCapMode = customQueryParams?.marketCapMode ?? marketCapMode
     const useMarketCapValue = customQueryParams?.marketCapValue ?? marketCapValue
@@ -208,13 +182,11 @@ export default function RangeStatsPanel({
     }
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, market])
 
-  // 打开股票详情
   const openStockDetail = useCallback((stock) => {
     setSelectedStock(stock)
     setDrawerVisible(true)
   }, [])
 
-  // 关闭抽屉
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false)
   }, [])
@@ -224,19 +196,15 @@ export default function RangeStatsPanel({
     fetchStockData('')
   }
 
-  // 首次加载标记
   const isFirstMount = useRef(true)
-  // 上一次的市场值和日期范围
   const prevMarketRef = useRef(market)
   const prevDateRangeRef = useRef(dateRange)
 
-  // 组件挂载时自动查询
   useEffect(() => {
     fetchStockData('')
     isFirstMount.current = false
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 市场或日期区间切换时自动重新查询
   useEffect(() => {
     if (isFirstMount.current) return
     
@@ -247,9 +215,7 @@ export default function RangeStatsPanel({
     prevMarketRef.current = market
     prevDateRangeRef.current = dateRange
     
-    // 市场或日期变化时触发查询
     if (marketChanged || dateChanged) {
-      // 使用 setTimeout 确保状态已更新
       setTimeout(() => {
         setSelectedIndustry('')
         fetchStockData('')
@@ -288,7 +254,6 @@ export default function RangeStatsPanel({
     }
   }
 
-  // 生成查询条件标题
   const getQueryTitle = useCallback(() => {
     const parts = [`区间涨幅排行 ${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')}`]
     parts.push(`涨幅≥${minChangePct}%`)
@@ -303,7 +268,6 @@ export default function RangeStatsPanel({
     return parts.join(' | ')
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry])
 
-  // 导出 Excel
   const handleExportExcel = useCallback(() => {
     if (!allStockData.length) {
       message.warning('没有数据可导出')
@@ -339,7 +303,6 @@ export default function RangeStatsPanel({
     message.success('导出成功')
   }, [allStockData, dateRange, getQueryTitle])
 
-  // 复制到剪贴板
   const handleCopy = useCallback(async () => {
     if (!allStockData.length) {
       message.warning('没有数据可复制')
@@ -372,7 +335,6 @@ export default function RangeStatsPanel({
     }
   }, [allStockData, getQueryTitle])
 
-  // 截图功能
   const handleScreenshot = useCallback(async () => {
     if (!tableCardRef.current || !allStockData.length) {
       message.warning('没有数据可截图')
@@ -403,22 +365,16 @@ export default function RangeStatsPanel({
     }
   }, [allStockData, dateRange])
 
-  // S2 表格配置
-  // 根据排序参数对数据进行排序
+  // 排序后的数据
   const sortedStockData = useMemo(() => {
     if (!allStockData.length) return allStockData
-    if (!sortParams.length) return allStockData
     
-    const { sortFieldId, sortMethod } = sortParams[0]
-    console.log('执行排序:', sortFieldId, sortMethod, '数据量:', allStockData.length)
+    const { field, order } = sortState
     
-    const sorted = [...allStockData].sort((a, b) => {
+    return [...allStockData].sort((a, b) => {
       let aVal, bVal
       
-      // 根据字段获取对应的原始数据值
-      switch (sortFieldId) {
-        case 'rank':
-          return 0 // rank 按原始顺序
+      switch (field) {
         case 'symbol':
           aVal = a.symbol || ''
           bVal = b.symbol || ''
@@ -463,208 +419,191 @@ export default function RangeStatsPanel({
           return 0
       }
       
-      // 字符串比较
       if (typeof aVal === 'string') {
         const cmp = aVal.localeCompare(bVal, 'zh-CN')
-        return sortMethod === 'DESC' ? -cmp : cmp
+        return order === 'desc' ? -cmp : cmp
       }
       
-      // 数值比较
-      const result = sortMethod === 'DESC' ? bVal - aVal : aVal - bVal
-      return result
+      return order === 'desc' ? bVal - aVal : aVal - bVal
     })
-    
-    // 打印前3条排序后的数据
-    console.log('排序后前3条:', sorted.slice(0, 3).map(s => ({ name: s.name, changePct: s.changePct })))
-    
-    return sorted
-  }, [allStockData, sortParams])
+  }, [allStockData, sortState])
 
-  const s2DataCfg = useMemo(() => ({
-    fields: {
-      columns: ['rank', 'symbol', 'name', 'startPrice', 'endPrice', 'changePct', 'latestPrice', 'marketCap', 'peRatio', 'pbRatio', 'turnoverRate'],
-    },
-    meta: [
-      { field: 'rank', name: '#' },
-      { field: 'symbol', name: '代码' },
-      { field: 'name', name: '名称' },
-      { field: 'startPrice', name: '起始价' },
-      { field: 'endPrice', name: '结束价' },
-      { field: 'changePct', name: '涨幅' },
-      { field: 'latestPrice', name: '现价' },
-      { field: 'marketCap', name: '市值' },
-      { field: 'peRatio', name: '市盈率' },
-      { field: 'pbRatio', name: '市净率' },
-      { field: 'turnoverRate', name: '换手率' },
-    ],
-    data: sortedStockData.map((item, index) => ({
-      rank: index + 1,
-      symbol: item.symbol,
-      name: item.name,
-      startPrice: item.startPrice?.toFixed(3) || '-',
-      endPrice: item.endPrice?.toFixed(3) || '-',
-      changePct: item.changePct?.toFixed(2) || '-',
-      latestPrice: item.latestPrice?.toFixed(2) || '-',
-      marketCap: item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(0) : '-',
-      peRatio: item.peRatio?.toFixed(2) || '-',
-      pbRatio: item.pbRatio?.toFixed(2) || '-',
-      turnoverRate: item.turnoverRate ? item.turnoverRate.toFixed(2) + '%' : '-',
-    })),
-    // 不传 sortParams，由前端排序后直接显示
-  }), [sortedStockData])
-
-  const s2Options = useMemo(() => ({
-    width: tableCardRef.current?.clientWidth || 800,
-    height: queryParams ? window.innerHeight - 360 : window.innerHeight - 420,
-    showSeriesNumber: false,
-    interaction: {
-      selectedCellsSpotlight: false,
-      hoverHighlight: true,
-    },
-    // 启用 tooltip 排序功能
-    tooltip: {
-      enable: true,
-      operation: {
-        sort: true,
-        menu: {
-          render: (props) => {
-            const items = props.items?.map(item => ({
-              key: item.key,
-              label: item.label,
-              onClick: item.onClick,
-            })) || []
-            return (
-              <Dropdown menu={{ items }} trigger={['click']} open>
-                <div style={{ display: 'none' }} />
-              </Dropdown>
-            )
-          },
-        },
-      },
-    },
-    style: {
-      layoutWidthType: 'adaptive',
-      dataCell: {
-        height: 32,
-      },
-      colCell: {
-        height: 36,
-      },
-    },
-    // 启用表头排序图标
-    showDefaultHeaderActionIcon: true,
-    conditions: {
-      text: [
-        {
-          field: 'changePct',
-          mapping: (value) => {
-            const num = parseFloat(value)
-            return {
-              fill: num >= 0 ? '#ec5a5a' : '#47b262',
-              fontWeight: 600,
-            }
-          },
-        },
-        {
-          field: 'rank',
-          mapping: (value) => {
-            const rank = parseInt(value)
-            if (rank <= 3) return { fill: '#ec5a5a', fontWeight: 600 }
-            if (rank <= 10) return { fill: '#fa8c16', fontWeight: 600 }
-            return { fill: '#333' }
-          },
-        },
-        {
-          field: 'name',
-          mapping: () => ({ fill: '#1677ff' }),
-        },
-      ],
-    },
-  }), [queryParams])
-
-  // S2 ref 用于绑定事件
-  const s2Ref = useRef(null)
-  // 保存原始数据的引用，用于点击时获取完整数据
+  // 保存数据引用
   const stockDataRef = useRef([])
-  // 保存排序状态的引用
-  const sortParamsRef = useRef(sortParams)
-  
-  // 同步数据到 ref（使用排序后的数据）
   useEffect(() => {
     stockDataRef.current = sortedStockData
   }, [sortedStockData])
-  
-  // 同步排序状态到 ref
-  useEffect(() => {
-    sortParamsRef.current = sortParams
-  }, [sortParams])
 
-  // 处理排序事件
-  const handleRangeSort = useCallback((params) => {
-    console.log('排序参数:', params)
-    // S2 排序参数格式: { sortKey, sortMethod } 或 [{ sortFieldId, sortMethod }]
-    if (Array.isArray(params) && params.length > 0) {
-      const { sortFieldId, sortMethod } = params[0]
-      if (sortFieldId && sortMethod) {
-        setSortParams([{ sortFieldId, sortMethod: sortMethod.toUpperCase() }])
+  // VTable 列配置
+  const columns = useMemo(() => [
+    { 
+      field: 'rank', 
+      title: '#', 
+      width: 45,
+      sort: false,
+    },
+    { field: 'symbol', title: '代码', width: 70, sort: true },
+    { 
+      field: 'name', 
+      title: '名称', 
+      width: 90, 
+      sort: true,
+      style: { color: '#1677ff', cursor: 'pointer' }
+    },
+    { 
+      field: 'startPrice', 
+      title: '起始价', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.startPrice?.toFixed(3) || '-',
+    },
+    { 
+      field: 'endPrice', 
+      title: '结束价', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.endPrice?.toFixed(3) || '-',
+    },
+    { 
+      field: 'changePct', 
+      title: '涨幅', 
+      width: 75, 
+      sort: true,
+      fieldFormat: (record) => record.changePct != null ? `${record.changePct.toFixed(2)}%` : '-',
+    },
+    { 
+      field: 'latestPrice', 
+      title: '现价', 
+      width: 65, 
+      sort: true,
+      fieldFormat: (record) => record.latestPrice?.toFixed(2) || '-',
+    },
+    { 
+      field: 'marketCap', 
+      title: '市值', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.totalMarketCap ? `${(record.totalMarketCap / 100000000).toFixed(0)}亿` : '-',
+    },
+    { 
+      field: 'peRatio', 
+      title: '市盈率', 
+      width: 65, 
+      sort: true,
+      fieldFormat: (record) => record.peRatio?.toFixed(2) || '-',
+    },
+    { 
+      field: 'pbRatio', 
+      title: '市净率', 
+      width: 60, 
+      sort: true,
+      fieldFormat: (record) => record.pbRatio?.toFixed(2) || '-',
+    },
+    { 
+      field: 'turnoverRate', 
+      title: '换手率', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.turnoverRate ? `${record.turnoverRate.toFixed(2)}%` : '-',
+    },
+  ], [])
+
+  // 表格数据（添加排名）
+  const tableRecords = useMemo(() => {
+    return sortedStockData.map((item, index) => ({
+      ...item,
+      rank: index + 1,
+    }))
+  }, [sortedStockData])
+
+  // VTable 配置 - 金融风格主题
+  const vtableOption = useMemo(() => ({
+    columns,
+    records: tableRecords,
+    defaultRowHeight: 32,
+    defaultHeaderRowHeight: 32,
+    widthMode: 'adaptive',
+    autoWrapText: false,
+    sortState: {
+      field: sortState.field,
+      order: sortState.order,
+    },
+    hover: {
+      highlightMode: 'row',
+    },
+    theme: {
+      defaultStyle: {
+        fontSize: 13,
+        fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace, -apple-system, BlinkMacSystemFont',
+        color: '#333',
+        borderColor: '#e8e8e8',
+        borderLineWidth: 1,
+      },
+      headerStyle: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: '#666',
+        bgColor: '#f7f7f7',
+        borderColor: '#e0e0e0',
+        padding: [6, 8, 6, 8],
+      },
+      bodyStyle: {
+        padding: [4, 8, 4, 8],
+        bgColor: '#fff',
+        hover: {
+          cellBgColor: '#f0f7ff',
+          inlineColumnBgColor: '#f0f7ff',
+          inlineRowBgColor: '#f0f7ff',
+        },
+      },
+      frameStyle: {
+        borderColor: '#d9d9d9',
+        borderLineWidth: 1,
+        cornerRadius: 4,
+      },
+    },
+  }), [columns, tableRecords, sortState])
+
+  // 处理表格点击
+  const handleTableClick = useCallback((args) => {
+    const { col, row, field } = args
+    if (row === 0) return
+    
+    const record = vtableRef.current?.getRecordByRowCol(col, row)
+    if (!record) return
+    
+    if (field === 'name') {
+      const originalData = stockDataRef.current.find(item => item.symbol === record.symbol)
+      if (originalData) {
+        openStockDetail(originalData)
       }
-    } else if (params.sortKey && params.sortMethod) {
-      setSortParams([{ sortFieldId: params.sortKey, sortMethod: params.sortMethod.toUpperCase() }])
     }
-  }, [])
+  }, [openStockDetail])
 
-  // 处理列头点击排序
-  const handleColCellClick = useCallback((field) => {
+  // 处理排序
+  const handleSortClick = useCallback((args) => {
+    const { field, order } = args
     if (field && field !== 'rank') {
-      const current = sortParamsRef.current[0]
-      if (current?.sortFieldId === field) {
-        // 同一字段，切换排序方向
-        const newMethod = current.sortMethod === 'DESC' ? 'ASC' : 'DESC'
-        setSortParams([{ sortFieldId: field, sortMethod: newMethod }])
-      } else {
-        // 新字段，默认降序
-        setSortParams([{ sortFieldId: field, sortMethod: 'DESC' }])
-      }
+      setSortState({ field, order: order || 'desc' })
     }
   }, [])
 
-  // 使用 onMounted 绑定点击事件
-  const handleS2Mounted = useCallback((spreadsheet) => {
-    s2Ref.current = spreadsheet
-    
-    // 监听列头点击事件实现排序
-    spreadsheet.on('col-cell:click', (event) => {
-      const cell = spreadsheet.getCell(event.target)
-      const meta = cell?.getMeta?.()
-      const field = meta?.field
-      console.log('列头点击:', field, meta)
-      handleColCellClick(field)
-    })
-    
-    // 监听 data-cell:click 事件
-    spreadsheet.on('data-cell:click', (event) => {
-      const cell = spreadsheet.getCell(event.target)
-      const meta = cell?.getMeta?.()
-      const field = meta?.valueField
-      // 只有点击名称列才打开详情
-      if (field === 'name') {
-        // 从表格获取当前行的完整数据
-        const rowData = spreadsheet.dataSet.getRowData(meta)
-        // 用 symbol 匹配原始数据
-        const symbol = rowData?.symbol
-        if (symbol) {
-          const originalData = stockDataRef.current.find(item => item.symbol === symbol)
-          if (originalData) {
-            openStockDetail(originalData)
-          }
-        }
-      }
-    })
-  }, [openStockDetail, handleColCellClick])
+  const handleVTableReady = useCallback((instance) => {
+    vtableRef.current = instance
+    instance.on('click_cell', handleTableClick)
+    instance.on('sort_click', handleSortClick)
+  }, [handleTableClick, handleSortClick])
+
+  // 更新表格数据
+  useEffect(() => {
+    if (vtableRef.current && tableRecords.length > 0) {
+      vtableRef.current.setRecords(tableRecords)
+    }
+  }, [tableRecords])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 4 : 6 }}>
-      {/* 查询条件区 - 一排布局（仅在没有外部 queryParams 时显示） */}
+      {/* 查询条件区 */}
       {!queryParams && (
         <Card size="small" styles={{ body: { padding: isMobile ? 6 : '4px 10px' } }}>
           {isMobile ? (
@@ -784,13 +723,10 @@ export default function RangeStatsPanel({
       >
         <Spin spinning={tableLoading} style={{ minHeight: 200 }}>
           {allStockData.length > 0 ? (
-            <SheetComponent
-              sheetType="table"
-              dataCfg={s2DataCfg}
-              options={s2Options}
-              onMounted={handleS2Mounted}
-              onRangeSort={handleRangeSort}
-              adaptive={{ width: true, height: false }}
+            <ListTable
+              option={vtableOption}
+              onReady={handleVTableReady}
+              height={queryParams ? window.innerHeight - 360 : window.innerHeight - 420}
             />
           ) : !tableLoading ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>

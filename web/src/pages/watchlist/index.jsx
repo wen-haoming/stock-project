@@ -1,9 +1,8 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { Button, Input, Modal, Form, Empty, message, Dropdown, Spin, Select, Tag, Drawer, Tooltip } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, MoreOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons'
-import { SheetComponent } from '@antv/s2-react'
-import { TableDataCell } from '@antv/s2'
-import '@antv/s2-react/dist/s2-react.min.css'
+import { ListTable } from '@visactor/react-vtable'
+import { createGroup, createLine, createRect } from '@visactor/vtable/es/vrender'
 import { useLocalStorageState, useRequest, useDebounceFn, useKeyPress, useClickAway, useInterval, useMemoizedFn } from 'ahooks'
 import axios from 'axios'
 import StockDetail from '../range-stats/StockDetail'
@@ -35,15 +34,12 @@ const isDerivative = (stock) => {
 const isTradeTime = () => {
   const now = new Date()
   const day = now.getDay()
-  // 周末不交易
   if (day === 0 || day === 6) return false
   
   const hours = now.getHours()
   const minutes = now.getMinutes()
   const time = hours * 100 + minutes
   
-  // A股/港股交易时间: 9:30-11:30, 13:00-15:00 (港股到16:00)
-  // 简化判断: 9:15-16:10
   return time >= 915 && time <= 1610
 }
 
@@ -54,79 +50,9 @@ const DEFAULT_GROUP = { id: 'default', name: '默认分组', stocks: [] }
 const DEFAULT_DRAWER_WIDTH = 800
 const MIN_DRAWER_WIDTH = 400
 const MAX_DRAWER_WIDTH_RATIO = 0.9
-const POLL_INTERVAL = 10000 // 轮询间隔 10秒
-
-// 自定义分时图单元格
-class TrendChartCell extends TableDataCell {
-  drawTextShape() {
-    const { x, y, width, height } = this.getCellArea()
-    
-    // 获取分时数据
-    const rowData = this.meta.data || {}
-    const trendData = rowData._trendData
-    const preClose = rowData._trendPreClose || rowData.preClose
-    const changePct = rowData._originalChangePct
-    
-    if (!trendData?.length) {
-      // 无数据时显示灰色背景
-      this.addShape('rect', {
-        attrs: {
-          x: x + 4,
-          y: y + 4,
-          width: width - 8,
-          height: height - 8,
-          fill: '#f5f5f5',
-          radius: 2,
-        },
-      })
-      return
-    }
-    
-    const prices = trendData.map(d => d[0])
-    const min = Math.min(...prices, preClose)
-    const max = Math.max(...prices, preClose)
-    const range = max - min || 1
-    
-    const chartX = x + 4
-    const chartY = y + 4
-    const chartWidth = width - 8
-    const chartHeight = height - 8
-    
-    // 绘制昨收虚线
-    const preCloseY = chartY + chartHeight - ((preClose - min) / range) * chartHeight
-    this.addShape('line', {
-      attrs: {
-        x1: chartX,
-        y1: preCloseY,
-        x2: chartX + chartWidth,
-        y2: preCloseY,
-        stroke: '#999',
-        lineWidth: 0.5,
-        lineDash: [2, 2],
-      },
-    })
-    
-    // 绘制分时线
-    const points = trendData.map((d, i) => {
-      const px = chartX + (i / (trendData.length - 1)) * chartWidth
-      const py = chartY + chartHeight - ((d[0] - min) / range) * chartHeight
-      return [px, py]
-    })
-    
-    const color = changePct >= 0 ? upColor : downColor
-    
-    this.addShape('polyline', {
-      attrs: {
-        points,
-        stroke: color,
-        lineWidth: 1.5,
-      },
-    })
-  }
-}
+const POLL_INTERVAL = 10000
 
 export default function WatchlistPage() {
-  // 使用 ahooks 的 useLocalStorageState 管理本地存储
   const [watchlistData, setWatchlistData] = useLocalStorageState(STORAGE_KEY, {
     defaultValue: { groups: [DEFAULT_GROUP], activeGroupId: 'default' }
   })
@@ -151,29 +77,24 @@ export default function WatchlistPage() {
   const [groupForm] = Form.useForm()
   const [isResizing, setIsResizing] = useState(false)
   
-  // 搜索相关状态
   const [searchKeyword, setSearchKeyword] = useState('')
   const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const searchContainerRef = useRef(null)
   
-  // 股票实时行情和分时数据
   const [stockQuotes, setStockQuotes] = useState({})
   const [trendDataMap, setTrendDataMap] = useState({})
   
   const tableContainerRef = useRef(null)
-  const s2Ref = useRef(null)
+  const vtableRef = useRef(null)
   const stockDataRef = useRef([])
-  const selectedRowIndexRef = useRef(selectedRowIndex)
   
-  // 获取当前分组
   const activeGroup = groups.find(g => g.id === activeGroupId) || groups[0]
   
-  // 点击外部关闭搜索下拉框
   useClickAway(() => {
     setShowSearchDropdown(false)
   }, searchContainerRef)
   
-  // 获取所有股票数据（行情+分时）
+  // 获取所有股票数据
   const fetchAllStockData = useMemoizedFn(async (stocks, includeTrend = true) => {
     if (!stocks?.length) return {}
     
@@ -184,7 +105,6 @@ export default function WatchlistPage() {
       stocks.map(async (stock) => {
         const key = `${stock.symbol}_${stock.market}`
         try {
-          // 获取行情
           const info = await fetchStockInfo(stock.symbol, stock.name, stock.market)
           if (info) {
             results[key] = {
@@ -205,7 +125,6 @@ export default function WatchlistPage() {
             }
           }
           
-          // 获取分时数据（仅首次加载或手动刷新时）
           if (includeTrend) {
             const trend = await fetchStockTrend(stock.symbol, stock.market, 1)
             if (trend?.values?.length) {
@@ -229,7 +148,6 @@ export default function WatchlistPage() {
     return results
   })
   
-  // 使用 useRequest 管理数据请求
   const { loading: loadingQuotes, run: runFetchData } = useRequest(
     () => fetchAllStockData(activeGroup.stocks, true),
     {
@@ -238,17 +156,15 @@ export default function WatchlistPage() {
     }
   )
   
-  // 轮询刷新（仅行情，不刷新分时图）
   useInterval(
     async () => {
       if (activeGroup?.stocks?.length > 0 && isTradeTime()) {
-        await fetchAllStockData(activeGroup.stocks, false) // 轮询时不刷新分时
+        await fetchAllStockData(activeGroup.stocks, false)
       }
     },
     isTradeTime() ? POLL_INTERVAL : undefined
   )
   
-  // 手动刷新
   const handleRefresh = useMemoizedFn(() => {
     if (activeGroup?.stocks?.length > 0) {
       runFetchData()
@@ -256,7 +172,6 @@ export default function WatchlistPage() {
     }
   })
   
-  // 搜索股票 - 使用 useRequest
   const { data: searchResults = [], loading: searching, run: runSearch } = useRequest(
     async (keyword) => {
       if (!keyword?.trim()) return []
@@ -268,7 +183,6 @@ export default function WatchlistPage() {
     { manual: true }
   )
   
-  // 防抖搜索
   const { run: debouncedSearch } = useDebounceFn(
     (keyword) => {
       if (keyword?.trim()) {
@@ -287,7 +201,6 @@ export default function WatchlistPage() {
     debouncedSearch(value)
   }
   
-  // 添加股票到自选
   const handleAddStock = useMemoizedFn((stock) => {
     const market = stock.market || 'hk'
     const symbol = stock.symbol
@@ -311,11 +224,9 @@ export default function WatchlistPage() {
     setShowSearchDropdown(false)
     message.success(`已添加 ${name}`)
     
-    // 获取新添加股票的数据
     fetchAllStockData([newStock], true)
   })
 
-  // 新增/编辑分组
   const handleGroupSubmit = useMemoizedFn(() => {
     groupForm.validateFields().then(values => {
       let newGroups
@@ -333,7 +244,6 @@ export default function WatchlistPage() {
     })
   })
 
-  // 删除分组
   const handleDeleteGroup = useMemoizedFn((groupId) => {
     if (groups.length <= 1) {
       message.warning('至少保留一个分组')
@@ -351,13 +261,12 @@ export default function WatchlistPage() {
     message.success('分组已删除')
   })
 
-  // 分组操作下拉菜单
   const groupDropdownItems = [
     { key: 'edit', icon: <EditOutlined />, label: '编辑分组', onClick: () => { setEditingGroup(activeGroup); groupForm.setFieldsValue({ name: activeGroup.name }); setGroupModalVisible(true) } },
     { key: 'delete', icon: <DeleteOutlined />, label: '删除分组', danger: true, onClick: () => groups.length > 1 ? handleDeleteGroup(activeGroupId) : message.warning('至少保留一个分组') },
   ]
 
-  // 表格数据源
+  // 表格数据
   const tableData = useMemo(() => {
     return activeGroup.stocks.map(stock => {
       const key = `${stock.symbol}_${stock.market}`
@@ -373,267 +282,292 @@ export default function WatchlistPage() {
     })
   }, [activeGroup.stocks, stockQuotes, trendDataMap])
 
-  // 排序状态
-  const [sortParams, setSortParams] = useState([{ sortFieldId: 'changePct', sortMethod: 'DESC' }])
-  const sortParamsRef = useRef(sortParams)
-  sortParamsRef.current = sortParams
+  stockDataRef.current = tableData
 
-  // 排序后的数据
-  const sortedTableData = useMemo(() => {
-    if (!sortParams.length || !tableData.length) return tableData
-    
-    const { sortFieldId, sortMethod } = sortParams[0]
-    
-    return [...tableData].sort((a, b) => {
-      let aVal, bVal
-      
-      const numFields = ['price', 'changePct', 'marketCap', 'volume', 'amount', 'turnoverRate', 'peRatio', 'pbRatio', 'amplitude', 'high', 'low', 'open', 'preClose']
-      
-      if (sortFieldId === 'name' || sortFieldId === 'symbol') {
-        aVal = a[sortFieldId] || ''
-        bVal = b[sortFieldId] || ''
-        const cmp = aVal.localeCompare(bVal, 'zh-CN')
-        return sortMethod === 'DESC' ? -cmp : cmp
-      }
-      
-      if (numFields.includes(sortFieldId)) {
-        const fieldMap = { marketCap: 'totalMarketCap' }
-        const field = fieldMap[sortFieldId] || sortFieldId
-        aVal = a[field] ?? -Infinity
-        bVal = b[field] ?? -Infinity
-        return sortMethod === 'DESC' ? bVal - aVal : aVal - bVal
-      }
-      
-      return 0
-    })
-  }, [tableData, sortParams])
-  
-  stockDataRef.current = sortedTableData
-
-  // 键盘上下键切换个股
+  // 键盘上下键切换
   useKeyPress(['uparrow', 'downarrow'], (event) => {
-    if (!selectedStock || sortedTableData.length === 0) return
+    if (tableData.length === 0) return
     
     event.preventDefault()
     
     let newIndex = selectedRowIndex
     if (event.key === 'ArrowUp') {
-      newIndex = Math.max(0, selectedRowIndex - 1)
+      newIndex = selectedRowIndex <= 0 ? 0 : selectedRowIndex - 1
     } else if (event.key === 'ArrowDown') {
-      newIndex = Math.min(sortedTableData.length - 1, selectedRowIndex + 1)
+      newIndex = selectedRowIndex < 0 ? 0 : Math.min(tableData.length - 1, selectedRowIndex + 1)
     }
     
-    if (newIndex !== selectedRowIndex && sortedTableData[newIndex]) {
-      const stock = sortedTableData[newIndex]
+    if (tableData[newIndex]) {
+      const stock = tableData[newIndex]
       setSelectedRowIndex(newIndex)
-      selectedRowIndexRef.current = newIndex
       setSelectedStock({ symbol: stock.symbol, name: stock.name, market: stock.market })
       
-      // 触发 S2 重新渲染
-      if (s2Ref.current) {
-        s2Ref.current.render(false)
+      // 选中整行
+      if (vtableRef.current) {
+        vtableRef.current.selectRow(newIndex + 1) // VTable行号从1开始（0是表头）
       }
     }
   }, { exactMatch: true })
   
-  // 阻止左右键
   useKeyPress(['leftarrow', 'rightarrow'], (event) => {
     if (selectedStock) {
       event.preventDefault()
     }
   })
 
-  // 当选中行变化时，更新 ref 并触发 S2 重新渲染
-  const updateSelectedRow = useCallback((index) => {
-    selectedRowIndexRef.current = index
-    setSelectedRowIndex(index)
-    if (s2Ref.current && index >= 0) {
-      s2Ref.current.render(false)
+  // 迷你分时图自定义渲染 - 使用 VRender 图元
+  const renderSparkline = useCallback((args) => {
+    const { table, row, col, rect } = args
+    const record = table.getCellOriginRecord(col, row)
+    
+    const { width, height } = rect
+    const padding = 4
+    const chartWidth = width - padding * 2
+    const chartHeight = height - padding * 2
+    
+    const container = createGroup({
+      width,
+      height,
+    })
+    
+    if (!record?.trendData?.length) {
+      // 无数据时显示灰色背景
+      const bgRect = createRect({
+        x: padding,
+        y: padding,
+        width: chartWidth,
+        height: chartHeight,
+        fill: '#f5f5f5',
+      })
+      container.add(bgRect)
+      return {
+        rootContainer: container,
+        renderDefault: false,
+      }
     }
-  }, [])
-
-  // S2 表格配置
-  const s2DataCfg = useMemo(() => {
-    const columns = ['symbol', 'name', 'trend', 'price', 'changePct', 'marketCap', 'amount', 'turnoverRate', 'peRatio', 'pbRatio', 'amplitude', 'high', 'low', 'open', 'preClose']
+    
+    const trendData = record.trendData
+    const preClose = record.trendPreClose || record.preClose
+    const changePct = record.changePct
+    
+    const prices = trendData.map(d => d[0])
+    const min = Math.min(...prices, preClose || prices[0])
+    const max = Math.max(...prices, preClose || prices[0])
+    const range = max - min || 1
+    
+    // 昨收虚线
+    if (preClose) {
+      const preCloseY = padding + chartHeight - ((preClose - min) / range) * chartHeight
+      const preCloseLine = createLine({
+        points: [
+          { x: padding, y: preCloseY },
+          { x: padding + chartWidth, y: preCloseY }
+        ],
+        stroke: '#999',
+        lineWidth: 0.5,
+        lineDash: [2, 2],
+      })
+      container.add(preCloseLine)
+    }
+    
+    // 分时线
+    const color = changePct >= 0 ? upColor : downColor
+    const points = trendData.map((d, i) => ({
+      x: padding + (i / Math.max(trendData.length - 1, 1)) * chartWidth,
+      y: padding + chartHeight - ((d[0] - min) / range) * chartHeight
+    }))
+    
+    const trendLine = createLine({
+      points,
+      stroke: color,
+      lineWidth: 1.5,
+    })
+    container.add(trendLine)
     
     return {
-      fields: { columns },
-      meta: [
-        { field: 'symbol', name: '代码' },
-        { field: 'name', name: '名称' },
-        { field: 'trend', name: '走势' },
-        { field: 'price', name: '现价' },
-        { field: 'changePct', name: '涨跌幅' },
-        { field: 'marketCap', name: '市值' },
-        { field: 'amount', name: '成交额' },
-        { field: 'turnoverRate', name: '换手率' },
-        { field: 'peRatio', name: 'PE' },
-        { field: 'pbRatio', name: 'PB' },
-        { field: 'amplitude', name: '振幅' },
-        { field: 'high', name: '最高' },
-        { field: 'low', name: '最低' },
-        { field: 'open', name: '今开' },
-        { field: 'preClose', name: '昨收' },
-      ],
-      data: sortedTableData.map((item, index) => ({
-        symbol: item.symbol || '-',
-        name: item.name || '-',
-        market: item.market,
-        trend: '', // 占位，实际渲染用自定义
-        price: item.price?.toFixed(2) || '-',
-        changePct: item.changePct != null ? item.changePct.toFixed(2) : '-',
-        marketCap: item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(0) : '-',
-        amount: item.amount ? (item.amount / 100000000).toFixed(2) : '-',
-        turnoverRate: item.turnoverRate != null ? item.turnoverRate.toFixed(2) : '-',
-        peRatio: item.peRatio != null ? item.peRatio.toFixed(1) : '-',
-        pbRatio: item.pbRatio != null ? item.pbRatio.toFixed(2) : '-',
-        amplitude: item.amplitude != null ? item.amplitude.toFixed(2) : '-',
-        high: item.high?.toFixed(2) || '-',
-        low: item.low?.toFixed(2) || '-',
-        open: item.open?.toFixed(2) || '-',
-        preClose: item.preClose?.toFixed(2) || '-',
-        _originalChangePct: item.changePct,
-        _rowIndex: index,
-        _trendData: item.trendData,
-        _trendPreClose: item.trendPreClose,
-      })),
-    }
-  }, [sortedTableData])
-
-  // 行选中背景色 mapping 函数
-  const rowBgMapping = useCallback((_, data) => {
-    if (data?._rowIndex === selectedRowIndexRef.current) {
-      return { fill: '#fff1f0' }
-    }
-    return null
-  }, [])
-
-  const s2Options = useMemo(() => ({
-    width: tableContainerRef.current?.clientWidth || 800,
-    height: window.innerHeight - 120,
-    showSeriesNumber: false,
-    interaction: {
-      selectedCellsSpotlight: false,
-      hoverHighlight: true,
-      selectedCellHighlight: true,
-    },
-    tooltip: { enable: false },
-    style: {
-      layoutWidthType: 'adaptive',
-      dataCell: { height: 40 },
-      colCell: { height: 32 },
-    },
-    showDefaultHeaderActionIcon: true,
-    // 自定义单元格
-    dataCell: (viewMeta, spreadsheet) => {
-      if (viewMeta.field === 'trend') {
-        return new TrendChartCell(viewMeta, spreadsheet)
-      }
-      return new TableDataCell(viewMeta, spreadsheet)
-    },
-    conditions: {
-      background: [
-        { field: 'symbol', mapping: rowBgMapping },
-        { field: 'name', mapping: rowBgMapping },
-        { field: 'trend', mapping: rowBgMapping },
-        { field: 'price', mapping: rowBgMapping },
-        { field: 'changePct', mapping: rowBgMapping },
-        { field: 'marketCap', mapping: rowBgMapping },
-        { field: 'amount', mapping: rowBgMapping },
-        { field: 'turnoverRate', mapping: rowBgMapping },
-        { field: 'peRatio', mapping: rowBgMapping },
-        { field: 'pbRatio', mapping: rowBgMapping },
-        { field: 'amplitude', mapping: rowBgMapping },
-        { field: 'high', mapping: rowBgMapping },
-        { field: 'low', mapping: rowBgMapping },
-        { field: 'open', mapping: rowBgMapping },
-        { field: 'preClose', mapping: rowBgMapping },
-      ],
-      text: [
-        {
-          field: 'changePct',
-          mapping: (value) => {
-            const num = parseFloat(value)
-            return {
-              fill: num >= 0 ? upColor : downColor,
-              fontWeight: 600,
-            }
-          },
-        },
-        {
-          field: 'price',
-          mapping: (_, data) => {
-            const changePct = data?._originalChangePct
-            if (changePct == null) return { fill: '#333' }
-            return {
-              fill: changePct >= 0 ? upColor : downColor,
-              fontWeight: 500,
-            }
-          },
-        },
-        {
-          field: 'name',
-          mapping: () => ({ fill: '#1677ff', fontWeight: 500 }),
-        },
-      ],
-    },
-  }), [rowBgMapping])
-
-  // 处理列头点击排序
-  const handleColCellClick = useCallback((field) => {
-    if (field && field !== 'name' && field !== 'trend') {
-      const current = sortParamsRef.current[0]
-      if (current?.sortFieldId === field) {
-        const newMethod = current.sortMethod === 'DESC' ? 'ASC' : 'DESC'
-        setSortParams([{ sortFieldId: field, sortMethod: newMethod }])
-      } else {
-        setSortParams([{ sortFieldId: field, sortMethod: 'DESC' }])
-      }
+      rootContainer: container,
+      renderDefault: false,
     }
   }, [])
 
-  // S2 挂载事件
-  const handleS2Mounted = useCallback((spreadsheet) => {
-    s2Ref.current = spreadsheet
-    
-    // 监听列头点击排序
-    spreadsheet.on('col-cell:click', (event) => {
-      const cell = spreadsheet.getCell(event.target)
-      const meta = cell?.getMeta?.()
-      const field = meta?.field
-      handleColCellClick(field)
-    })
-    
-    // 监听数据单元格点击 - 只有点击名称列才打开详情
-    spreadsheet.on('data-cell:click', (event) => {
-      const cell = spreadsheet.getCell(event.target)
-      const meta = cell?.getMeta?.()
-      const colIndex = meta?.colIndex
-      
-      // 只有点击 name 列（索引1）才打开详情
-      if (colIndex !== 1) return
-      
-      const rowData = spreadsheet.dataSet.getRowData(meta)
-      const rowIndex = meta?.rowIndex ?? -1
-      
-      if (rowData?.symbol) {
-        const stock = stockDataRef.current.find(s => s.symbol === rowData.symbol && s.market === rowData.market)
-        if (stock) {
-          updateSelectedRow(rowIndex)
-          setSelectedStock({ symbol: stock.symbol, name: stock.name, market: stock.market })
-        }
-      }
-    })
-  }, [handleColCellClick, updateSelectedRow])
+  // VTable 列配置
+  const columns = useMemo(() => [
+    { field: 'symbol', title: '代码', width: 70 },
+    { 
+      field: 'name', 
+      title: '名称', 
+      width: 80,
+      style: { color: '#1677ff', fontWeight: 500, cursor: 'pointer' }
+    },
+    { 
+      field: 'trend', 
+      title: '走势', 
+      width: 90,
+      customLayout: renderSparkline,
+    },
+    { 
+      field: 'price', 
+      title: '现价', 
+      width: 70,
+      fieldFormat: (record) => record.price?.toFixed(2) || '-',
+    },
+    { 
+      field: 'changePct', 
+      title: '涨跌幅', 
+      width: 75,
+      fieldFormat: (record) => record.changePct != null ? `${record.changePct >= 0 ? '+' : ''}${record.changePct.toFixed(2)}%` : '-',
+    },
+    { 
+      field: 'marketCap', 
+      title: '市值', 
+      width: 70,
+      fieldFormat: (record) => record.totalMarketCap ? `${(record.totalMarketCap / 100000000).toFixed(0)}亿` : '-',
+    },
+    { 
+      field: 'amount', 
+      title: '成交额', 
+      width: 75,
+      fieldFormat: (record) => record.amount ? `${(record.amount / 100000000).toFixed(2)}亿` : '-',
+    },
+    { 
+      field: 'turnoverRate', 
+      title: '换手率', 
+      width: 70,
+      fieldFormat: (record) => record.turnoverRate != null ? `${record.turnoverRate.toFixed(2)}%` : '-',
+    },
+    { 
+      field: 'peRatio', 
+      title: 'PE', 
+      width: 60,
+      fieldFormat: (record) => record.peRatio != null ? record.peRatio.toFixed(1) : '-',
+    },
+    { 
+      field: 'pbRatio', 
+      title: 'PB', 
+      width: 55,
+      fieldFormat: (record) => record.pbRatio != null ? record.pbRatio.toFixed(2) : '-',
+    },
+    { 
+      field: 'amplitude', 
+      title: '振幅', 
+      width: 60,
+      fieldFormat: (record) => record.amplitude != null ? `${record.amplitude.toFixed(2)}%` : '-',
+    },
+    { 
+      field: 'high', 
+      title: '最高', 
+      width: 65,
+      fieldFormat: (record) => record.high?.toFixed(2) || '-',
+    },
+    { 
+      field: 'low', 
+      title: '最低', 
+      width: 65,
+      fieldFormat: (record) => record.low?.toFixed(2) || '-',
+    },
+    { 
+      field: 'open', 
+      title: '今开', 
+      width: 65,
+      fieldFormat: (record) => record.open?.toFixed(2) || '-',
+    },
+    { 
+      field: 'preClose', 
+      title: '昨收', 
+      width: 65,
+      fieldFormat: (record) => record.preClose?.toFixed(2) || '-',
+    },
+  ], [renderSparkline])
 
-  // 获取选中股票的行情数据
+  // VTable 配置 - 金融风格主题
+  const vtableOption = useMemo(() => ({
+    columns,
+    records: tableData,
+    defaultRowHeight: 40,
+    defaultHeaderRowHeight: 32,
+    widthMode: 'adaptive',
+    autoWrapText: false,
+    hover: {
+      highlightMode: 'row',
+    },
+    select: {
+      highlightMode: 'row',
+    },
+    theme: {
+      defaultStyle: {
+        fontSize: 13,
+        fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace, -apple-system, BlinkMacSystemFont',
+        color: '#333',
+        borderColor: '#e8e8e8',
+        borderLineWidth: 1,
+      },
+      headerStyle: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: '#666',
+        bgColor: '#f7f7f7',
+        borderColor: '#e0e0e0',
+        padding: [8, 8, 8, 8],
+      },
+      bodyStyle: {
+        padding: [6, 8, 6, 8],
+        bgColor: '#fff',
+        hover: {
+          cellBgColor: '#f0f7ff',
+          inlineColumnBgColor: '#f0f7ff',
+          inlineRowBgColor: '#f0f7ff',
+        },
+        select: {
+          cellBgColor: '#e6f4ff',
+          inlineColumnBgColor: '#e6f4ff',
+          inlineRowBgColor: '#e6f4ff',
+        },
+      },
+      frameStyle: {
+        borderColor: '#d9d9d9',
+        borderLineWidth: 1,
+        cornerRadius: 4,
+      },
+    },
+  }), [columns, tableData])
+
+  // 处理表格点击事件 - 点击任意单元格都选中整行
+  const handleTableClick = useCallback((args) => {
+    const { col, row } = args
+    if (row === 0) return // 表头
+    
+    const record = vtableRef.current?.getRecordByRowCol(col, row)
+    if (!record) return
+    
+    const rowIndex = row - 1
+    setSelectedRowIndex(rowIndex)
+    setSelectedStock({ symbol: record.symbol, name: record.name, market: record.market })
+    
+    // 选中整行
+    vtableRef.current?.selectRow(row)
+  }, [])
+
+  // VTable 挂载后绑定事件
+  const handleVTableReady = useCallback((instance) => {
+    vtableRef.current = instance
+    instance.on('click_cell', handleTableClick)
+  }, [handleTableClick])
+
+  // 监听 tableData 变化，更新 VTable
+  useEffect(() => {
+    if (vtableRef.current && tableData.length > 0) {
+      vtableRef.current.setRecords(tableData)
+    }
+  }, [tableData])
+
+  // 选中股票的行情
   const selectedStockQuote = useMemo(() => {
     if (!selectedStock) return null
     const key = `${selectedStock.symbol}_${selectedStock.market}`
     return stockQuotes[key] || {}
   }, [selectedStock, stockQuotes])
 
-  // Drawer 标题组件
+  // Drawer 标题
   const drawerTitle = useMemo(() => {
     if (!selectedStock) return null
     const quote = selectedStockQuote
@@ -657,7 +591,7 @@ export default function WatchlistPage() {
     )
   }, [selectedStock, selectedStockQuote])
 
-  // Drawer 拖动调整宽度
+  // Drawer 拖动
   const handleResizeStart = useCallback((e) => {
     e.preventDefault()
     setIsResizing(true)
@@ -684,7 +618,7 @@ export default function WatchlistPage() {
     document.addEventListener('mouseup', handleMouseUp)
   }, [drawerWidth, setDrawerWidth])
 
-  // 搜索下拉框内容
+  // 搜索下拉框
   const searchDropdown = (
     <div style={{
       position: 'absolute',
@@ -805,17 +739,15 @@ export default function WatchlistPage() {
       </div>
 
       {/* 表格区域 */}
-      <div ref={tableContainerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+      <div ref={tableContainerRef} style={{ flex: 1, overflow: 'hidden' }}>
         {activeGroup.stocks.length === 0 ? (
           <Empty description="暂无自选股，请搜索添加" style={{ marginTop: 80 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
-          <Spin spinning={loadingQuotes && sortedTableData.every(d => !d.price)}>
-            <SheetComponent
-              sheetType="table"
-              dataCfg={s2DataCfg}
-              options={s2Options}
-              onMounted={handleS2Mounted}
-              adaptive={{ width: true, height: false }}
+          <Spin spinning={loadingQuotes && tableData.every(d => !d.price)}>
+            <ListTable
+              option={vtableOption}
+              onReady={handleVTableReady}
+              height={window.innerHeight - 120}
             />
           </Spin>
         )}
@@ -827,7 +759,7 @@ export default function WatchlistPage() {
         placement="right"
         width={drawerWidth}
         open={!!selectedStock}
-        onClose={() => { setSelectedStock(null); setSelectedRowIndex(-1); selectedRowIndexRef.current = -1 }}
+        onClose={() => { setSelectedStock(null); setSelectedRowIndex(-1) }}
         mask={false}
         styles={{ 
           header: { padding: '8px 16px', minHeight: 'auto' },
@@ -835,7 +767,6 @@ export default function WatchlistPage() {
           wrapper: { transition: isResizing ? 'none' : undefined }
         }}
       >
-        {/* 左侧拖动条 */}
         <div
           onMouseDown={handleResizeStart}
           style={{

@@ -1,12 +1,13 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Grid } from 'antd'
-import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined } from '@ant-design/icons'
+import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined } from '@ant-design/icons'
 
 const { Content, Header } = Layout
 const { useBreakpoint } = Grid
 
 const menuItems = [
   { key: '/watchlist', label: '自选股', icon: <StarOutlined /> },
+  { key: '/market-index', label: '大盘行情', icon: <StockOutlined /> },
   { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
   { key: '/market-overview', label: '汇率走势', icon: <LineChartOutlined /> },
   { key: '/commodity', label: '大宗商品', icon: <GoldOutlined /> },
@@ -41,7 +42,7 @@ function App() {
           fontSize: 13,
           whiteSpace: 'nowrap'
         }}>
-          📈 {isMobile ? '' : '港股分析'}
+          📈 {isMobile ? '' : '知行数据分析'}
         </div>
         <Menu
           theme="dark"
