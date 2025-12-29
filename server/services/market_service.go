@@ -51,8 +51,8 @@ type DistributionData struct {
 
 // SectorData 板块数据
 type SectorData struct {
-	Name      string       `json:"name"`
-	ChangePct float64      `json:"changePct"`
+	Name      string        `json:"name"`
+	ChangePct float64       `json:"changePct"`
 	Stocks    []SectorStock `json:"stocks"`
 }
 

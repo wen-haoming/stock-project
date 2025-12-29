@@ -155,6 +155,27 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     }
   }, [stock, market])
 
+  // 加载K线数据
+  const loadKlineData = useCallback(async (months, period) => {
+    if (!stock) return
+    setKlineLoading(true)
+    try {
+      let data
+      if (period === 'trend') {
+        // 分时图数据
+        data = await fetchStockTrend(stock.symbol, market, 1)
+        data.isTrend = true
+      } else {
+        data = await fetchStockKline(stock.symbol, market, months, period)
+      }
+      setKlineData(data)
+    } catch (error) {
+      console.error('加载K线数据失败:', error)
+    } finally {
+      setKlineLoading(false)
+    }
+  }, [stock, market])
+
   // 加载财务数据
   const loadFinanceData = useCallback(async (symbol, type) => {
     setFinanceLoading(true)
