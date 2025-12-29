@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { Card, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
+import { useTheme } from '../../../contexts/ThemeContext'
 
 // 格式化数字
 const formatNumber = (num, precision = 2) => {
@@ -39,24 +40,21 @@ const FIELD_CONFIG = {
   amount: { label: '成交额', tip: '当日累计成交金额', format: formatAmount },
   low: { label: '最低', tip: '当日最低成交价格', format: (v) => v?.toFixed(2) || '-', priceColor: true },
   preClose: { label: '昨收', tip: '上一交易日收盘价', format: (v) => v?.toFixed(2) || '-' },
-  outerVol: { label: '外盘', tip: '主动买入成交量，外盘大说明买方力量强', format: formatVolume, color: upColor },
-  turnoverRate: { label: '换手', tip: '换手率 = 成交量 / 流通股本 × 100%，反映股票流动性', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
-  limitUp: { label: '涨停', tip: 'A股涨停价格（涨幅10%或20%限制）', format: (v) => v?.toFixed(2) || '-', color: upColor },
-  innerVol: { label: '内盘', tip: '主动卖出成交量，内盘大说明卖方力量强', format: formatVolume, color: downColor },
-  amplitude: { label: '振幅', tip: '振幅 = (最高价 - 最低价) / 昨收价 × 100%，反映股价波动程度', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
-  limitDown: { label: '跌停', tip: 'A股跌停价格（跌幅10%或20%限制）', format: (v) => v?.toFixed(2) || '-', color: downColor },
-  volumeRatio: { label: '量比', tip: '量比 = 当日成交量 / 过去5日平均成交量，>1说明放量，<1说明缩量', format: (v) => v?.toFixed(2) || '-' },
+  turnoverRate: { label: '换手', tip: '换手率 = 成交量 / 流通股本 × 100%', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
+  limitUp: { label: '涨停', tip: 'A股涨停价格', format: (v) => v?.toFixed(2) || '-', color: upColor },
+  amplitude: { label: '振幅', tip: '振幅 = (最高价 - 最低价) / 昨收价 × 100%', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
+  limitDown: { label: '跌停', tip: 'A股跌停价格', format: (v) => v?.toFixed(2) || '-', color: downColor },
+  volumeRatio: { label: '量比', tip: '量比 = 当日成交量 / 过去5日平均成交量', format: (v) => v?.toFixed(2) || '-' },
   avgPrice: { label: '均价', tip: '当日成交均价 = 成交额 / 成交量', format: (v) => v?.toFixed(2) || '-' },
   // 基本面
-  eps: { label: '每股收益(三)', tip: '每股收益(EPS) = 净利润 / 总股本，反映每股盈利能力', format: (v) => v?.toFixed(3) || '-' },
-  peRatio: { label: '市盈率(动)', tip: '市盈率(PE) = 股价 / 每股收益，反映估值水平，越低越便宜', format: (v) => v?.toFixed(2) || '-' },
-  navps: { label: '每股净资产', tip: '每股净资产 = 净资产 / 总股本，反映每股账面价值', format: (v) => v?.toFixed(2) || '-' },
-  floatShares: { label: '流通股本', tip: '可在二级市场流通交易的股份数量', format: (v) => formatNumber(v, 0) },
-  floatMarketCap: { label: '流通市值', tip: '流通市值 = 流通股本 × 股价', format: (v) => formatNumber(v, 0) + '元' },
-  pbRatio: { label: '市净率', tip: '市净率(PB) = 股价 / 每股净资产，<1可能被低估', format: (v) => v?.toFixed(2) || '-' },
+  eps: { label: '每股收益', tip: '每股收益(EPS) = 净利润 / 总股本', format: (v) => v?.toFixed(3) || '-' },
+  peRatio: { label: '市盈率', tip: '市盈率(PE) = 股价 / 每股收益', format: (v) => v?.toFixed(2) || '-' },
+  pbRatio: { label: '市净率', tip: '市净率(PB) = 股价 / 每股净资产', format: (v) => v?.toFixed(2) || '-' },
+  roe: { label: 'ROE', tip: '净资产收益率 = 净利润 / 净资产 × 100%', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
+  floatShares: { label: '流通股', tip: '可在二级市场流通交易的股份数量', format: (v) => formatNumber(v, 0) },
+  floatMarketCap: { label: '流通市值', tip: '流通市值 = 流通股本 × 股价', format: (v) => formatNumber(v, 0) },
   totalShares: { label: '总股本', tip: '公司发行的全部股份数量', format: (v) => formatNumber(v, 0) },
-  totalMarketCap: { label: '总市值', tip: '总市值 = 总股本 × 股价', format: (v) => formatNumber(v, 0) + '元' },
-  roe: { label: 'ROE', tip: '净资产收益率 = 净利润 / 净资产 × 100%，反映股东权益回报率，越高越好', format: (v) => v != null ? v.toFixed(2) + '%' : '-' },
+  totalMarketCap: { label: '总市值', tip: '总市值 = 总股本 × 股价', format: (v) => formatNumber(v, 0) },
 }
 
 // 行情报价字段顺序（4列布局，压缩为3行）
@@ -73,27 +71,30 @@ const FUNDAMENTAL_FIELDS = [
 ]
 
 // 单个指标项
-const InfoItem = ({ label, value, tip, color, stock }) => {
+const InfoItem = ({ label, value, tip, color, stock, isDark }) => {
   // 根据涨跌决定颜色
   let displayColor = color
   if (!displayColor && stock) {
     const changePct = stock.changePct
     if (changePct > 0) displayColor = upColor
     else if (changePct < 0) displayColor = downColor
-    else displayColor = neutralColor
+    else displayColor = isDark ? '#999' : neutralColor
   }
+  
+  const labelColor = isDark ? '#888' : '#666'
+  const tipIconColor = isDark ? '#666' : '#bbb'
   
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' }}>
-      <span style={{ color: '#666', fontSize: 12, display: 'flex', alignItems: 'center', gap: 2 }}>
+      <span style={{ color: labelColor, fontSize: 12, display: 'flex', alignItems: 'center', gap: 2 }}>
         {label}
         {tip && (
           <Tooltip title={tip}>
-            <QuestionCircleOutlined style={{ fontSize: 10, color: '#bbb', cursor: 'help' }} />
+            <QuestionCircleOutlined style={{ fontSize: 10, color: tipIconColor, cursor: 'help' }} />
           </Tooltip>
         )}
       </span>
-      <span style={{ color: displayColor || neutralColor, fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
+      <span style={{ color: displayColor || (isDark ? '#999' : neutralColor), fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
         {value}
       </span>
     </div>
@@ -104,10 +105,17 @@ const InfoItem = ({ label, value, tip, color, stock }) => {
  * 基础信息卡片 - 展示行情报价和基本面数据
  */
 const BasicInfoCard = memo(({ stock, isMobile }) => {
+  const { isDark } = useTheme()
+  
   if (!stock) return null
   
+  const borderColor = isDark ? '#2a2a2a' : '#f5f5f5'
+  const separatorBg = isDark ? '#252525' : '#fafafa'
+  const industryBg = isDark ? 'rgba(24, 144, 255, 0.15)' : '#e6f7ff'
+  const industryColor = isDark ? '#4dabf7' : '#1890ff'
+  
   const renderRow = (fields, stock) => (
-    <div style={{ display: 'flex', borderBottom: '1px solid #f5f5f5' }}>
+    <div style={{ display: 'flex', borderBottom: `1px solid ${borderColor}` }}>
       {fields.map((field, idx) => {
         if (!field) return <div key={idx} style={{ flex: 1, padding: '0 6px' }} />
         const config = FIELD_CONFIG[field]
@@ -127,6 +135,7 @@ const BasicInfoCard = memo(({ stock, isMobile }) => {
               value={config.format(stock[field])}
               tip={config.tip}
               color={color}
+              isDark={isDark}
             />
           </div>
         )
@@ -140,7 +149,7 @@ const BasicInfoCard = memo(({ stock, isMobile }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 13 }}>行情报价</span>
           {stock.industry && (
-            <span style={{ fontSize: 11, color: '#1890ff', background: '#e6f7ff', padding: '1px 6px', borderRadius: 4 }}>
+            <span style={{ fontSize: 11, color: industryColor, background: industryBg, padding: '1px 6px', borderRadius: 4 }}>
               {stock.industry}
             </span>
           )}
@@ -156,7 +165,7 @@ const BasicInfoCard = memo(({ stock, isMobile }) => {
       ))}
       
       {/* 分隔线 */}
-      <div style={{ height: 4, background: '#fafafa', margin: '4px -4px' }} />
+      <div style={{ height: 4, background: separatorBg, margin: '4px -4px' }} />
       
       {/* 基本面数据 */}
       {FUNDAMENTAL_FIELDS.map((row, idx) => (

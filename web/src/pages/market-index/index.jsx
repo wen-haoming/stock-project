@@ -6,6 +6,7 @@ import { ListTable } from '@visactor/react-vtable'
 import ReactECharts from 'echarts-for-react'
 import axios from 'axios'
 import StockDetailDrawer from '../range-stats/StockDetailDrawer'
+import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
 
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
@@ -57,6 +58,7 @@ const getIndexChartOption = (index) => {
 // 单个市场面板组件
 function MarketPanel({ market, title, onStockClick }) {
   const vtableRef = useRef(null)
+  const { vtableTheme, theme: currentTheme } = useTheme()
 
   // 获取指数行情
   const { data: indexData = [], loading: indexLoading, run: fetchIndex } = useRequest(
@@ -108,22 +110,25 @@ function MarketPanel({ market, title, onStockClick }) {
 
   const tableRecords = useMemo(() => topGainers.map((item, i) => ({ ...item, rank: i + 1, market })), [topGainers, market])
 
+  // 使用主题生成 VTable 配置
+  const baseVTableTheme = useMemo(() => getVTableTheme(vtableTheme, { rowHeight: 28, headerRowHeight: 28, fontSize: 11 }), [vtableTheme])
+  
   const vtableOption = useMemo(() => ({
     columns,
     records: tableRecords,
-    defaultRowHeight: 26,
-    defaultHeaderRowHeight: 26,
+    ...baseVTableTheme,
     widthMode: 'adaptive',
     autoWrapText: false,
     hover: { highlightMode: 'row' },
     select: { disableSelect: true },
     theme: {
-      defaultStyle: { fontSize: 10, fontFamily: 'Consolas, Monaco, monospace', color: '#333', borderColor: '#f0f0f0', borderLineWidth: 1, cursor: 'pointer' },
-      headerStyle: { fontSize: 10, fontWeight: 600, color: '#666', bgColor: '#fafafa', borderColor: '#e8e8e8' },
-      bodyStyle: { bgColor: '#fff', hover: { cellBgColor: '#f5f5f5', inlineRowBgColor: '#f5f5f5' } },
-      frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1, cornerRadius: 4 },
+      ...baseVTableTheme.theme,
+      defaultStyle: {
+        ...baseVTableTheme.theme.defaultStyle,
+        cursor: 'pointer',
+      },
     },
-  }), [columns, tableRecords])
+  }), [columns, tableRecords, baseVTableTheme])
 
   const handleVTableReady = useCallback((instance) => {
     vtableRef.current = instance
@@ -142,11 +147,13 @@ function MarketPanel({ market, title, onStockClick }) {
     }
   }, [tableRecords])
 
+  const cardBorderColor = currentTheme.custom.borderColor
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
       {/* 标题 + 刷新按钮 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 2px' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>{title}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: currentTheme.custom.textColor }}>{title}</span>
         <Button 
           type="text" 
           size="small" 
@@ -166,12 +173,12 @@ function MarketPanel({ market, title, onStockClick }) {
             <Card
               key={idx.symbol}
               size="small"
-              style={{ flex: '1 1 calc(50% - 3px)', minWidth: 140, border: '1px solid #e8e8e8' }}
+              style={{ flex: '1 1 calc(50% - 3px)', minWidth: 140, border: `1px solid ${cardBorderColor}` }}
               styles={{ body: { padding: '10px 12px' } }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{idx.name}</div>
+                  <div style={{ fontSize: 12, color: currentTheme.custom.textColorSecondary, marginBottom: 4 }}>{idx.name}</div>
                   <div style={{ fontSize: 20, fontWeight: 600, color: (idx.changePct || 0) >= 0 ? upColor : downColor, fontFamily: 'Consolas, monospace', lineHeight: 1.2 }}>
                     {idx.latestPrice?.toFixed(2) || '-'}
                   </div>
@@ -185,7 +192,7 @@ function MarketPanel({ market, title, onStockClick }) {
                   {idx.trendData && idx.trendData.length > 0 ? (
                     <ReactECharts option={getIndexChartOption(idx)} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'svg' }} />
                   ) : (
-                    <div style={{ height: '100%', width: '100%', background: '#f9f9f9', borderRadius: 4 }} />
+                    <div style={{ height: '100%', width: '100%', background: currentTheme.custom.bgColorSecondary, borderRadius: 4 }} />
                   )}
                 </div>
               </div>
@@ -206,7 +213,7 @@ function MarketPanel({ market, title, onStockClick }) {
               {sectorData.slice(0, 6).map((sector) => (
                 <div
                   key={sector.name}
-                  style={{ flex: '1 1 calc(33.33% - 3px)', minWidth: 80, padding: '4px 6px', background: '#fafafa', borderRadius: 3, border: '1px solid #f0f0f0' }}
+                  style={{ flex: '1 1 calc(33.33% - 3px)', minWidth: 80, padding: '4px 6px', background: currentTheme.custom.bgColorSecondary, borderRadius: 3, border: `1px solid ${cardBorderColor}` }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 10, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 50 }}>{sector.name}</span>
@@ -245,6 +252,7 @@ function MarketPanel({ market, title, onStockClick }) {
 export default function MarketIndexPage() {
   const [selectedStock, setSelectedStock] = useState(null)
   const [drawerVisible, setDrawerVisible] = useState(false)
+  const { theme: currentTheme } = useTheme()
 
   const handleStockClick = useCallback((stock) => {
     setSelectedStock(stock)
@@ -256,7 +264,7 @@ export default function MarketIndexPage() {
   }, [])
 
   return (
-    <div style={{ height: '100%', display: 'flex', gap: 10, padding: 10, background: '#f5f5f5', overflow: 'auto' }}>
+    <div style={{ height: '100%', display: 'flex', gap: 10, padding: 10, background: currentTheme.custom.bgColorSecondary, overflow: 'auto' }}>
       {/* 左侧 A股 */}
       <MarketPanel market="a" title="A股行情" onStockClick={handleStockClick} />
       

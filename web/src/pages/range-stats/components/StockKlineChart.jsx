@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useMemo } from 'react'
 import * as echarts from 'echarts'
 import { upColor, downColor } from '@/utils/chart'
+import { useTheme, getEChartsTheme } from '../../../contexts/ThemeContext'
 
 // 计算MA均线
 const calculateMA = (data, period) => {
@@ -17,6 +18,78 @@ const calculateMA = (data, period) => {
     }
   }
   return result
+}
+
+// 计算EMA指数移动平均（通达信标准算法）
+// EMA(X, N) = 2/(N+1) * X + (N-1)/(N+1) * EMA'
+const calculateEMA = (prices, period) => {
+  const result = []
+  const k = 2 / (period + 1)
+  
+  // 找到第一个有效价格
+  let firstValidIdx = -1
+  for (let i = 0; i < prices.length; i++) {
+    const price = typeof prices[i] === 'number' ? prices[i] : parseFloat(prices[i])
+    if (!isNaN(price)) {
+      firstValidIdx = i
+      break
+    }
+  }
+  
+  if (firstValidIdx === -1) {
+    return prices.map(() => '-')
+  }
+  
+  for (let i = 0; i < prices.length; i++) {
+    const price = typeof prices[i] === 'number' ? prices[i] : parseFloat(prices[i])
+    
+    if (i < firstValidIdx || isNaN(price)) {
+      result.push('-')
+      continue
+    }
+    
+    if (i === firstValidIdx) {
+      // 第一个有效值作为初始EMA
+      result.push(price)
+    } else {
+      const prevEma = result[i - 1]
+      if (prevEma === '-' || isNaN(prevEma)) {
+        result.push(price)
+      } else {
+        // EMA = 2/(N+1) * Price + (N-1)/(N+1) * PrevEMA
+        result.push(price * k + prevEma * (1 - k))
+      }
+    }
+  }
+  return result
+}
+
+// 计算双线战法指标
+// 知行短期趋势线: EMA(EMA(C,10),10) - 双重EMA平滑
+// 知行多空线: (MA(M1)+MA(M2)+MA(M3)+MA(M4))/4
+const calculateZhixing = (data, m1 = 14, m2 = 28, m3 = 57, m4 = 114) => {
+  const closes = data.map(d => d[1]) // 收盘价
+  
+  // 知行短期趋势线: EMA(EMA(C,10),10)
+  const ema10 = calculateEMA(closes, 10)
+  const shortTrend = calculateEMA(ema10, 10).map(v => 
+    typeof v === 'number' ? v.toFixed(2) : '-'
+  )
+  
+  // 知行多空线: (MA(M1)+MA(M2)+MA(M3)+MA(M4))/4
+  const ma1 = calculateMA(data, m1)
+  const ma2 = calculateMA(data, m2)
+  const ma3 = calculateMA(data, m3)
+  const ma4 = calculateMA(data, m4)
+  
+  const longShort = data.map((_, i) => {
+    if (ma1[i] === '-' || ma2[i] === '-' || ma3[i] === '-' || ma4[i] === '-') {
+      return '-'
+    }
+    return ((parseFloat(ma1[i]) + parseFloat(ma2[i]) + parseFloat(ma3[i]) + parseFloat(ma4[i])) / 4).toFixed(2)
+  })
+  
+  return { shortTrend, longShort }
 }
 
 // 计算BBI指标 (3, 6, 12, 24日均线的平均值)
@@ -112,20 +185,87 @@ const generateFullTimeAxis = (market = 'a') => {
 
 /**
  * 股票K线图组件
+ * @param {boolean} showZhixing - 是否显示双线战法指标
  */
-const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
+const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhixing = false }) => {
   const chartRef = useRef(null)
   const chartInstanceRef = useRef(null)
+  const { isDark } = useTheme()
+  const echartsTheme = getEChartsTheme(isDark)
+  
+  // 用 ref 保存最新值，避免 useEffect 依赖变化导致重建图表
+  const showZhixingRef = useRef(showZhixing)
+  showZhixingRef.current = showZhixing
 
-  // 计算指标数据（仅K线模式）
+  // 计算所有指标数据（始终计算，避免切换时重新计算）
   const indicators = useMemo(() => {
     if (!data?.values?.length || data.isTrend) return null
+    const zhixing = calculateZhixing(data.values)
     return {
       bbi: calculateBBI(data.values),
+      zhixingShort: zhixing.shortTrend,
+      zhixingLong: zhixing.longShort,
       ...calculateMACD(data.values)
     }
   }, [data])
+  
+  const indicatorsRef = useRef(indicators)
+  indicatorsRef.current = indicators
 
+  // 仅切换指标时更新 series（不重建图表）
+  useEffect(() => {
+    if (!chartInstanceRef.current || !indicators || data?.isTrend) return
+    
+    // 获取当前 dataZoom 状态
+    const option = chartInstanceRef.current.getOption()
+    const currentZoom = option.dataZoom?.[0] || { start: 0, end: 100 }
+
+    // 构建指标 series
+    const indicatorSeries = showZhixing ? [
+      {
+        name: '短期趋势',
+        type: 'line',
+        data: indicators.zhixingShort,
+        smooth: false,
+        symbol: 'none',
+        lineStyle: { width: 1, color: '#ffffff' }
+      },
+      {
+        name: '多空线',
+        type: 'line',
+        data: indicators.zhixingLong,
+        smooth: false,
+        symbol: 'none',
+        lineStyle: { width: 1, color: '#ffff00' }
+      }
+    ] : [
+      {
+        name: 'BBI',
+        type: 'line',
+        data: indicators.bbi,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1, color: '#ff9800' }
+      }
+    ]
+
+    chartInstanceRef.current.setOption({
+      legend: {
+        data: showZhixing ? [stockName, '短期趋势', '多空线'] : [stockName, 'BBI'],
+      },
+      dataZoom: [{ start: currentZoom.start, end: currentZoom.end }],
+      series: [
+        { name: stockName, type: 'candlestick', data: data.values },
+        { name: 'Volume', type: 'bar', data: data.volumes },
+        ...indicatorSeries,
+        { name: 'DIF', type: 'line', data: indicators.dif },
+        { name: 'DEA', type: 'line', data: indicators.dea },
+        { name: 'MACD', type: 'bar', data: indicators.macd }
+      ]
+    }, { replaceMerge: ['series'] })
+  }, [showZhixing, indicators, data, stockName])
+
+  // 初始化图表（仅数据变化时）
   useEffect(() => {
     if (!chartRef.current || !data?.values?.length) return
 
@@ -133,6 +273,10 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
     
     const chart = echarts.init(chartRef.current)
     chartInstanceRef.current = chart
+    
+    // 使用 ref 获取当前值
+    const currentShowZhixing = showZhixingRef.current
+    const currentIndicators = indicatorsRef.current
 
     // 分时图配置
     if (data.isTrend) {
@@ -173,6 +317,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'cross' },
+          ...echartsTheme.tooltip,
           formatter: (params) => {
             const priceData = params.find(p => p.seriesName === '价格')
             const avgData = params.find(p => p.seriesName === '均价')
@@ -196,7 +341,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
         },
         axisPointer: {
           link: [{ xAxisIndex: 'all' }],
-          label: { backgroundColor: '#777' }
+          label: { backgroundColor: isDark ? '#555' : '#777' }
         },
         grid: [
           { left: 60, right: 50, top: 20, height: '60%' },
@@ -207,11 +352,11 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             type: 'category', 
             data: fullTimeAxis, 
             boundaryGap: false,
-            axisLine: { lineStyle: { color: '#ddd' } },
+            axisLine: { lineStyle: { color: echartsTheme.axisLine.lineStyle.color } },
             axisLabel: { 
               show: true, 
               fontSize: 10, 
-              color: '#666',
+              color: echartsTheme.axisLabel.color,
               interval: market === 'hk' ? 60 : 30, // 每隔一段时间显示一个标签
             },
             splitLine: { show: false },
@@ -222,7 +367,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             gridIndex: 1, 
             data: fullTimeAxis, 
             boundaryGap: false,
-            axisLine: { lineStyle: { color: '#ddd' } },
+            axisLine: { lineStyle: { color: echartsTheme.axisLine.lineStyle.color } },
             axisLabel: { show: false },
             splitLine: { show: false },
             axisTick: { show: false }
@@ -237,13 +382,13 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             splitNumber: 4,
             axisLine: { show: false },
             axisTick: { show: false },
-            splitLine: { lineStyle: { color: '#eee', type: 'dashed' } },
+            splitLine: { lineStyle: { color: echartsTheme.splitLine.lineStyle.color, type: 'dashed' } },
             axisLabel: {
               fontSize: 10,
               color: (value) => {
                 if (value > preClose) return upColor
                 if (value < preClose) return downColor
-                return '#666'
+                return echartsTheme.axisLabel.color
               },
               formatter: (value) => value.toFixed(2)
             },
@@ -263,7 +408,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
               color: (value) => {
                 if (value > 0) return upColor
                 if (value < 0) return downColor
-                return '#666'
+                return echartsTheme.axisLabel.color
               },
               formatter: (value) => `${value.toFixed(2)}%`
             },
@@ -307,7 +452,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             markLine: {
               silent: true,
               symbol: 'none',
-              lineStyle: { type: 'dashed', color: '#999', width: 1 },
+              lineStyle: { type: 'dashed', color: echartsTheme.axisLabel.color, width: 1 },
               label: { show: false },
               data: [{ yAxis: preClose }]
             }
@@ -340,14 +485,17 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
           trigger: 'axis',
           axisPointer: { 
             type: 'cross',
-            crossStyle: { color: '#999' }
+            crossStyle: { color: echartsTheme.axisLabel.color }
           },
+          ...echartsTheme.tooltip,
           formatter: (params) => {
             const kline = params.find(p => p.seriesName === stockName)
             if (!kline) return ''
             const [open, close, low, high] = kline.data
             const volume = params.find(p => p.seriesName === 'Volume')
             const bbi = params.find(p => p.seriesName === 'BBI')
+            const zhixingShort = params.find(p => p.seriesName === '短期趋势')
+            const zhixingLong = params.find(p => p.seriesName === '多空线')
             const dif = params.find(p => p.seriesName === 'DIF')
             const dea = params.find(p => p.seriesName === 'DEA')
             const macdBar = params.find(p => p.seriesName === 'MACD')
@@ -360,6 +508,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             html += `<div>低: <span style="color:${downColor}">${low}</span></div>`
             if (volume) html += `<div>成交量: ${(volume.data[1] / 10000).toFixed(0)}万</div>`
             if (bbi && bbi.data !== '-') html += `<div style="color:#ff9800">BBI: ${bbi.data}</div>`
+            if (zhixingShort && zhixingShort.data !== '-') html += `<div style="color:#ffffff">短期趋势: ${zhixingShort.data}</div>`
+            if (zhixingLong && zhixingLong.data !== '-') html += `<div style="color:#ffff00">多空线: ${zhixingLong.data}</div>`
             if (dif && dif.data !== '-') html += `<div style="color:#2196f3">DIF: ${dif.data}</div>`
             if (dea && dea.data !== '-') html += `<div style="color:#ff5722">DEA: ${dea.data}</div>`
             if (macdBar && macdBar.data !== '-') html += `<div>MACD: ${macdBar.data}</div>`
@@ -369,15 +519,15 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
         },
         axisPointer: {
           link: [{ xAxisIndex: 'all' }],
-          label: { backgroundColor: '#777' }
+          label: { backgroundColor: isDark ? '#555' : '#777' }
         },
         legend: {
-          data: [stockName, 'BBI'],
+          data: currentShowZhixing ? [stockName, '短期趋势', '多空线'] : [stockName, 'BBI'],
           top: 0,
           left: 'center',
           itemWidth: 14,
           itemHeight: 10,
-          textStyle: { fontSize: 11 }
+          textStyle: { fontSize: 11, color: echartsTheme.textStyle.color }
         },
         grid: [
           { left: 50, right: 10, top: 30, height: '45%' },
@@ -389,7 +539,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             type: 'category', 
             data: data.categoryData, 
             boundaryGap: true,
-            axisLine: { onZero: false }, 
+            axisLine: { onZero: false, lineStyle: { color: echartsTheme.axisLine.lineStyle.color } }, 
             splitLine: { show: false },
             axisLabel: { show: false },
             axisPointer: { z: 100 }
@@ -399,7 +549,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             gridIndex: 1, 
             data: data.categoryData, 
             boundaryGap: true,
-            axisLine: { onZero: false }, 
+            axisLine: { onZero: false, lineStyle: { color: echartsTheme.axisLine.lineStyle.color } }, 
             axisLabel: { show: false },
             splitLine: { show: false },
             axisPointer: { show: true }
@@ -409,8 +559,9 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             gridIndex: 2, 
             data: data.categoryData, 
             boundaryGap: true,
-            axisLine: { onZero: false },
+            axisLine: { onZero: false, lineStyle: { color: echartsTheme.axisLine.lineStyle.color } },
             splitLine: { show: false },
+            axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color },
             axisPointer: { show: true }
           }
         ],
@@ -418,8 +569,9 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
           { 
             scale: true, 
             splitArea: { show: false }, 
-            splitLine: { show: true, lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+            splitLine: { show: true, lineStyle: { color: echartsTheme.splitLine.lineStyle.color, type: 'dashed' } },
             splitNumber: 4,
+            axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color },
             axisPointer: { show: true }
           },
           { 
@@ -428,6 +580,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             axisLabel: { 
               show: true,
               fontSize: 9,
+              color: echartsTheme.axisLabel.color,
               formatter: (v) => v >= 100000000 ? (v / 100000000).toFixed(0) + '亿' : (v / 10000).toFixed(0) + '万'
             }, 
             axisLine: { show: false }, 
@@ -439,8 +592,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             scale: true, 
             gridIndex: 2, 
             splitNumber: 2, 
-            axisLabel: { fontSize: 10 }, 
-            splitLine: { show: true, lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+            axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color }, 
+            splitLine: { show: true, lineStyle: { color: echartsTheme.splitLine.lineStyle.color, type: 'dashed' } },
             splitArea: { show: false },
             axisPointer: { show: true }
           }
@@ -480,20 +633,42 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             data: data.volumes,
             barWidth: '60%'
           },
-          {
-            name: 'BBI',
-            type: 'line',
-            data: indicators?.bbi || [],
-            smooth: true,
-            symbol: 'none',
-            lineStyle: { width: 1, color: '#ff9800' }
-          },
+          // 根据开关显示 BBI 或双线战法
+          ...(currentShowZhixing ? [
+            // 知行短期趋势线: EMA(EMA(C,10),10), COLORFFFFFF, LINETHICK1
+            {
+              name: '短期趋势',
+              type: 'line',
+              data: currentIndicators?.zhixingShort || [],
+              smooth: false,
+              symbol: 'none',
+              lineStyle: { width: 1, color: '#ffffff' }
+            },
+            // 知行多空线: (MA14+MA28+MA57+MA114)/4 - 黄色
+            {
+              name: '多空线',
+              type: 'line',
+              data: currentIndicators?.zhixingLong || [],
+              smooth: false,
+              symbol: 'none',
+              lineStyle: { width: 1, color: '#ffff00' }
+            }
+          ] : [
+            {
+              name: 'BBI',
+              type: 'line',
+              data: currentIndicators?.bbi || [],
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { width: 1, color: '#ff9800' }
+            }
+          ]),
           {
             name: 'DIF',
             type: 'line',
             xAxisIndex: 2,
             yAxisIndex: 2,
-            data: indicators?.dif || [],
+            data: currentIndicators?.dif || [],
             symbol: 'none',
             lineStyle: { width: 1, color: '#2196f3' }
           },
@@ -502,7 +677,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             type: 'line',
             xAxisIndex: 2,
             yAxisIndex: 2,
-            data: indicators?.dea || [],
+            data: currentIndicators?.dea || [],
             symbol: 'none',
             lineStyle: { width: 1, color: '#ff5722' }
           },
@@ -511,7 +686,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
             type: 'bar',
             xAxisIndex: 2,
             yAxisIndex: 2,
-            data: indicators?.macd || [],
+            data: currentIndicators?.macd || [],
             barWidth: '60%',
             itemStyle: {
               color: (params) => parseFloat(params.data) >= 0 ? upColor : downColor
@@ -528,7 +703,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a' }) => {
       window.removeEventListener('resize', handleResize)
       chart.dispose()
     }
-  }, [data, stockName, indicators, market])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, stockName, market, isDark, echartsTheme])
 
   return <div ref={chartRef} style={{ height: isMobile ? 380 : 450 }} />
 })
