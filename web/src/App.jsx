@@ -1,12 +1,14 @@
-import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Grid } from 'antd'
-import { BarChartOutlined, LineChartOutlined, GoldOutlined } from '@ant-design/icons'
+import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined } from '@ant-design/icons'
 
-const { Sider, Content, Header } = Layout
+const { Content, Header } = Layout
 const { useBreakpoint } = Grid
 
 const menuItems = [
+  { key: '/watchlist', label: '自选股', icon: <StarOutlined /> },
+  { key: '/stock-picker', label: '行情选股', icon: <SearchOutlined /> },
+  { key: '/market-index', label: '大盘行情', icon: <StockOutlined /> },
   { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
   { key: '/market-overview', label: '汇率走势', icon: <LineChartOutlined /> },
   { key: '/commodity', label: '大宗商品', icon: <GoldOutlined /> },
@@ -15,77 +17,56 @@ const menuItems = [
 function App() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [collapsed, setCollapsed] = useState(false)
   const screens = useBreakpoint()
   const isMobile = !screens.md
 
-  const currentPath = location.pathname === '/' ? '/range-stats' : location.pathname
+  const currentPath = location.pathname === '/' ? '/watchlist' : location.pathname
 
-  // 移动端布局
-  if (isMobile) {
-    return (
-      <Layout style={{ minHeight: '100vh' }}>
-        <Header style={{ 
-          padding: '0 12px', 
-          background: '#001529', 
-          display: 'flex', 
-          alignItems: 'center',
-          height: 48,
-          lineHeight: '48px'
-        }}>
-          <div style={{ color: '#fff', fontWeight: 'bold', marginRight: 16, fontSize: 14 }}>
-            📈 港股分析
-          </div>
-          <Menu
-            theme="dark"
-            mode="horizontal"
-            selectedKeys={[currentPath]}
-            items={menuItems}
-            onClick={({ key }) => navigate(key)}
-            style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none' }}
-          />
-        </Header>
-        <Content style={{ padding: 0, background: '#f5f5f5', overflow: 'auto' }}>
-          <Outlet />
-        </Content>
-      </Layout>
-    )
-  }
+  // 自选股页面需要全高度布局
+  const isFullHeight = currentPath === '/watchlist' || currentPath === '/stock-picker'
 
-  // 桌面端布局
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        theme="dark"
-      >
-        <div style={{
-          height: 64,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontSize: collapsed ? 20 : 18,
-          fontWeight: 'bold',
-          borderBottom: '1px solid rgba(255,255,255,0.1)'
+    <Layout style={{ minHeight: '100vh', height: '100vh' }}>
+      <Header style={{ 
+        padding: '0 10px', 
+        background: '#001529', 
+        display: 'flex', 
+        alignItems: 'center',
+        height: 32,
+        lineHeight: '32px',
+        minHeight: 32,
+      }}>
+        <div style={{ 
+          color: '#fff', 
+          fontWeight: 'bold', 
+          marginRight: 10, 
+          fontSize: 13,
+          whiteSpace: 'nowrap'
         }}>
-          {collapsed ? '📈' : '港股分析'}
+          📈 {isMobile ? '' : '知行数据分析'}
         </div>
         <Menu
           theme="dark"
-          mode="inline"
+          mode="horizontal"
           selectedKeys={[currentPath]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
+          style={{ 
+            flex: 1, 
+            minWidth: 0, 
+            background: 'transparent', 
+            borderBottom: 'none',
+            fontSize: 12,
+            lineHeight: '32px',
+          }}
         />
-      </Sider>
-      <Layout>
-        <Content style={{ margin: 16, padding: 16, background: '#fff', borderRadius: 8 }}>
-          <Outlet />
-        </Content>
-      </Layout>
+      </Header>
+      <Content style={isFullHeight 
+        ? { background: '#fff', height: 'calc(100vh - 32px)', overflow: 'hidden' } 
+        : { margin: isMobile ? 6 : 10, padding: isMobile ? 6 : 10, background: '#fff', borderRadius: 4, overflow: 'auto' }
+      }>
+        <Outlet />
+      </Content>
     </Layout>
   )
 }

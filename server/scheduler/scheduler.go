@@ -2,83 +2,163 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"strconv"
-	"strings"
-	"sync"
+	"server/services"
+	"server/utils"
 	"time"
-
-	"server/db"
 )
 
-// Scheduler 定时任务调度器
+// Scheduler 调度器
 type Scheduler struct {
-	stockRepo  *db.StockRepository
-	klineRepo  *db.KlineRepository
-	running    bool
-	stopChan   chan struct{}
-	mu         sync.Mutex
-	syncingHK  bool // 是否正在同步港股历史数据
+	stockService *services.StockService
+	klineService *services.KlineService
+	rangeService *services.RangeService
+	stopChan     chan struct{}
 }
 
 // NewScheduler 创建调度器
 func NewScheduler() *Scheduler {
 	return &Scheduler{
-		stockRepo: db.NewStockRepository(),
-		klineRepo: db.NewKlineRepository(),
-		stopChan:  make(chan struct{}),
+		stockService: services.NewStockService(),
+		klineService: services.NewKlineService(),
+		rangeService: services.NewRangeService(),
+		stopChan:     make(chan struct{}),
 	}
 }
 
 // Start 启动调度器
 func (s *Scheduler) Start() {
-	s.mu.Lock()
-	if s.running {
-		s.mu.Unlock()
-		return
-	}
-	s.running = true
-	s.mu.Unlock()
+	log.Println("调度器启动")
 
-	log.Println("Scheduler started")
-
-	// 启动时先执行一次数据同步
-	go s.syncAllData()
-
-	// 启动港股历史数据同步（后台执行，不阻塞）
-	go s.syncHKHistoryData()
+	// 启动时同步数据
+	go s.initialSync()
 
 	// 启动定时任务
-	go s.run()
+	go s.runScheduledTasks()
 }
 
 // Stop 停止调度器
 func (s *Scheduler) Stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	close(s.stopChan)
+	log.Println("调度器停止")
+}
 
-	if !s.running {
+// initialSync 初始同步
+func (s *Scheduler) initialSync() {
+	ctx := context.Background()
+
+	log.Println("========== 检查数据状态 ==========")
+
+	// 1. 检查股票列表是否需要更新
+	log.Println("[1/3] 检查股票列表...")
+	s.checkAndSyncStockList(ctx)
+
+	// 2. 检查各市场K线数据完整性
+	log.Println("[2/3] 检查K线数据完整性...")
+	s.checkAndSyncKlines(ctx)
+
+	log.Println("========== 数据检查完成 ==========")
+}
+
+// checkAndSyncStockList 检查并同步股票列表
+func (s *Scheduler) checkAndSyncStockList(ctx context.Context) {
+	now := utils.GetChinaTime()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// 检查港股
+	hkLastUpdate, err := s.stockService.GetLastUpdateTime(ctx, "hk")
+	if err != nil || hkLastUpdate.Before(today) {
+		log.Printf("[港股] 数据需要更新（上次更新: %v）", hkLastUpdate)
+		if err := s.stockService.SyncHKStockData(ctx); err != nil {
+			log.Printf("同步港股列表失败: %v", err)
+		}
+	} else {
+		hkCount, _ := s.stockService.CountByMarket(ctx, "hk")
+		log.Printf("[港股] 数据已是最新（%d只，更新于 %v）", hkCount, hkLastUpdate.Format("2006-01-02 15:04"))
+	}
+
+	// 检查A股
+	aLastUpdate, err := s.stockService.GetLastUpdateTime(ctx, "a")
+	if err != nil || aLastUpdate.Before(today) {
+		log.Printf("[A股] 数据需要更新（上次更新: %v）", aLastUpdate)
+		if err := s.stockService.SyncAStockData(ctx); err != nil {
+			log.Printf("同步A股列表失败: %v", err)
+		}
+	} else {
+		aCount, _ := s.stockService.CountByMarket(ctx, "a")
+		log.Printf("[A股] 数据已是最新（%d只，更新于 %v）", aCount, aLastUpdate.Format("2006-01-02 15:04"))
+	}
+}
+
+// checkAndSyncKlines 检查并同步K线数据
+func (s *Scheduler) checkAndSyncKlines(ctx context.Context) {
+	now := utils.GetChinaTime()
+	today := now.Format("2006-01-02")
+	// 获取上一个交易日（简单处理：如果是周一则取上周五，否则取前一天）
+	var lastTradingDay string
+	if now.Weekday() == time.Monday {
+		lastTradingDay = now.AddDate(0, 0, -3).Format("2006-01-02")
+	} else if now.Weekday() == time.Sunday {
+		lastTradingDay = now.AddDate(0, 0, -2).Format("2006-01-02")
+	} else {
+		lastTradingDay = now.AddDate(0, 0, -1).Format("2006-01-02")
+	}
+
+	// 分别检查 A 股和港股
+	aKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "a")
+	hkKlineCount, _ := s.klineService.CountKlinesByMarket(ctx, "hk")
+
+	aLastDate, aErr := s.klineService.GetLastKlineDate(ctx, "a")
+	hkLastDate, hkErr := s.klineService.GetLastKlineDate(ctx, "hk")
+
+	log.Printf("A股K线: %d条, 最新日期: %s", aKlineCount, aLastDate)
+	log.Printf("港股K线: %d条, 最新日期: %s", hkKlineCount, hkLastDate)
+
+	// 判断是否需要同步
+	needSyncA := aKlineCount == 0 || aErr != nil || aLastDate < lastTradingDay
+	needSyncHK := hkKlineCount == 0 || hkErr != nil || hkLastDate < lastTradingDay
+
+	if !needSyncA && !needSyncHK {
+		log.Printf("[K线] 数据已是最新（A股最新: %s, 港股最新: %s, 上个交易日: %s）", aLastDate, hkLastDate, lastTradingDay)
 		return
 	}
 
-	close(s.stopChan)
-	s.running = false
-	log.Println("Scheduler stopped")
+	// 异步同步，不阻塞启动
+	go func() {
+		bgCtx := context.Background()
+
+		// 检查 A 股
+		if needSyncA {
+			if aKlineCount == 0 {
+				log.Printf("[A股] 无K线数据，启动全量同步...")
+				s.klineService.SyncAHistoryDataFull(bgCtx)
+			} else {
+				log.Printf("[A股] K线数据需要更新（最新: %s < %s），启动增量同步...", aLastDate, today)
+				s.klineService.SyncAHistoryData(bgCtx)
+			}
+		} else {
+			log.Printf("[A股] K线数据已是最新")
+		}
+
+		// 检查港股
+		if needSyncHK {
+			if hkKlineCount == 0 {
+				log.Printf("[港股] 无K线数据，启动全量同步...")
+				s.klineService.SyncHKHistoryDataFull(bgCtx)
+			} else {
+				log.Printf("[港股] K线数据需要更新（最新: %s < %s），启动增量同步...", hkLastDate, today)
+				s.klineService.SyncHKHistoryData(bgCtx)
+			}
+		} else {
+			log.Printf("[港股] K线数据已是最新")
+		}
+	}()
 }
 
-// run 运行定时任务
-func (s *Scheduler) run() {
-	// 每分钟检查一次
+// runScheduledTasks 运行定时任务
+func (s *Scheduler) runScheduledTasks() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-
-	// 每天凌晨2点同步历史数据
-	historyTicker := time.NewTicker(1 * time.Hour)
-	defer historyTicker.Stop()
 
 	for {
 		select {
@@ -86,909 +166,110 @@ func (s *Scheduler) run() {
 			return
 		case <-ticker.C:
 			s.checkAndSync()
-		case <-historyTicker.C:
-			// 每天凌晨2点更新历史数据
-			hour := time.Now().Hour()
-			if hour == 2 {
-				go s.syncHKHistoryDataIncremental()
-			}
 		}
 	}
 }
 
-// checkAndSync 检查是否需要同步数据
+// checkAndSync 检查并同步
 func (s *Scheduler) checkAndSync() {
-	// 只在交易日执行
-	if !db.IsTradingDay() {
-		return
+	now := utils.GetChinaTime()
+
+	// 交易时间每5分钟同步实时数据
+	if s.shouldSyncRealtime(now) {
+		go s.syncRealtimeData()
 	}
 
-	// 交易时间内每5分钟同步一次
-	if db.IsTradingTime() || db.IsHKTradingTime() {
-		s.syncAllData()
+	// 每天凌晨2点增量同步历史 K 线
+	if now.Hour() == 2 && now.Minute() == 0 {
+		go s.syncHistoryData()
+	}
+
+	// 每天凌晨3点清理旧缓存
+	if now.Hour() == 3 && now.Minute() == 0 {
+		go s.cleanupOldCache()
 	}
 }
 
-// syncAllData 同步所有股票实时数据
-func (s *Scheduler) syncAllData() {
-	log.Println("Starting realtime data sync...")
-	start := time.Now()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	errChan := make(chan error, 2)
-
-	// 同步A股数据
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := s.syncAStockData(ctx); err != nil {
-			errChan <- fmt.Errorf("A股同步失败: %w", err)
-		}
-	}()
-
-	// 同步港股数据
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := s.syncHKStockData(ctx); err != nil {
-			errChan <- fmt.Errorf("港股同步失败: %w", err)
-		}
-	}()
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		log.Printf("Sync error: %v", err)
+// shouldSyncRealtime 是否应该同步实时数据
+func (s *Scheduler) shouldSyncRealtime(now time.Time) bool {
+	// 非交易日不同步
+	if !utils.IsTradingDay(now) {
+		return false
 	}
 
-	log.Printf("Realtime data sync completed in %v", time.Since(start))
+	// 每5分钟同步一次
+	if now.Minute()%5 != 0 {
+		return false
+	}
+
+	// A股或港股交易时间
+	return utils.IsAStockTradingTime(now) || utils.IsHKTradingTime(now)
 }
 
-// syncHKHistoryData 同步港股全部历史K线数据（首次启动时执行）
-func (s *Scheduler) syncHKHistoryData() {
-	s.mu.Lock()
-	if s.syncingHK {
-		s.mu.Unlock()
-		log.Println("HK history sync already in progress, skipping...")
-		return
+// syncRealtimeData 同步实时数据
+func (s *Scheduler) syncRealtimeData() {
+	ctx := context.Background()
+	now := utils.GetChinaTime()
+
+	// A股交易时间同步A股
+	if utils.IsAStockTradingTime(now) {
+		if err := s.stockService.SyncAStockData(ctx); err != nil {
+			log.Printf("定时同步A股失败: %v", err)
+		}
 	}
-	s.syncingHK = true
-	s.mu.Unlock()
 
-	defer func() {
-		s.mu.Lock()
-		s.syncingHK = false
-		s.mu.Unlock()
-	}()
+	// 港股交易时间同步港股
+	if utils.IsHKTradingTime(now) {
+		if err := s.stockService.SyncHKStockData(ctx); err != nil {
+			log.Printf("定时同步港股失败: %v", err)
+		}
+	}
+}
 
-	log.Println("Starting HK stock history sync (this may take a while)...")
-	start := time.Now()
+// syncHistoryData 同步历史数据
+func (s *Scheduler) syncHistoryData() {
+	ctx := context.Background()
+	log.Println("开始增量同步历史K线...")
 
+	if err := s.klineService.SyncHKHistoryDataIncremental(ctx); err != nil {
+		log.Printf("增量同步历史K线失败: %v", err)
+	}
+}
+
+// cleanupOldCache 清理旧缓存
+func (s *Scheduler) cleanupOldCache() {
+	ctx := context.Background()
+	deleted, err := s.rangeService.ClearOldCache(ctx)
+	if err != nil {
+		log.Printf("清理旧缓存失败: %v", err)
+	} else if deleted > 0 {
+		log.Printf("清理了 %d 条旧缓存", deleted)
+	}
+}
+
+// ManualSync 手动同步
+func (s *Scheduler) ManualSync(market string) error {
 	ctx := context.Background()
 
-	// 获取所有港股列表
-	stockList, err := fetchAllHKStockList()
-	if err != nil {
-		log.Printf("Failed to fetch HK stock list: %v", err)
-		return
+	switch market {
+	case "hk":
+		return s.stockService.SyncHKStockData(ctx)
+	case "a":
+		return s.stockService.SyncAStockData(ctx)
+	default:
+		if err := s.stockService.SyncHKStockData(ctx); err != nil {
+			return err
+		}
+		return s.stockService.SyncAStockData(ctx)
 	}
-
-	log.Printf("Found %d HK stocks", len(stockList))
-
-	// 先更新 stocks 表的基本信息（市值等）- 这个总是执行
-	var dbStocks []db.StockData
-	for _, stock := range stockList {
-		dbStocks = append(dbStocks, db.StockData{
-			Symbol:         stock.Symbol,
-			Name:           stock.Name,
-			Market:         "hk",
-			LatestPrice:    stock.LatestPrice,
-			TotalMarketCap: stock.TotalMarketCap,
-			CircMarketCap:  stock.CircMarketCap,
-			PERatio:        stock.PERatio,
-			PBRatio:        stock.PBRatio,
-			TurnoverRate:   stock.TurnoverRate,
-			Industry:       stock.Industry,
-		})
-	}
-	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
-		log.Printf("Failed to upsert HK stocks basic info: %v", err)
-	} else {
-		log.Printf("Updated %d HK stocks basic info to stocks table", len(dbStocks))
-	}
-
-	// 检查是否已有 K 线数据
-	count, err := s.klineRepo.CountKlines(ctx)
-	if err != nil {
-		log.Printf("Failed to count klines: %v", err)
-		return
-	}
-
-	if count > 100000 {
-		log.Printf("HK kline data already exists (%d records), skipping kline sync", count)
-		log.Printf("HK history sync completed in %v (basic info only)", time.Since(start))
-		return
-	}
-
-	// 设置历史数据范围（最近2年）
-	endDate := time.Now().Format("20060102")
-	startDate := time.Now().AddDate(-2, 0, 0).Format("20060102")
-
-	// 并发同步，限制并发数
-	semaphore := make(chan struct{}, 20)
-	var wg sync.WaitGroup
-	var successCount, failCount int64
-	var mu sync.Mutex
-
-	for i, stock := range stockList {
-		wg.Add(1)
-		go func(idx int, symbol, name string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			klines, err := fetchHKStockKline(symbol, startDate, endDate)
-			if err != nil || len(klines) == 0 {
-				mu.Lock()
-				failCount++
-				mu.Unlock()
-				return
-			}
-
-			// 转换并保存
-			var dbKlines []db.StockKline
-			for _, k := range klines {
-				dbKlines = append(dbKlines, db.StockKline{
-					Symbol:       symbol,
-					Date:         k.Date,
-					Open:         k.Open,
-					Close:        k.Close,
-					High:         k.High,
-					Low:          k.Low,
-					Volume:       k.Volume,
-					Turnover:     k.Turnover,
-					Amplitude:    k.Amplitude,
-					ChangePct:    k.ChangePct,
-					ChangeAmt:    k.ChangeAmt,
-					TurnoverRate: k.TurnoverRate,
-				})
-			}
-
-			if err := s.klineRepo.UpsertKlines(ctx, dbKlines); err != nil {
-				mu.Lock()
-				failCount++
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			successCount++
-			if successCount%100 == 0 {
-				log.Printf("HK history sync progress: %d/%d stocks completed", successCount, len(stockList))
-			}
-			mu.Unlock()
-		}(i, stock.Symbol, stock.Name)
-	}
-
-	wg.Wait()
-
-	log.Printf("HK history sync completed in %v: %d success, %d failed", time.Since(start), successCount, failCount)
 }
 
-// syncHKHistoryDataIncremental 增量同步港股历史数据（每天执行）
-func (s *Scheduler) syncHKHistoryDataIncremental() {
-	s.mu.Lock()
-	if s.syncingHK {
-		s.mu.Unlock()
-		return
-	}
-	s.syncingHK = true
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		s.syncingHK = false
-		s.mu.Unlock()
-	}()
-
-	log.Println("Starting incremental HK history sync...")
-	start := time.Now()
-
+// ManualSyncHistory 手动同步历史
+func (s *Scheduler) ManualSyncHistory(full bool) error {
 	ctx := context.Background()
 
-	// 获取所有港股列表
-	stockList, err := fetchAllHKStockList()
-	if err != nil {
-		log.Printf("Failed to fetch HK stock list: %v", err)
-		return
+	if full {
+		return s.klineService.SyncHKHistoryData(ctx)
 	}
-
-	// 只获取最近7天的数据
-	endDate := time.Now().Format("20060102")
-	startDate := time.Now().AddDate(0, 0, -7).Format("20060102")
-
-	semaphore := make(chan struct{}, 30)
-	var wg sync.WaitGroup
-	var updateCount int64
-	var mu sync.Mutex
-
-	for _, stock := range stockList {
-		wg.Add(1)
-		go func(symbol string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			klines, err := fetchHKStockKline(symbol, startDate, endDate)
-			if err != nil || len(klines) == 0 {
-				return
-			}
-
-			var dbKlines []db.StockKline
-			for _, k := range klines {
-				dbKlines = append(dbKlines, db.StockKline{
-					Symbol:       symbol,
-					Date:         k.Date,
-					Open:         k.Open,
-					Close:        k.Close,
-					High:         k.High,
-					Low:          k.Low,
-					Volume:       k.Volume,
-					Turnover:     k.Turnover,
-					Amplitude:    k.Amplitude,
-					ChangePct:    k.ChangePct,
-					ChangeAmt:    k.ChangeAmt,
-					TurnoverRate: k.TurnoverRate,
-				})
-			}
-
-			if err := s.klineRepo.UpsertKlines(ctx, dbKlines); err == nil {
-				mu.Lock()
-				updateCount++
-				mu.Unlock()
-			}
-		}(stock.Symbol)
-	}
-
-	wg.Wait()
-	log.Printf("Incremental HK history sync completed in %v: %d stocks updated", time.Since(start), updateCount)
-}
-
-// HKStockBasic 港股基本信息
-type HKStockBasic struct {
-	Symbol         string
-	Name           string
-	LatestPrice    float64
-	TotalMarketCap float64
-	CircMarketCap  float64
-	PERatio        float64
-	PBRatio        float64
-	TurnoverRate   float64
-	Industry       string
-}
-
-// KlineData K线数据
-type KlineData struct {
-	Date         string
-	Open         float64
-	Close        float64
-	High         float64
-	Low          float64
-	Volume       int64
-	Turnover     float64
-	Amplitude    float64
-	ChangePct    float64
-	ChangeAmt    float64
-	TurnoverRate float64
-}
-
-// fetchAllHKStockList 获取所有港股列表
-func fetchAllHKStockList() ([]HKStockBasic, error) {
-	var allStocks []HKStockBasic
-	seenSymbols := make(map[string]bool)
-
-	page := 1
-	for {
-		url := "https://push2.eastmoney.com/api/qt/clist/get"
-		req, _ := http.NewRequest("GET", url, nil)
-		q := req.URL.Query()
-		q.Add("pn", strconv.Itoa(page))
-		q.Add("pz", "100")
-		q.Add("po", "1")
-		q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-		q.Add("fltt", "2")
-		q.Add("invt", "2")
-		q.Add("fid", "f3")
-		q.Add("fs", "m:128")
-		q.Add("fields", "f2,f3,f8,f9,f12,f14,f20,f21,f23,f100")
-		req.URL.RawQuery = q.Encode()
-
-		client := &http.Client{Timeout: time.Second * 30}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		var response struct {
-			Data struct {
-				Total int                   `json:"total"`
-				Diff  map[string]HKStockRaw `json:"diff"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, err
-		}
-
-		if response.Data.Diff == nil || len(response.Data.Diff) == 0 {
-			break
-		}
-
-		diffLen := len(response.Data.Diff)
-		for _, raw := range response.Data.Diff {
-			if seenSymbols[raw.Symbol] {
-				continue
-			}
-			seenSymbols[raw.Symbol] = true
-
-			// 只保留正股（5位数，首位0）
-			if len(raw.Symbol) != 5 || raw.Symbol[0] != '0' {
-				continue
-			}
-
-			allStocks = append(allStocks, HKStockBasic{
-				Symbol:         raw.Symbol,
-				Name:           raw.Name,
-				LatestPrice:    toFloat(raw.LatestPrice),
-				TotalMarketCap: toFloat(raw.TotalMarketCap),
-				CircMarketCap:  toFloat(raw.CircMarketCap),
-				PERatio:        toFloat(raw.PERatio),
-				PBRatio:        toFloat(raw.PBRatio),
-				TurnoverRate:   toFloat(raw.TurnoverRate),
-				Industry:       raw.Industry,
-			})
-		}
-
-		if diffLen < 100 {
-			break
-		}
-		page++
-		if page > 200 {
-			break
-		}
-	}
-
-	return allStocks, nil
-}
-
-// fetchHKStockKline 获取港股K线数据
-func fetchHKStockKline(symbol, startDate, endDate string) ([]KlineData, error) {
-	secid := fmt.Sprintf("116.%s", symbol)
-
-	url := "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-	req, _ := http.NewRequest("GET", url, nil)
-
-	q := req.URL.Query()
-	q.Add("fields1", "f1,f2,f3,f4,f5,f6")
-	q.Add("fields2", "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61")
-	q.Add("ut", "7eea3edcaed734bea9cbfc24409ed989")
-	q.Add("klt", "101") // 日K
-	q.Add("fqt", "1")   // 前复权
-	q.Add("secid", secid)
-	q.Add("beg", startDate)
-	q.Add("end", endDate)
-	req.URL.RawQuery = q.Encode()
-
-	client := &http.Client{Timeout: time.Second * 10}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var response struct {
-		Data struct {
-			Klines []string `json:"klines"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
-	}
-
-	var results []KlineData
-	for _, item := range response.Data.Klines {
-		fields := strings.Split(item, ",")
-		if len(fields) < 11 {
-			continue
-		}
-
-		volume, _ := strconv.ParseInt(fields[5], 10, 64)
-		results = append(results, KlineData{
-			Date:         fields[0],
-			Open:         parseFloatSafe(fields[1]),
-			Close:        parseFloatSafe(fields[2]),
-			High:         parseFloatSafe(fields[3]),
-			Low:          parseFloatSafe(fields[4]),
-			Volume:       volume,
-			Turnover:     parseFloatSafe(fields[6]),
-			Amplitude:    parseFloatSafe(fields[7]),
-			ChangePct:    parseFloatSafe(fields[8]),
-			ChangeAmt:    parseFloatSafe(fields[9]),
-			TurnoverRate: parseFloatSafe(fields[10]),
-		})
-	}
-
-	return results, nil
-}
-
-func parseFloatSafe(s string) float64 {
-	f, _ := strconv.ParseFloat(s, 64)
-	return f
-}
-
-// syncAStockData 同步A股数据
-func (s *Scheduler) syncAStockData(ctx context.Context) error {
-	log.Println("Syncing A-share data...")
-
-	stocks, err := fetchAStockData(1, 5000)
-	if err != nil {
-		return err
-	}
-
-	var dbStocks []db.StockData
-	for _, stock := range stocks {
-		dbStocks = append(dbStocks, db.StockData{
-			Symbol:         stock.Symbol,
-			Name:           stock.Name,
-			Market:         stock.Market,
-			LatestPrice:    stock.LatestPrice,
-			Open:           stock.Open,
-			Close:          stock.Close,
-			High:           stock.High,
-			Low:            stock.Low,
-			ChangePct:      stock.ChangePct,
-			ChangeAmt:      stock.ChangeAmt,
-			Volume:         stock.Volume,
-			Turnover:       stock.Turnover,
-			TurnoverRate:   stock.TurnoverRate,
-			Amplitude:      stock.Amplitude,
-			TotalMarketCap: stock.TotalMarketCap,
-			CircMarketCap:  stock.CircMarketCap,
-			PERatio:        stock.PERatio,
-			PBRatio:        stock.PBRatio,
-			Industry:       stock.Industry,
-		})
-	}
-
-	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
-		return err
-	}
-
-	log.Printf("Synced %d A-share stocks", len(dbStocks))
-	return nil
-}
-
-// syncHKStockData 同步港股实时数据
-func (s *Scheduler) syncHKStockData(ctx context.Context) error {
-	log.Println("Syncing HK stock data...")
-
-	stocks, err := fetchHKStockData(1, 3000)
-	if err != nil {
-		return err
-	}
-
-	var dbStocks []db.StockData
-	for _, stock := range stocks {
-		dbStocks = append(dbStocks, db.StockData{
-			Symbol:         stock.Symbol,
-			Name:           stock.Name,
-			Market:         "hk",
-			LatestPrice:    stock.LatestPrice,
-			Open:           stock.Open,
-			Close:          stock.Close,
-			High:           stock.High,
-			Low:            stock.Low,
-			ChangePct:      stock.ChangePct,
-			ChangeAmt:      stock.ChangeAmt,
-			Volume:         stock.Volume,
-			Turnover:       stock.Turnover,
-			TurnoverRate:   stock.TurnoverRate,
-			Amplitude:      stock.Amplitude,
-			TotalMarketCap: stock.TotalMarketCap,
-			CircMarketCap:  stock.CircMarketCap,
-			PERatio:        stock.PERatio,
-			PBRatio:        stock.PBRatio,
-			Industry:       stock.Industry,
-		})
-	}
-
-	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
-		return err
-	}
-
-	log.Printf("Synced %d HK stocks", len(dbStocks))
-	return nil
-}
-
-// AStockRaw A股原始数据
-type AStockRaw struct {
-	Symbol         string      `json:"f12"`
-	Name           string      `json:"f14"`
-	MarketID       interface{} `json:"f13"`
-	LatestPrice    interface{} `json:"f2"`
-	ChangePct      interface{} `json:"f3"`
-	ChangeAmt      interface{} `json:"f4"`
-	Volume         interface{} `json:"f5"`
-	Turnover       interface{} `json:"f6"`
-	Amplitude      interface{} `json:"f7"`
-	TurnoverRate   interface{} `json:"f8"`
-	PERatio        interface{} `json:"f9"`
-	High           interface{} `json:"f15"`
-	Low            interface{} `json:"f16"`
-	Open           interface{} `json:"f17"`
-	Close          interface{} `json:"f18"`
-	TotalMarketCap interface{} `json:"f20"`
-	CircMarketCap  interface{} `json:"f21"`
-	PBRatio        interface{} `json:"f23"`
-	Industry       string      `json:"f100"`
-}
-
-// AStockData A股数据
-type AStockData struct {
-	Symbol         string
-	Name           string
-	Market         string
-	LatestPrice    float64
-	Open           float64
-	Close          float64
-	High           float64
-	Low            float64
-	ChangePct      float64
-	ChangeAmt      float64
-	Volume         int64
-	Turnover       float64
-	TurnoverRate   float64
-	Amplitude      float64
-	TotalMarketCap float64
-	CircMarketCap  float64
-	PERatio        float64
-	PBRatio        float64
-	Industry       string
-}
-
-// HKStockRaw 港股原始数据
-type HKStockRaw struct {
-	Symbol         string      `json:"f12"`
-	Name           string      `json:"f14"`
-	LatestPrice    interface{} `json:"f2"`
-	ChangePct      interface{} `json:"f3"`
-	ChangeAmt      interface{} `json:"f4"`
-	Volume         interface{} `json:"f5"`
-	Turnover       interface{} `json:"f6"`
-	Amplitude      interface{} `json:"f7"`
-	TurnoverRate   interface{} `json:"f8"`
-	PERatio        interface{} `json:"f9"`
-	High           interface{} `json:"f15"`
-	Low            interface{} `json:"f16"`
-	Open           interface{} `json:"f17"`
-	Close          interface{} `json:"f18"`
-	TotalMarketCap interface{} `json:"f20"`
-	CircMarketCap  interface{} `json:"f21"`
-	PBRatio        interface{} `json:"f23"`
-	Industry       string      `json:"f100"`
-}
-
-func toFloat(v interface{}) float64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case float64:
-		return val
-	case string:
-		if val == "-" || val == "" {
-			return 0
-		}
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	}
-	return 0
-}
-
-func toInt64(v interface{}) int64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case float64:
-		return int64(val)
-	case string:
-		if val == "-" || val == "" {
-			return 0
-		}
-		i, _ := strconv.ParseInt(val, 10, 64)
-		return i
-	}
-	return 0
-}
-
-// fetchAStockData 获取A股数据
-func fetchAStockData(page, pageSize int) ([]AStockData, error) {
-	url := "https://82.push2.eastmoney.com/api/qt/clist/get"
-
-	req, _ := http.NewRequest("GET", url, nil)
-	q := req.URL.Query()
-	q.Add("pn", fmt.Sprintf("%d", page))
-	q.Add("pz", fmt.Sprintf("%d", pageSize))
-	q.Add("po", "1")
-	q.Add("np", "1")
-	q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-	q.Add("fltt", "2")
-	q.Add("invt", "2")
-	q.Add("fid", "f3")
-	q.Add("fs", "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048")
-	q.Add("fields", "f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100")
-	req.URL.RawQuery = q.Encode()
-
-	client := &http.Client{Timeout: time.Second * 30}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var response struct {
-		Data struct {
-			Total int         `json:"total"`
-			Diff  []AStockRaw `json:"diff"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
-	}
-
-	var result []AStockData
-	for _, raw := range response.Data.Diff {
-		marketID := int(toFloat(raw.MarketID))
-		market := "sz"
-		if marketID == 1 {
-			market = "sh"
-		}
-
-		result = append(result, AStockData{
-			Symbol:         raw.Symbol,
-			Name:           raw.Name,
-			Market:         market,
-			LatestPrice:    toFloat(raw.LatestPrice),
-			Open:           toFloat(raw.Open),
-			Close:          toFloat(raw.Close),
-			High:           toFloat(raw.High),
-			Low:            toFloat(raw.Low),
-			ChangePct:      toFloat(raw.ChangePct),
-			ChangeAmt:      toFloat(raw.ChangeAmt),
-			Volume:         toInt64(raw.Volume),
-			Turnover:       toFloat(raw.Turnover),
-			TurnoverRate:   toFloat(raw.TurnoverRate),
-			Amplitude:      toFloat(raw.Amplitude),
-			TotalMarketCap: toFloat(raw.TotalMarketCap),
-			CircMarketCap:  toFloat(raw.CircMarketCap),
-			PERatio:        toFloat(raw.PERatio),
-			PBRatio:        toFloat(raw.PBRatio),
-			Industry:       raw.Industry,
-		})
-	}
-
-	return result, nil
-}
-
-// fetchHKStockData 获取港股实时数据
-func fetchHKStockData(page, pageSize int) ([]AStockData, error) {
-	url := "https://push2.eastmoney.com/api/qt/clist/get"
-
-	req, _ := http.NewRequest("GET", url, nil)
-	q := req.URL.Query()
-	q.Add("pn", fmt.Sprintf("%d", page))
-	q.Add("pz", fmt.Sprintf("%d", pageSize))
-	q.Add("po", "1")
-	q.Add("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-	q.Add("fltt", "2")
-	q.Add("invt", "2")
-	q.Add("fid", "f3")
-	q.Add("fs", "m:128")
-	q.Add("fields", "f2,f3,f4,f5,f6,f7,f8,f9,f12,f14,f15,f16,f17,f18,f20,f21,f23,f100")
-	req.URL.RawQuery = q.Encode()
-
-	client := &http.Client{Timeout: time.Second * 30}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var response struct {
-		Data struct {
-			Total int                   `json:"total"`
-			Diff  map[string]HKStockRaw `json:"diff"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
-	}
-
-	var result []AStockData
-	for _, raw := range response.Data.Diff {
-		result = append(result, AStockData{
-			Symbol:         raw.Symbol,
-			Name:           raw.Name,
-			Market:         "hk",
-			LatestPrice:    toFloat(raw.LatestPrice),
-			Open:           toFloat(raw.Open),
-			Close:          toFloat(raw.Close),
-			High:           toFloat(raw.High),
-			Low:            toFloat(raw.Low),
-			ChangePct:      toFloat(raw.ChangePct),
-			ChangeAmt:      toFloat(raw.ChangeAmt),
-			Volume:         toInt64(raw.Volume),
-			Turnover:       toFloat(raw.Turnover),
-			TurnoverRate:   toFloat(raw.TurnoverRate),
-			Amplitude:      toFloat(raw.Amplitude),
-			TotalMarketCap: toFloat(raw.TotalMarketCap),
-			CircMarketCap:  toFloat(raw.CircMarketCap),
-			PERatio:        toFloat(raw.PERatio),
-			PBRatio:        toFloat(raw.PBRatio),
-			Industry:       raw.Industry,
-		})
-	}
-
-	return result, nil
-}
-
-// ManualSync 手动触发同步
-func (s *Scheduler) ManualSync() {
-	go s.syncAllData()
-}
-
-// ManualSyncHistory 手动触发历史数据同步
-func (s *Scheduler) ManualSyncHistory() {
-	go s.syncHKHistoryData()
-}
-
-// ForceSyncHKData 强制重新同步所有港股数据（清除已有数据检查）
-func (s *Scheduler) ForceSyncHKData() {
-	s.mu.Lock()
-	if s.syncingHK {
-		s.mu.Unlock()
-		log.Println("HK sync already in progress, skipping...")
-		return
-	}
-	s.syncingHK = true
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		s.syncingHK = false
-		s.mu.Unlock()
-	}()
-
-	log.Println("Starting FORCE HK stock sync (this may take a while)...")
-	start := time.Now()
-
-	ctx := context.Background()
-
-	// 获取所有港股列表
-	stockList, err := fetchAllHKStockList()
-	if err != nil {
-		log.Printf("Failed to fetch HK stock list: %v", err)
-		return
-	}
-
-	log.Printf("Found %d HK stocks to sync", len(stockList))
-
-	// 更新 stocks 表的基本信息（市值等）
-	var dbStocks []db.StockData
-	for _, stock := range stockList {
-		dbStocks = append(dbStocks, db.StockData{
-			Symbol:         stock.Symbol,
-			Name:           stock.Name,
-			Market:         "hk",
-			LatestPrice:    stock.LatestPrice,
-			TotalMarketCap: stock.TotalMarketCap,
-			CircMarketCap:  stock.CircMarketCap,
-			PERatio:        stock.PERatio,
-			PBRatio:        stock.PBRatio,
-			TurnoverRate:   stock.TurnoverRate,
-			Industry:       stock.Industry,
-		})
-	}
-	if err := s.stockRepo.UpsertStocks(ctx, dbStocks); err != nil {
-		log.Printf("Failed to upsert HK stocks basic info: %v", err)
-	} else {
-		log.Printf("Updated %d HK stocks basic info", len(dbStocks))
-	}
-
-	// 设置历史数据范围（最近2年）
-	endDate := time.Now().Format("20060102")
-	startDate := time.Now().AddDate(-2, 0, 0).Format("20060102")
-
-	// 并发同步 K 线，限制并发数
-	semaphore := make(chan struct{}, 20)
-	var wg sync.WaitGroup
-	var successCount, failCount int64
-	var mu sync.Mutex
-
-	for i, stock := range stockList {
-		wg.Add(1)
-		go func(idx int, symbol, name string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			klines, err := fetchHKStockKline(symbol, startDate, endDate)
-			if err != nil || len(klines) == 0 {
-				mu.Lock()
-				failCount++
-				mu.Unlock()
-				return
-			}
-
-			var dbKlines []db.StockKline
-			for _, k := range klines {
-				dbKlines = append(dbKlines, db.StockKline{
-					Symbol:       symbol,
-					Date:         k.Date,
-					Open:         k.Open,
-					Close:        k.Close,
-					High:         k.High,
-					Low:          k.Low,
-					Volume:       k.Volume,
-					Turnover:     k.Turnover,
-					Amplitude:    k.Amplitude,
-					ChangePct:    k.ChangePct,
-					ChangeAmt:    k.ChangeAmt,
-					TurnoverRate: k.TurnoverRate,
-				})
-			}
-
-			if err := s.klineRepo.UpsertKlines(ctx, dbKlines); err != nil {
-				mu.Lock()
-				failCount++
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			successCount++
-			if successCount%100 == 0 {
-				log.Printf("HK sync progress: %d/%d stocks completed", successCount, len(stockList))
-			}
-			mu.Unlock()
-		}(i, stock.Symbol, stock.Name)
-	}
-
-	wg.Wait()
-	log.Printf("Force HK sync completed in %v: %d success, %d failed", time.Since(start), successCount, failCount)
+	return s.klineService.SyncHKHistoryDataIncremental(ctx)
 }

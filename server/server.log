@@ -1,0 +1,3 @@
+2025/12/28 03:11:46 服务器启动，端口: 8080
+2025/12/28 03:11:56 数据库连接失败: server selection error: context deadline exceeded, current topology: { Type: Unknown, Servers: [{ Addr: localhost:27017, Type: Unknown, Last error: dial tcp [::1]:27017: connect: connection refused }, ] }
+exit status 1

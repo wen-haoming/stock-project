@@ -43,7 +43,7 @@ function StockDetailDrawer({ visible, stock, onClose, market = 'hk', dateRange }
         </div>
       ) : '股票详情'}
       placement="right"
-      width="100%"
+      width="60vw"
       onClose={onClose}
       open={visible}
       styles={{ body: { padding: 0, overflow: 'auto', background: '#f5f5f5' } }}

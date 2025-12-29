@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Card, DatePicker, Button, Table, Tag, message, InputNumber, Select, Grid, Space } from 'antd'
+import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Space, Spin } from 'antd'
 import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
+import { ListTable } from '@visactor/react-vtable'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -22,9 +23,8 @@ const marketDefaultPresets = {
   a: { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
 }
 
-// 获取日期预设（包含通用预设 + 市场特定牛市阶段预设）
+// 获取日期预设
 const getDatePresets = (market) => {
-  // 通用预设
   const commonPresets = [
     { label: '近1周', value: [dayjs().subtract(7, 'day'), dayjs().subtract(1, 'day')] },
     { label: '近2周', value: [dayjs().subtract(14, 'day'), dayjs().subtract(1, 'day')] },
@@ -34,7 +34,6 @@ const getDatePresets = (market) => {
     { label: '近2年', value: [dayjs().subtract(2, 'year'), dayjs().subtract(1, 'day')] },
   ]
 
-  // 市场特定的牛市阶段预设
   const marketPresets = market === 'a' 
     ? [
         { label: '24.09-至今 政策牛', value: [dayjs('2024-09-24'), dayjs().subtract(1, 'day')] },
@@ -51,18 +50,10 @@ const getDatePresets = (market) => {
   return [...marketPresets, ...commonPresets]
 }
 
-/**
- * RangeStatsPanel - 区间涨幅查询面板
- * 包含：查询条件 + 行业分布 + 区间涨幅排行
- * 
- * @param {Object} props
- * @param {Array} props.dateRange - 日期范围 [dayjs, dayjs]
- * @param {Function} props.onDateRangeChange - 日期变化回调
- * @param {string} props.market - 市场 'hk' | 'a'
- * @param {Function} props.onMarketChange - 市场变化回调
- * @param {boolean} props.showDatePicker - 是否显示日期选择器（默认true）
- * @param {boolean} props.showMarketSelect - 是否显示市场选择（默认true）
- */
+// 颜色配置
+const upColor = '#ec5a5a'
+const downColor = '#47b262'
+
 export default function RangeStatsPanel({
   dateRange: externalDateRange,
   onDateRangeChange,
@@ -70,40 +61,54 @@ export default function RangeStatsPanel({
   onMarketChange,
   showDatePicker = true,
   showMarketSelect = true,
+  queryParams,
+  searchTrigger,
 }) {
   const screens = useBreakpoint()
   const isMobile = !screens.md
   const tableCardRef = useRef(null)
+  const vtableRef = useRef(null)
 
-  // 内部状态（如果外部没传则使用内部状态）
   const [internalDateRange, setInternalDateRange] = useState([dayjs('2024-01-02'), dayjs().subtract(1, 'day')])
   const [internalMarket, setInternalMarket] = useState('hk')
   
-  // 实际使用的值
   const dateRange = externalDateRange || internalDateRange
   const market = externalMarket ?? internalMarket
 
-  // 当前市场的日期预设（包含牛市阶段 + 通用预设）
   const datePresets = useMemo(() => getDatePresets(market), [market])
 
-  // 查询条件状态
-  const [minChangePct, setMinChangePct] = useState(60)
-  const [marketCapMode, setMarketCapMode] = useState('range')
-  const [marketCapValue, setMarketCapValue] = useState(null)
-  const [minMarketCap, setMinMarketCap] = useState(20)
-  const [maxMarketCap, setMaxMarketCap] = useState(1000)
+  const [minChangePct, setMinChangePct] = useState(queryParams?.minChangePct ?? 60)
+  const [marketCapMode, setMarketCapMode] = useState(queryParams?.marketCapMode ?? 'range')
+  const [marketCapValue, setMarketCapValue] = useState(queryParams?.marketCapValue ?? null)
+  const [minMarketCap, setMinMarketCap] = useState(queryParams?.minMarketCap ?? 20)
+  const [maxMarketCap, setMaxMarketCap] = useState(queryParams?.maxMarketCap ?? 1000)
   const [selectedIndustry, setSelectedIndustry] = useState('')
 
-  // 数据状态
+  useEffect(() => {
+    if (queryParams) {
+      if (queryParams.minChangePct !== undefined) setMinChangePct(queryParams.minChangePct)
+      if (queryParams.marketCapMode !== undefined) setMarketCapMode(queryParams.marketCapMode)
+      if (queryParams.marketCapValue !== undefined) setMarketCapValue(queryParams.marketCapValue)
+      if (queryParams.minMarketCap !== undefined) setMinMarketCap(queryParams.minMarketCap)
+      if (queryParams.maxMarketCap !== undefined) setMaxMarketCap(queryParams.maxMarketCap)
+    }
+  }, [queryParams])
+
+  useEffect(() => {
+    if (searchTrigger > 0 && queryParams) {
+      setSelectedIndustry('')
+      fetchStockData('', null, queryParams)
+    }
+  }, [searchTrigger]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const [tableLoading, setTableLoading] = useState(false)
   const [allStockData, setAllStockData] = useState([])
   const [industryStats, setIndustryStats] = useState([])
+  const [sortState, setSortState] = useState({ field: 'changePct', order: 'desc' })
 
-  // 抽屉状态
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [selectedStock, setSelectedStock] = useState(null)
 
-  // 日期变化处理
   const handleDateRangeChange = (dates) => {
     if (dates?.[0] && dates?.[1]) {
       if (onDateRangeChange) {
@@ -114,14 +119,12 @@ export default function RangeStatsPanel({
     }
   }
 
-  // 市场变化处理
   const handleMarketChange = (newMarket) => {
     if (onMarketChange) {
       onMarketChange(newMarket)
     } else {
       setInternalMarket(newMarket)
     }
-    // 切换市场时使用该市场的默认预设
     const defaultPreset = marketDefaultPresets[newMarket]
     if (defaultPreset && onDateRangeChange) {
       onDateRangeChange(defaultPreset.value)
@@ -133,25 +136,31 @@ export default function RangeStatsPanel({
     setSelectedIndustry('')
   }
 
-  // 获取区间涨幅股票数据
-  const fetchStockData = useCallback(async (industry = '') => {
-    if (!dateRange[0] || !dateRange[1]) return
+  const fetchStockData = useCallback(async (industry = '', customDateRange = null, customQueryParams = null) => {
+    const useDateRange = customDateRange || dateRange
+    if (!useDateRange[0] || !useDateRange[1]) return
+    
+    const useMinChangePct = customQueryParams?.minChangePct ?? minChangePct
+    const useMarketCapMode = customQueryParams?.marketCapMode ?? marketCapMode
+    const useMarketCapValue = customQueryParams?.marketCapValue ?? marketCapValue
+    const useMinMarketCap = customQueryParams?.minMarketCap ?? minMarketCap
+    const useMaxMarketCap = customQueryParams?.maxMarketCap ?? maxMarketCap
     
     setTableLoading(true)
     try {
       let actualMinCap = 0, actualMaxCap = 0
       
-      if (marketCapMode === 'less' && marketCapValue) actualMaxCap = marketCapValue
-      else if (marketCapMode === 'greater' && marketCapValue) actualMinCap = marketCapValue
-      else if (marketCapMode === 'range') {
-        actualMinCap = minMarketCap || 0
-        actualMaxCap = maxMarketCap || 0
+      if (useMarketCapMode === 'less' && useMarketCapValue) actualMaxCap = useMarketCapValue
+      else if (useMarketCapMode === 'greater' && useMarketCapValue) actualMinCap = useMarketCapValue
+      else if (useMarketCapMode === 'range') {
+        actualMinCap = useMinMarketCap || 0
+        actualMaxCap = useMaxMarketCap || 0
       }
       
       const params = {
-        start_date: dateRange[0].format('YYYYMMDD'),
-        end_date: dateRange[1].format('YYYYMMDD'),
-        min_change_pct: minChangePct,
+        start_date: useDateRange[0].format('YYYYMMDD'),
+        end_date: useDateRange[1].format('YYYYMMDD'),
+        min_change_pct: useMinChangePct,
         min_market_cap: actualMinCap,
         max_market_cap: actualMaxCap,
         market: market,
@@ -173,13 +182,11 @@ export default function RangeStatsPanel({
     }
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, market])
 
-  // 打开股票详情
   const openStockDetail = useCallback((stock) => {
     setSelectedStock(stock)
     setDrawerVisible(true)
   }, [])
 
-  // 关闭抽屉
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false)
   }, [])
@@ -189,24 +196,32 @@ export default function RangeStatsPanel({
     fetchStockData('')
   }
 
-  // 组件挂载时自动查询
+  const isFirstMount = useRef(true)
+  const prevMarketRef = useRef(market)
+  const prevDateRangeRef = useRef(dateRange)
+
   useEffect(() => {
     fetchStockData('')
+    isFirstMount.current = false
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleTableChange = (pag, filters, sorter) => {
-    if (sorter.field && sorter.order) {
-      const sorted = [...allStockData].sort((a, b) => {
-        const aVal = a[sorter.field] || 0
-        const bVal = b[sorter.field] || 0
-        if (typeof aVal === 'string') {
-          return sorter.order === 'ascend' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-        }
-        return sorter.order === 'ascend' ? aVal - bVal : bVal - aVal
-      })
-      setAllStockData(sorted)
+  useEffect(() => {
+    if (isFirstMount.current) return
+    
+    const marketChanged = prevMarketRef.current !== market
+    const dateChanged = prevDateRangeRef.current[0]?.format('YYYY-MM-DD') !== dateRange[0]?.format('YYYY-MM-DD') ||
+                        prevDateRangeRef.current[1]?.format('YYYY-MM-DD') !== dateRange[1]?.format('YYYY-MM-DD')
+    
+    prevMarketRef.current = market
+    prevDateRangeRef.current = dateRange
+    
+    if (marketChanged || dateChanged) {
+      setTimeout(() => {
+        setSelectedIndustry('')
+        fetchStockData('')
+      }, 0)
     }
-  }
+  }, [market, dateRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleIndustryClick = (industry) => {
     if (selectedIndustry === industry) {
@@ -239,7 +254,6 @@ export default function RangeStatsPanel({
     }
   }
 
-  // 生成查询条件标题
   const getQueryTitle = useCallback(() => {
     const parts = [`区间涨幅排行 ${dateRange[0]?.format('YYYY-MM-DD')} ~ ${dateRange[1]?.format('YYYY-MM-DD')}`]
     parts.push(`涨幅≥${minChangePct}%`)
@@ -254,7 +268,6 @@ export default function RangeStatsPanel({
     return parts.join(' | ')
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry])
 
-  // 导出 Excel
   const handleExportExcel = useCallback(() => {
     if (!allStockData.length) {
       message.warning('没有数据可导出')
@@ -290,7 +303,6 @@ export default function RangeStatsPanel({
     message.success('导出成功')
   }, [allStockData, dateRange, getQueryTitle])
 
-  // 复制到剪贴板
   const handleCopy = useCallback(async () => {
     if (!allStockData.length) {
       message.warning('没有数据可复制')
@@ -323,7 +335,6 @@ export default function RangeStatsPanel({
     }
   }, [allStockData, getQueryTitle])
 
-  // 截图功能
   const handleScreenshot = useCallback(async () => {
     if (!tableCardRef.current || !allStockData.length) {
       message.warning('没有数据可截图')
@@ -354,136 +365,331 @@ export default function RangeStatsPanel({
     }
   }, [allStockData, dateRange])
 
-  // 表格列定义
+  // 排序后的数据
+  const sortedStockData = useMemo(() => {
+    if (!allStockData.length) return allStockData
+    
+    const { field, order } = sortState
+    
+    return [...allStockData].sort((a, b) => {
+      let aVal, bVal
+      
+      switch (field) {
+        case 'symbol':
+          aVal = a.symbol || ''
+          bVal = b.symbol || ''
+          break
+        case 'name':
+          aVal = a.name || ''
+          bVal = b.name || ''
+          break
+        case 'startPrice':
+          aVal = a.startPrice ?? -Infinity
+          bVal = b.startPrice ?? -Infinity
+          break
+        case 'endPrice':
+          aVal = a.endPrice ?? -Infinity
+          bVal = b.endPrice ?? -Infinity
+          break
+        case 'changePct':
+          aVal = a.changePct ?? -Infinity
+          bVal = b.changePct ?? -Infinity
+          break
+        case 'latestPrice':
+          aVal = a.latestPrice ?? -Infinity
+          bVal = b.latestPrice ?? -Infinity
+          break
+        case 'marketCap':
+          aVal = a.totalMarketCap ?? -Infinity
+          bVal = b.totalMarketCap ?? -Infinity
+          break
+        case 'peRatio':
+          aVal = a.peRatio ?? -Infinity
+          bVal = b.peRatio ?? -Infinity
+          break
+        case 'pbRatio':
+          aVal = a.pbRatio ?? -Infinity
+          bVal = b.pbRatio ?? -Infinity
+          break
+        case 'turnoverRate':
+          aVal = a.turnoverRate ?? -Infinity
+          bVal = b.turnoverRate ?? -Infinity
+          break
+        default:
+          return 0
+      }
+      
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal, 'zh-CN')
+        return order === 'desc' ? -cmp : cmp
+      }
+      
+      return order === 'desc' ? bVal - aVal : aVal - bVal
+    })
+  }, [allStockData, sortState])
+
+  // 保存数据引用
+  const stockDataRef = useRef([])
+  useEffect(() => {
+    stockDataRef.current = sortedStockData
+  }, [sortedStockData])
+
+  // VTable 列配置
   const columns = useMemo(() => [
-    {
-      title: '#',
-      dataIndex: 'rank',
-      width: isMobile ? 36 : 60,
-      fixed: 'left',
-      render: (_, __, index) => {
-        const rank = index + 1
-        const color = rank <= 3 ? 'red' : rank <= 10 ? 'orange' : 'default'
-        return <Tag color={color} style={{ margin: 0, fontSize: isMobile ? 10 : 12 }}>{rank}</Tag>
+    { 
+      field: 'rank', 
+      title: '#', 
+      width: 45,
+      sort: false,
+    },
+    { field: 'symbol', title: '代码', width: 70, sort: true },
+    { 
+      field: 'name', 
+      title: '名称', 
+      width: 90, 
+      sort: true,
+      style: { color: '#1677ff', cursor: 'pointer' }
+    },
+    { 
+      field: 'startPrice', 
+      title: '起始价', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.startPrice?.toFixed(3) || '-',
+    },
+    { 
+      field: 'endPrice', 
+      title: '结束价', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.endPrice?.toFixed(3) || '-',
+    },
+    { 
+      field: 'changePct', 
+      title: '涨幅', 
+      width: 75, 
+      sort: true,
+      fieldFormat: (record) => record.changePct != null ? `${record.changePct.toFixed(2)}%` : '-',
+    },
+    { 
+      field: 'latestPrice', 
+      title: '现价', 
+      width: 65, 
+      sort: true,
+      fieldFormat: (record) => record.latestPrice?.toFixed(2) || '-',
+    },
+    { 
+      field: 'marketCap', 
+      title: '市值', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.totalMarketCap ? `${(record.totalMarketCap / 100000000).toFixed(0)}亿` : '-',
+    },
+    { 
+      field: 'peRatio', 
+      title: '市盈率', 
+      width: 65, 
+      sort: true,
+      fieldFormat: (record) => record.peRatio?.toFixed(2) || '-',
+    },
+    { 
+      field: 'pbRatio', 
+      title: '市净率', 
+      width: 60, 
+      sort: true,
+      fieldFormat: (record) => record.pbRatio?.toFixed(2) || '-',
+    },
+    { 
+      field: 'turnoverRate', 
+      title: '换手率', 
+      width: 70, 
+      sort: true,
+      fieldFormat: (record) => record.turnoverRate ? `${record.turnoverRate.toFixed(2)}%` : '-',
+    },
+  ], [])
+
+  // 表格数据（添加排名）
+  const tableRecords = useMemo(() => {
+    return sortedStockData.map((item, index) => ({
+      ...item,
+      rank: index + 1,
+    }))
+  }, [sortedStockData])
+
+  // VTable 配置 - 金融风格主题
+  const vtableOption = useMemo(() => ({
+    columns,
+    records: tableRecords,
+    defaultRowHeight: 32,
+    defaultHeaderRowHeight: 32,
+    widthMode: 'adaptive',
+    autoWrapText: false,
+    sortState: {
+      field: sortState.field,
+      order: sortState.order,
+    },
+    hover: {
+      highlightMode: 'row',
+    },
+    theme: {
+      defaultStyle: {
+        fontSize: 13,
+        fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace, -apple-system, BlinkMacSystemFont',
+        color: '#333',
+        borderColor: '#e8e8e8',
+        borderLineWidth: 1,
+      },
+      headerStyle: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: '#666',
+        bgColor: '#f7f7f7',
+        borderColor: '#e0e0e0',
+        padding: [6, 8, 6, 8],
+      },
+      bodyStyle: {
+        padding: [4, 8, 4, 8],
+        bgColor: '#fff',
+        hover: {
+          cellBgColor: '#f0f7ff',
+          inlineColumnBgColor: '#f0f7ff',
+          inlineRowBgColor: '#f0f7ff',
+        },
+      },
+      frameStyle: {
+        borderColor: '#d9d9d9',
+        borderLineWidth: 1,
+        cornerRadius: 4,
       },
     },
-    { title: '代码', dataIndex: 'symbol', width: 70, responsive: ['md'], sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
-    {
-      title: '名称',
-      dataIndex: 'name',
-      width: isMobile ? 60 : 100,
-      fixed: 'left',
-      ellipsis: true,
-      sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (text, record) => (
-        <a onClick={() => openStockDetail(record)} style={{ color: '#1677ff', fontSize: isMobile ? 12 : 14 }}>{text}</a>
-      ),
-    },
-    { title: '起始价', dataIndex: 'startPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.startPrice || 0) - (b.startPrice || 0), render: (v) => v?.toFixed(3) },
-    { title: '结束价', dataIndex: 'endPrice', width: 80, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.endPrice || 0) - (b.endPrice || 0), render: (v) => v?.toFixed(3) },
-    {
-      title: '涨幅',
-      dataIndex: 'changePct',
-      width: isMobile ? 60 : 90,
-      align: 'right',
-      sorter: (a, b) => (a.changePct || 0) - (b.changePct || 0),
-      defaultSortOrder: 'descend',
-      render: (v) => <span style={{ color: v >= 0 ? '#ec5a5a' : '#47b262', fontWeight: 'bold', fontSize: isMobile ? 12 : 14 }}>{v >= 0 ? '+' : ''}{v?.toFixed(1)}%</span>,
-    },
-    { title: '现价', dataIndex: 'latestPrice', width: isMobile ? 50 : 70, align: 'right', sorter: (a, b) => (a.latestPrice || 0) - (b.latestPrice || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v?.toFixed(2)}</span> },
-    { title: '市值', dataIndex: 'totalMarketCap', width: isMobile ? 50 : 80, align: 'right', sorter: (a, b) => (a.totalMarketCap || 0) - (b.totalMarketCap || 0), render: (v) => <span style={{ fontSize: isMobile ? 11 : 14 }}>{v ? (v / 100000000).toFixed(0) : '-'}</span> },
-    { title: '市盈率', dataIndex: 'peRatio', width: 70, align: 'right', responsive: ['lg'], sorter: (a, b) => (a.peRatio || 0) - (b.peRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '市净率', dataIndex: 'pbRatio', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.pbRatio || 0) - (b.pbRatio || 0), render: (v) => v ? v.toFixed(2) : '-' },
-    { title: '换手率', dataIndex: 'turnoverRate', width: 70, align: 'right', responsive: ['xl'], sorter: (a, b) => (a.turnoverRate || 0) - (b.turnoverRate || 0), render: (v) => v ? v.toFixed(2) + '%' : '-' },
-  ], [isMobile, openStockDetail])
+  }), [columns, tableRecords, sortState])
+
+  // 处理表格点击
+  const handleTableClick = useCallback((args) => {
+    const { col, row, field } = args
+    if (row === 0) return
+    
+    const record = vtableRef.current?.getRecordByRowCol(col, row)
+    if (!record) return
+    
+    if (field === 'name') {
+      const originalData = stockDataRef.current.find(item => item.symbol === record.symbol)
+      if (originalData) {
+        openStockDetail(originalData)
+      }
+    }
+  }, [openStockDetail])
+
+  // 处理排序
+  const handleSortClick = useCallback((args) => {
+    const { field, order } = args
+    if (field && field !== 'rank') {
+      setSortState({ field, order: order || 'desc' })
+    }
+  }, [])
+
+  const handleVTableReady = useCallback((instance) => {
+    vtableRef.current = instance
+    instance.on('click_cell', handleTableClick)
+    instance.on('sort_click', handleSortClick)
+  }, [handleTableClick, handleSortClick])
+
+  // 更新表格数据
+  useEffect(() => {
+    if (vtableRef.current && tableRecords.length > 0) {
+      vtableRef.current.setRecords(tableRecords)
+    }
+  }, [tableRecords])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 4 : 12 }}>
-      {/* 查询条件区 - 一排布局 */}
-      <Card size="small" styles={{ body: { padding: isMobile ? 8 : '8px 12px' } }}>
-        {isMobile ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {showDatePicker && (
-              <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="small" style={{ width: '100%' }} presets={datePresets} />
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅≥</span>
-                <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="small" style={{ flex: 1, minWidth: 60 }} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>市值</span>
-                <Select value={marketCapMode} onChange={handleMarketCapModeChange} size="small" style={{ flex: 1, minWidth: 60 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {marketCapMode === 'range' && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 4 : 6 }}>
+      {/* 查询条件区 */}
+      {!queryParams && (
+        <Card size="small" styles={{ body: { padding: isMobile ? 6 : '4px 10px' } }}>
+          {isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {showDatePicker && (
+                <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="small" style={{ width: '100%' }} presets={datePresets} />
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最小" suffix="亿" />
-                  <span style={{ fontSize: 12, color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最大" suffix="亿" />
+                  <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>涨幅≥</span>
+                  <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="small" style={{ flex: 1, minWidth: 60 }} />
                 </div>
-              )}
-              {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} size="small" style={{ flex: 1 }} placeholder={marketCapMode === 'less' ? '小于' : '大于'} suffix="亿" />
-              )}
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading} size="small" style={{ flexShrink: 0 }}>查询</Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                  <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>市值</span>
+                  <Select value={marketCapMode} onChange={handleMarketCapModeChange} size="small" style={{ flex: 1, minWidth: 60 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {marketCapMode === 'range' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                    <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最小" suffix="亿" />
+                    <span style={{ fontSize: 12, color: '#999' }}>~</span>
+                    <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} size="small" style={{ flex: 1 }} placeholder="最大" suffix="亿" />
+                  </div>
+                )}
+                {(marketCapMode === 'less' || marketCapMode === 'greater') && (
+                  <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} size="small" style={{ flex: 1 }} placeholder={marketCapMode === 'less' ? '小于' : '大于'} suffix="亿" />
+                )}
+                <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading} size="small" style={{ flexShrink: 0 }}>查询</Button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {showMarketSelect && (
-              <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
-            )}
-            {showDatePicker && (
-              <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="middle" style={{ width: 260 }} presets={datePresets} />
-            )}
-            {!showDatePicker && dateRange[0] && dateRange[1] && (
-              <span style={{ fontSize: 13, color: '#666', padding: '0 8px', background: '#f5f5f5', borderRadius: 4, lineHeight: '30px' }}>
-                {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')}
-              </span>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>涨幅≥</span>
-              <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="middle" style={{ width: 80 }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>市值</span>
-              <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
-              {marketCapMode === 'range' && (
-                <>
-                  <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 120 }} addonAfter="亿" />
-                  <span style={{ color: '#999' }}>~</span>
-                  <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 120 }} addonAfter="亿" />
-                </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {showMarketSelect && (
+                <Select value={market} onChange={handleMarketChange} style={{ width: 80 }} options={marketOptions} />
               )}
-              {(marketCapMode === 'less' || marketCapMode === 'greater') && (
-                <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 110 }} addonAfter="亿" />
+              {showDatePicker && (
+                <RangePicker value={dateRange} onChange={handleDateRangeChange} allowClear={false} size="middle" style={{ width: 260 }} presets={datePresets} />
               )}
+              {!showDatePicker && dateRange[0] && dateRange[1] && (
+                <span style={{ fontSize: 13, color: '#666', padding: '0 8px', background: '#f5f5f5', borderRadius: 4, lineHeight: '30px' }}>
+                  {dateRange[0].format('YYYY-MM-DD')} ~ {dateRange[1].format('YYYY-MM-DD')}
+                </span>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#666' }}>涨幅≥</span>
+                <InputNumber value={minChangePct} onChange={setMinChangePct} min={0} max={1000} suffix="%" size="middle" style={{ width: 80 }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#666' }}>市值</span>
+                <Select value={marketCapMode} onChange={handleMarketCapModeChange} style={{ width: 72 }} options={[{ label: '区间', value: 'range' }, { label: '大于', value: 'greater' }, { label: '小于', value: 'less' }, { label: '不限', value: 'none' }]} />
+                {marketCapMode === 'range' && (
+                  <>
+                    <InputNumber value={minMarketCap} onChange={setMinMarketCap} min={0} placeholder="最小" style={{ width: 100 }} suffix="亿" />
+                    <span style={{ color: '#999' }}>~</span>
+                    <InputNumber value={maxMarketCap} onChange={setMaxMarketCap} min={0} placeholder="最大" style={{ width: 100 }} suffix="亿" />
+                  </>
+                )}
+                {(marketCapMode === 'less' || marketCapMode === 'greater') && (
+                  <InputNumber value={marketCapValue} onChange={setMarketCapValue} min={0} style={{ width: 100 }} suffix="亿" />
+                )}
+              </div>
+              <div style={{ flex: 1 }} />
+              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading}>查询</Button>
             </div>
-            <div style={{ flex: 1 }} />
-            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={tableLoading}>查询</Button>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+      )}
 
       {/* 行业统计 */}
       {industryStats.length > 0 && (
         <Card 
           title={
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: isMobile ? 12 : 14 }}>行业分布</span>
+              <span style={{ fontSize: isMobile ? 12 : 13 }}>行业分布</span>
               {selectedIndustry && (
                 <Tag color="red" closable onClose={() => handleIndustryClick(selectedIndustry)} style={{ fontSize: 11, margin: 0 }}>{selectedIndustry}</Tag>
               )}
             </div>
           } 
           size="small"
-          styles={{ body: { padding: isMobile ? 6 : 12 } }}
+          styles={{ body: { padding: isMobile ? 4 : '4px 8px' } }}
         >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 3 : 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 3 : 6 }}>
             {industryStats.map((item) => (
-              <Tag key={item.name} color={selectedIndustry === item.name ? 'red' : 'blue'} style={{ margin: 0, cursor: 'pointer', fontSize: isMobile ? 10 : 12, padding: isMobile ? '0 4px' : undefined }} onClick={() => handleIndustryClick(item.name)}>
+              <Tag key={item.name} color={selectedIndustry === item.name ? 'red' : 'blue'} style={{ margin: 0, cursor: 'pointer', fontSize: isMobile ? 10 : 11, padding: isMobile ? '0 4px' : '0 6px' }} onClick={() => handleIndustryClick(item.name)}>
                 {item.name}: {item.count}
               </Tag>
             ))}
@@ -495,12 +701,12 @@ export default function RangeStatsPanel({
       <Card
         ref={tableCardRef}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: isMobile ? 12 : 14 }}>
+              <span style={{ fontSize: isMobile ? 12 : 13 }}>
                 {isMobile ? `涨幅榜 ${dateRange[0]?.format('MM-DD')}~${dateRange[1]?.format('MM-DD')}` : getQueryTitle()}
               </span>
-              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>共{allStockData.length}只</Tag>}
+              {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>共{allStockData.length}只</Tag>}
             </div>
             {!isMobile && allStockData.length > 0 && (
               <Space size="small">
@@ -513,19 +719,23 @@ export default function RangeStatsPanel({
         }
         size="small"
         style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-        styles={{ body: { flex: 1, overflow: 'auto', padding: 0 } }}
+        styles={{ body: { flex: 1, overflow: 'hidden', padding: 0 } }}
       >
-        <Table
-          columns={columns}
-          dataSource={allStockData}
-          rowKey="symbol"
-          loading={tableLoading}
-          pagination={false}
-          onChange={handleTableChange}
-          size="small"
-          scroll={{ x: isMobile ? 280 : 800, y: 'calc(100vh - 450px)' }}
-          sticky
-        />
+        <Spin spinning={tableLoading} style={{ minHeight: 200 }}>
+          {allStockData.length > 0 ? (
+            <ListTable
+              option={vtableOption}
+              onReady={handleVTableReady}
+              height={queryParams ? window.innerHeight - 360 : window.innerHeight - 420}
+            />
+          ) : !tableLoading ? (
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+              暂无数据
+            </div>
+          ) : (
+            <div style={{ height: 200 }} />
+          )}
+        </Spin>
       </Card>
 
       {/* 股票详情抽屉 */}
