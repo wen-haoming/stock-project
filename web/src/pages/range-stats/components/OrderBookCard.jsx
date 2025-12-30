@@ -1,6 +1,11 @@
 import { memo, useState, useEffect, useCallback } from 'react'
+<<<<<<< HEAD
 import { Card, Spin } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
+=======
+import { Card, Spin, Tooltip } from 'antd'
+import { ReloadOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 import { useTheme } from '../../../contexts/ThemeContext'
 import axios from 'axios'
 
@@ -27,25 +32,39 @@ function OrderBookCard({ stock, market = 'hk' }) {
     try {
       let secid
       if (market === 'a') {
+<<<<<<< HEAD
         // A股：上证 1.xxx，深证 0.xxx
         secid = stock.symbol.startsWith('6') ? `1.${stock.symbol}` : `0.${stock.symbol}`
       } else {
         // 港股：116.xxxxx
+=======
+        secid = stock.symbol.startsWith('6') ? `1.${stock.symbol}` : `0.${stock.symbol}`
+      } else {
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         secid = `116.${stock.symbol}`
       }
       
       // 东方财富五档盘口数据
+<<<<<<< HEAD
       // f11-f20: 卖1-5价格和数量, f31-f40: 买1-5价格和数量
       // f43: 最新价, f60: 昨收, f185: 外盘, f186: 内盘
+=======
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f11,f12,f13,f14,f15,f16,f17,f18,f19,f20,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,f43,f60,f185,f186`
       const response = await axios.get(url)
       const data = response.data?.data
       
+<<<<<<< HEAD
+=======
+      console.log('盘口原始数据:', data) // 调试用
+      
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       if (!data) {
         setOrderData(null)
         return
       }
       
+<<<<<<< HEAD
       // 价格处理：东方财富返回的价格可能是整数（需要除以换算因子）
       // A股通常需要除以100，港股检测数据判断
       let priceDiv = 1
@@ -61,20 +80,45 @@ function OrderBookCard({ stock, market = 'hk' }) {
       // 解析价格
       const parsePrice = (val) => {
         if (val === '-' || val == null || val === '') return 0
+=======
+      // A股价格需要除以100，港股返回的是原始价格（已经是正确的小数）
+      // 检测数据格式：如果f31(买1价)大于1000，说明需要除以换算
+      const samplePrice = data.f31
+      let priceDiv = 1
+      if (market === 'a') {
+        priceDiv = 100
+      } else if (samplePrice > 1000) {
+        priceDiv = 1000
+      }
+      
+      // 检查数据是否有效
+      const parsePrice = (val) => {
+        if (val === '-' || val == null || val === '' || (typeof val === 'string' && val.includes('-'))) return 0
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         const num = typeof val === 'string' ? parseFloat(val) : val
         if (isNaN(num) || num <= 0) return 0
         return num / priceDiv
       }
       
+<<<<<<< HEAD
       // 解析成交量
+=======
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       const parseVol = (val) => {
         if (val === '-' || val == null || val === '') return 0
         const num = typeof val === 'string' ? parseFloat(val) : val
         if (isNaN(num)) return 0
+<<<<<<< HEAD
         return Math.abs(num)
       }
       
       // 解析五档数据（卖盘从高到低：卖5-卖1）
+=======
+        return Math.abs(num)  // 取绝对值
+      }
+      
+      // 解析五档数据
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       const asks = [
         { price: parsePrice(data.f19), volume: parseVol(data.f20) },  // 卖5
         { price: parsePrice(data.f17), volume: parseVol(data.f18) },  // 卖4
@@ -83,7 +127,10 @@ function OrderBookCard({ stock, market = 'hk' }) {
         { price: parsePrice(data.f11), volume: parseVol(data.f12) },  // 卖1
       ]
       
+<<<<<<< HEAD
       // 买盘从高到低：买1-买5
+=======
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       const bids = [
         { price: parsePrice(data.f31), volume: parseVol(data.f32) },  // 买1
         { price: parsePrice(data.f33), volume: parseVol(data.f34) },  // 买2
@@ -185,7 +232,11 @@ function OrderBookCard({ stock, market = 'hk' }) {
         title="五档盘口" 
         size="small" 
         style={cardStyle}
+<<<<<<< HEAD
         styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined } }}
+=======
+        headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       >
         <div style={{ color: '#999', textAlign: 'center', padding: 20 }}>暂无数据</div>
       </Card>
@@ -194,10 +245,24 @@ function OrderBookCard({ stock, market = 'hk' }) {
 
   return (
     <Card 
+<<<<<<< HEAD
       title="五档盘口"
       size="small" 
       style={cardStyle}
       styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined } }}
+=======
+      title={
+        <span>
+          五档盘口
+          <Tooltip title="实时五档买卖盘数据，每5秒自动刷新">
+            <QuestionCircleOutlined style={{ marginLeft: 6, fontSize: 11, color: subTextColor }} />
+          </Tooltip>
+        </span>
+      }
+      size="small" 
+      style={cardStyle}
+      headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       extra={
         <ReloadOutlined 
           spin={loading} 

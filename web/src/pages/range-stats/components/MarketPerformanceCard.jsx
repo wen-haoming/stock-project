@@ -7,7 +7,12 @@ import { useTheme } from '../../../contexts/ThemeContext'
  * 市场表现卡片 - 多周期涨跌幅、相对表现
  */
 function MarketPerformanceCard({ stock }) {
+<<<<<<< HEAD
   const { isDark } = useTheme()
+=======
+  const { theme } = useTheme()
+  const isDark = theme.custom?.isDark
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 
   const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
@@ -42,6 +47,7 @@ function MarketPerformanceCard({ stock }) {
       display: 'flex', 
       justifyContent: 'space-between', 
       alignItems: 'center',
+<<<<<<< HEAD
       padding: '4px 0',
       borderBottom: isDark ? '1px solid #333' : '1px solid #f0f0f0'
     }}>
@@ -54,6 +60,20 @@ function MarketPerformanceCard({ stock }) {
         )}
       </span>
       <span style={{ fontSize: 12 }}>{value}</span>
+=======
+      padding: '8px 0',
+      borderBottom: isDark ? '1px solid #333' : '1px solid #f0f0f0'
+    }}>
+      <span style={{ color: subTextColor, fontSize: 12 }}>
+        {label}
+        {tip && (
+          <Tooltip title={tip}>
+            <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Tooltip>
+        )}
+      </span>
+      <span style={{ fontSize: 13 }}>{value}</span>
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     </div>
   )
 
@@ -62,7 +82,11 @@ function MarketPerformanceCard({ stock }) {
       title="市场表现" 
       size="small" 
       style={cardStyle}
+<<<<<<< HEAD
       styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '4px 12px' } }}
+=======
+      headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     >
       <PerformanceRow label="今日涨跌" value={formatPercent(performance.day1)} />
       <PerformanceRow label="5日涨跌" value={formatPercent(performance.day5)} tip="近5个交易日累计涨跌幅" />
@@ -82,6 +106,7 @@ function MarketPerformanceCard({ stock }) {
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center',
+<<<<<<< HEAD
         padding: '4px 0'
       }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
@@ -91,6 +116,17 @@ function MarketPerformanceCard({ stock }) {
           </Tooltip>
         </span>
         <span style={{ color: textColor, fontSize: 12, fontWeight: 500 }}>
+=======
+        padding: '8px 0'
+      }}>
+        <span style={{ color: subTextColor, fontSize: 12 }}>
+          行业排名
+          <Tooltip title="在所属行业中的涨跌幅排名">
+            <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Tooltip>
+        </span>
+        <span style={{ color: textColor, fontSize: 13, fontWeight: 500 }}>
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
           {performance.industryRank}/{performance.industryTotal}
         </span>
       </div>

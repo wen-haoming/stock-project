@@ -7,7 +7,12 @@ import { useTheme } from '../../../contexts/ThemeContext'
  * 估值分析卡片 - PE/PB/PS及历史分位
  */
 function ValuationCard({ stock }) {
+<<<<<<< HEAD
   const { isDark } = useTheme()
+=======
+  const { theme } = useTheme()
+  const isDark = theme.custom?.isDark
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 
   const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
@@ -44,6 +49,7 @@ function ValuationCard({ stock }) {
   }
 
   const ValuationItem = ({ label, value, percentile, industryAvg, tip }) => (
+<<<<<<< HEAD
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
@@ -57,6 +63,21 @@ function ValuationCard({ stock }) {
         <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>{value}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+=======
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ color: subTextColor, fontSize: 12 }}>
+          {label}
+          {tip && (
+            <Tooltip title={tip}>
+              <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+            </Tooltip>
+          )}
+        </span>
+        <span style={{ color: textColor, fontWeight: 500, fontSize: 14 }}>{value}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         <Progress 
           percent={percentile} 
           showInfo={false} 
@@ -67,13 +88,22 @@ function ValuationCard({ stock }) {
         />
         <span style={{ 
           color: getPercentileColor(percentile), 
+<<<<<<< HEAD
           fontSize: 10, 
           minWidth: 28 
+=======
+          fontSize: 11, 
+          minWidth: 32 
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         }}>
           {getPercentileText(percentile)}
         </span>
       </div>
+<<<<<<< HEAD
       <div style={{ fontSize: 10, color: subTextColor, marginTop: 1 }}>
+=======
+      <div style={{ fontSize: 11, color: subTextColor, marginTop: 2 }}>
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         历史分位 {percentile.toFixed(0)}% | 行业均值 {industryAvg}
       </div>
     </div>
@@ -84,7 +114,11 @@ function ValuationCard({ stock }) {
       title="估值分析" 
       size="small" 
       style={cardStyle}
+<<<<<<< HEAD
       styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
+=======
+      headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     >
       <ValuationItem 
         label="市盈率 PE(TTM)" 
@@ -110,12 +144,17 @@ function ValuationCard({ stock }) {
       
       <div style={{ 
         borderTop: isDark ? '1px solid #333' : '1px solid #f0f0f0', 
+<<<<<<< HEAD
         paddingTop: 6, 
+=======
+        paddingTop: 10, 
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         marginTop: 4,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
+<<<<<<< HEAD
         <span style={{ color: subTextColor, fontSize: 11 }}>
           DCF估值
           <Tooltip title="基于现金流折现模型的内在价值估算">
@@ -123,6 +162,15 @@ function ValuationCard({ stock }) {
           </Tooltip>
         </span>
         <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>
+=======
+        <span style={{ color: subTextColor, fontSize: 12 }}>
+          DCF估值
+          <Tooltip title="基于现金流折现模型的内在价值估算">
+            <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Tooltip>
+        </span>
+        <span style={{ color: textColor, fontWeight: 500, fontSize: 14 }}>
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
           ¥{valuation.dcfValue}
         </span>
       </div>

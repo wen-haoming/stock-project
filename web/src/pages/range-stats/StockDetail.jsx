@@ -16,6 +16,10 @@ import {
   MoneyFlowCard,
   RiskAssessmentCard,
   ValuationCard,
+<<<<<<< HEAD
+=======
+  OrderBookCard
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 } from './components'
 import { useTheme } from '../../contexts/ThemeContext'
 
@@ -559,9 +563,17 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
       
       <div style={{ 
         display: 'grid', 
+<<<<<<< HEAD
         gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', 
         gap: 8 
       }}>
+=======
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
+        gap: 12 
+      }}>
+        <BasicInfoCard stock={displayStock} isMobile={false} />
+        <OrderBookCard stock={displayStock} market={market} />
+>>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         <TechnicalIndicatorsCard klineData={klineData} />
         <MarketPerformanceCard stock={displayStock} />
         <MoneyFlowCard stock={displayStock} />
