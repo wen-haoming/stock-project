@@ -11,30 +11,46 @@ import (
 	"server/utils"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // StockService 股票服务
 type StockService struct {
-	stockRepo *repositories.StockRepository
-	cache     *repositories.MemoryCache
+	stockRepo     *repositories.StockRepository
+	cache         *repositories.MemoryCache
+	realtimeCache *repositories.RealtimeCache
 }
 
 // NewStockService 创建股票服务
 func NewStockService() *StockService {
 	return &StockService{
-		stockRepo: repositories.NewStockRepository(),
-		cache:     repositories.GetMemoryCache(),
+		stockRepo:     repositories.NewStockRepository(),
+		cache:         repositories.GetMemoryCache(),
+		realtimeCache: repositories.GetRealtimeCache(),
 	}
 }
 
 // GetAllStocksWithCache 获取所有股票（带缓存）
+// 优先从实时缓存读取，如果缓存未初始化则从数据库读取
 func (s *StockService) GetAllStocksWithCache(ctx context.Context) ([]models.StockData, error) {
+	// 1. 优先从实时缓存读取
+	if s.realtimeCache.IsInitialized() {
+		aStocks := s.realtimeCache.GetAllAsStockData("a")
+		hkStocks := s.realtimeCache.GetAllAsStockData("hk")
+		allStocks := append(aStocks, hkStocks...)
+		if len(allStocks) > 0 {
+			return allStocks, nil
+		}
+	}
+
+	// 2. 实时缓存未命中，从内存缓存读取
 	cacheKey := "all_stocks"
 	if data, ok := s.cache.Get(cacheKey); ok {
 		return data.([]models.StockData), nil
 	}
 
+	// 3. 从数据库读取
 	stocks, err := s.stockRepo.GetAllStocks(ctx)
 	if err != nil {
 		return nil, err
@@ -42,16 +58,31 @@ func (s *StockService) GetAllStocksWithCache(ctx context.Context) ([]models.Stoc
 
 	ttl := repositories.GetCacheTTL("")
 	s.cache.Set(cacheKey, stocks, ttl)
+
+	// 4. 异步触发实时缓存更新（不阻塞响应）
+	go s.asyncUpdateRealtimeCache(ctx)
+
 	return stocks, nil
 }
 
 // GetStocksByMarketWithCache 获取指定市场股票（带缓存）
+// 读取优先级：实时缓存 -> 内存缓存 -> 数据库 -> 异步补全
 func (s *StockService) GetStocksByMarketWithCache(ctx context.Context, market string) ([]models.StockData, error) {
+	// 1. 优先从实时缓存读取
+	if s.realtimeCache.IsInitialized() && s.realtimeCache.Count(market) > 0 {
+		stocks := s.realtimeCache.GetAllAsStockData(market)
+		if len(stocks) > 0 {
+			return stocks, nil
+		}
+	}
+
+	// 2. 实时缓存未命中，从内存缓存读取
 	cacheKey := fmt.Sprintf("stocks_%s", market)
 	if data, ok := s.cache.Get(cacheKey); ok {
 		return data.([]models.StockData), nil
 	}
 
+	// 3. 从数据库读取
 	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, 10000, 0)
 	if err != nil {
 		return nil, err
@@ -59,6 +90,10 @@ func (s *StockService) GetStocksByMarketWithCache(ctx context.Context, market st
 
 	ttl := repositories.GetCacheTTL(market)
 	s.cache.Set(cacheKey, stocks, ttl)
+
+	// 4. 异步触发实时缓存更新（不阻塞响应）
+	go s.asyncUpdateMarketCache(market)
+
 	return stocks, nil
 }
 
@@ -371,4 +406,194 @@ func (s *StockService) SyncAStockData(ctx context.Context) error {
 	}
 	log.Printf("获取到 %d 条A股数据", len(stocks))
 	return s.SaveStocks(ctx, stocks, "a")
+}
+
+// ============== 新增：实时缓存相关方法 ==============
+
+// asyncUpdateRealtimeCache 异步更新实时缓存（不阻塞主请求）
+func (s *StockService) asyncUpdateRealtimeCache(ctx context.Context) {
+	now := utils.GetChinaTime()
+
+	// 根据交易时间决定更新哪个市场
+	if utils.IsAStockTradingTime(now) && s.realtimeCache.NeedsUpdate("a") {
+		s.UpdateRealtimeCache(context.Background(), "a")
+	}
+	if utils.IsHKTradingTime(now) && s.realtimeCache.NeedsUpdate("hk") {
+		s.UpdateRealtimeCache(context.Background(), "hk")
+	}
+}
+
+// asyncUpdateMarketCache 异步更新指定市场的缓存
+func (s *StockService) asyncUpdateMarketCache(market string) {
+	if s.realtimeCache.NeedsUpdate(market) {
+		s.UpdateRealtimeCache(context.Background(), market)
+	}
+}
+
+// UpdateRealtimeCache 更新实时缓存（只更新内存，不写数据库）
+func (s *StockService) UpdateRealtimeCache(ctx context.Context, market string) error {
+	var stocks []models.StockData
+	var err error
+
+	if market == "a" {
+		stocks, err = s.FetchAStockData()
+	} else {
+		stocks, err = s.FetchHKStockData()
+	}
+
+	if err != nil {
+		log.Printf("[RealtimeCache] 获取%s数据失败: %v", market, err)
+		return err
+	}
+
+	// 更新实时缓存
+	s.realtimeCache.BatchSet(stocks, market)
+	log.Printf("[RealtimeCache] 更新%s实时缓存: %d只股票", market, len(stocks))
+
+	// 同时清除旧的内存缓存
+	s.cache.Delete(fmt.Sprintf("stocks_%s", market))
+	s.cache.Delete("all_stocks")
+
+	return nil
+}
+
+// UpdateRealtimeCacheOnly 仅更新实时缓存（不触发数据库写入）
+// 用于交易时间的高频更新
+func (s *StockService) UpdateRealtimeCacheOnly(ctx context.Context, market string) error {
+	return s.UpdateRealtimeCache(ctx, market)
+}
+
+// SyncToDatabase 将实时缓存数据同步到数据库
+// 用于收盘后的批量持久化
+func (s *StockService) SyncToDatabase(ctx context.Context, market string) error {
+	stocks := s.realtimeCache.GetAllAsStockData(market)
+	if len(stocks) == 0 {
+		log.Printf("[SyncToDatabase] %s 实时缓存为空，跳过同步", market)
+		return nil
+	}
+
+	log.Printf("[SyncToDatabase] 开始同步 %s 数据到数据库: %d只股票", market, len(stocks))
+	return s.stockRepo.UpsertStocks(ctx, stocks, market)
+}
+
+// PreloadRealtimeCache 预热实时缓存（从数据库加载）
+// 用于服务启动时
+func (s *StockService) PreloadRealtimeCache(ctx context.Context, market string) error {
+	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, 10000, 0)
+	if err != nil {
+		return err
+	}
+
+	if len(stocks) > 0 {
+		s.realtimeCache.BatchSet(stocks, market)
+		log.Printf("[PreloadRealtimeCache] 预热%s缓存: %d只股票", market, len(stocks))
+	}
+
+	return nil
+}
+
+// SyncAndCache 同步数据并更新缓存（完整同步流程）
+// 1. 从东财获取数据
+// 2. 更新实时缓存
+// 3. 异步写入数据库
+func (s *StockService) SyncAndCache(ctx context.Context, market string) error {
+	var stocks []models.StockData
+	var err error
+
+	// 1. 获取数据
+	if market == "a" {
+		stocks, err = s.FetchAStockData()
+	} else {
+		stocks, err = s.FetchHKStockData()
+	}
+
+	if err != nil {
+		return err
+	}
+
+	log.Printf("[SyncAndCache] 获取到 %d 条%s数据", len(stocks), market)
+
+	// 2. 更新实时缓存（同步，确保数据立即可用）
+	s.realtimeCache.BatchSet(stocks, market)
+
+	// 3. 异步写入数据库（不阻塞）
+	go func() {
+		bgCtx := context.Background()
+		if err := s.stockRepo.UpsertStocks(bgCtx, stocks, market); err != nil {
+			log.Printf("[SyncAndCache] 异步写入数据库失败: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// GetRealtimeCacheStats 获取实时缓存统计信息
+func (s *StockService) GetRealtimeCacheStats() map[string]interface{} {
+	return s.realtimeCache.GetStats()
+}
+
+// IsRealtimeCacheHealthy 检查实时缓存是否健康
+func (s *StockService) IsRealtimeCacheHealthy() bool {
+	return s.realtimeCache.IsHealthy()
+}
+
+// GetStockFromRealtimeCache 从实时缓存获取单只股票
+func (s *StockService) GetStockFromRealtimeCache(symbol, market string) (*models.StockData, bool) {
+	data, ok := s.realtimeCache.Get(symbol, market)
+	if !ok {
+		return nil, false
+	}
+
+	stock := &models.StockData{
+		Symbol:         data.Symbol,
+		Name:           data.Name,
+		Market:         data.Market,
+		LatestPrice:    data.LatestPrice,
+		Open:           data.Open,
+		Close:          data.Close,
+		High:           data.High,
+		Low:            data.Low,
+		ChangePct:      data.ChangePct,
+		ChangeAmt:      data.ChangeAmt,
+		Volume:         data.Volume,
+		Turnover:       data.Turnover,
+		TurnoverRate:   data.TurnoverRate,
+		Amplitude:      data.Amplitude,
+		TotalMarketCap: data.TotalMarketCap,
+		CircMarketCap:  data.CircMarketCap,
+		PERatio:        data.PERatio,
+		PERatioStatic:  data.PERatioStatic,
+		PBRatio:        data.PBRatio,
+		Industry:       data.Industry,
+		UpdatedAt:      data.UpdatedAt,
+	}
+
+	return stock, true
+}
+
+// BatchSyncAndCache 批量同步（A股和港股同时进行）
+func (s *StockService) BatchSyncAndCache(ctx context.Context) error {
+	var wg sync.WaitGroup
+	var aErr, hkErr error
+
+	wg.Add(2)
+
+	// 同步A股
+	go func() {
+		defer wg.Done()
+		aErr = s.SyncAndCache(ctx, "a")
+	}()
+
+	// 同步港股
+	go func() {
+		defer wg.Done()
+		hkErr = s.SyncAndCache(ctx, "hk")
+	}()
+
+	wg.Wait()
+
+	if aErr != nil {
+		return aErr
+	}
+	return hkErr
 }

@@ -57,6 +57,25 @@ func (r *StockRepository) UpsertStocks(ctx context.Context, stocks []models.Stoc
 		return nil
 	}
 
+	// 分批处理，每批最多1000条，避免单次写入过大
+	batchSize := 1000
+	for i := 0; i < len(stocks); i += batchSize {
+		end := i + batchSize
+		if end > len(stocks) {
+			end = len(stocks)
+		}
+		batch := stocks[i:end]
+
+		if err := r.upsertStocksBatch(ctx, batch, market); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// upsertStocksBatch 批量写入一批股票数据
+func (r *StockRepository) upsertStocksBatch(ctx context.Context, stocks []models.StockData, market string) error {
 	collection := r.getCollection(market)
 	var operations []mongo.WriteModel
 	now := time.Now()
