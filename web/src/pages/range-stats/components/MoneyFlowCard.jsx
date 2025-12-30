@@ -7,12 +7,7 @@ import { useTheme } from '../../../contexts/ThemeContext'
  * 资金流向卡片 - 主力/大单/中单/小单净流入
  */
 function MoneyFlowCard({ stock }) {
-<<<<<<< HEAD
   const { isDark } = useTheme()
-=======
-  const { theme } = useTheme()
-  const isDark = theme.custom?.isDark
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 
   const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
@@ -33,18 +28,13 @@ function MoneyFlowCard({ stock }) {
   const formatMoney = (val) => {
     const color = val > 0 ? '#f5222d' : val < 0 ? '#52c41a' : textColor
     return (
-<<<<<<< HEAD
       <span style={{ color, fontWeight: 500, fontSize: 12 }}>
-=======
-      <span style={{ color, fontWeight: 500 }}>
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         {val > 0 ? '+' : ''}{val.toFixed(2)}亿
       </span>
     )
   }
 
   const FlowItem = ({ label, value, percent, tip }) => (
-<<<<<<< HEAD
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
@@ -52,15 +42,6 @@ function MoneyFlowCard({ stock }) {
           {tip && (
             <Tooltip title={tip}>
               <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 9 }} />
-=======
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ color: subTextColor, fontSize: 12 }}>
-          {label}
-          {tip && (
-            <Tooltip title={tip}>
-              <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             </Tooltip>
           )}
         </span>
@@ -81,11 +62,7 @@ function MoneyFlowCard({ stock }) {
       title="资金流向" 
       size="small" 
       style={cardStyle}
-<<<<<<< HEAD
       styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-=======
-      headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     >
       <FlowItem 
         label="主力净流入" 
@@ -112,27 +89,17 @@ function MoneyFlowCard({ stock }) {
         tip="10万元以下订单净买入"
       />
       
-<<<<<<< HEAD
       <div style={{ borderTop: isDark ? '1px solid #333' : '1px solid #f0f0f0', paddingTop: 6, marginTop: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ color: subTextColor, fontSize: 11 }}>
             北向资金
             <Tooltip title="沪深港通北向资金净买入">
               <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 9 }} />
-=======
-      <div style={{ borderTop: isDark ? '1px solid #333' : '1px solid #f0f0f0', paddingTop: 10, marginTop: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ color: subTextColor, fontSize: 12 }}>
-            北向资金
-            <Tooltip title="沪深港通北向资金净买入">
-              <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             </Tooltip>
           </span>
           {formatMoney(moneyFlow.northbound)}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-<<<<<<< HEAD
           <span style={{ color: subTextColor, fontSize: 11 }}>
             机构持仓
             <Tooltip title="机构投资者持股比例">
@@ -140,15 +107,6 @@ function MoneyFlowCard({ stock }) {
             </Tooltip>
           </span>
           <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>{moneyFlow.institutionHold}%</span>
-=======
-          <span style={{ color: subTextColor, fontSize: 12 }}>
-            机构持仓
-            <Tooltip title="机构投资者持股比例">
-              <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
-            </Tooltip>
-          </span>
-          <span style={{ color: textColor, fontWeight: 500 }}>{moneyFlow.institutionHold}%</span>
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         </div>
       </div>
     </Card>

@@ -7,23 +7,14 @@ import { useTheme } from '../../../contexts/ThemeContext'
  * 风险评估卡片 - 波动率、最大回撤、夏普比率、Beta
  */
 function RiskAssessmentCard({ klineData }) {
-<<<<<<< HEAD
   const { isDark } = useTheme()
-=======
-  const { theme } = useTheme()
-  const isDark = theme.custom?.isDark
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 
   // 计算风险指标
   const riskMetrics = useMemo(() => {
     if (!klineData?.values?.length || klineData.values.length < 20) return null
     
     const values = klineData.values
-<<<<<<< HEAD
     const closes = values.map(v => v[1]) // 收盘价
-=======
-    const closes = values.map(v => v[2])
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     const len = closes.length
 
     // 日收益率
@@ -77,13 +68,8 @@ function RiskAssessmentCard({ klineData }) {
 
   if (!riskMetrics) {
     return (
-<<<<<<< HEAD
       <Card title="风险评估" size="small" style={cardStyle} styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}>
         <div style={{ color: '#999', textAlign: 'center', padding: 12 }}>暂无数据</div>
-=======
-      <Card title="风险评估" size="small" style={cardStyle}>
-        <div style={{ color: '#999', textAlign: 'center', padding: 20 }}>暂无数据</div>
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       </Card>
     )
   }
@@ -91,7 +77,6 @@ function RiskAssessmentCard({ klineData }) {
   const { volatility, maxDrawdown, sharpeRatio, beta, riskLevel, riskColor } = riskMetrics
 
   const MetricItem = ({ label, value, unit = '', tip, progress, progressColor }) => (
-<<<<<<< HEAD
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
@@ -103,19 +88,6 @@ function RiskAssessmentCard({ klineData }) {
           )}
         </span>
         <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>
-=======
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ color: subTextColor, fontSize: 12 }}>
-          {label}
-          {tip && (
-            <Tooltip title={tip}>
-              <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
-            </Tooltip>
-          )}
-        </span>
-        <span style={{ color: textColor, fontWeight: 500, fontSize: 13 }}>
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
           {value}{unit}
         </span>
       </div>
@@ -136,20 +108,12 @@ function RiskAssessmentCard({ klineData }) {
       title={
         <span>
           风险评估
-<<<<<<< HEAD
           <Tag color={riskColor} style={{ marginLeft: 8, fontSize: 10 }}>{riskLevel}风险</Tag>
-=======
-          <Tag color={riskColor} style={{ marginLeft: 8, fontSize: 11 }}>{riskLevel}风险</Tag>
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
         </span>
       }
       size="small" 
       style={cardStyle}
-<<<<<<< HEAD
       styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-=======
-      headStyle={{ color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }}
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     >
       <MetricItem 
         label="年化波动率" 

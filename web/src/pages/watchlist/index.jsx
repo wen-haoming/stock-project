@@ -547,7 +547,6 @@ export default function WatchlistPage() {
     select: {
       highlightMode: 'row',
     },
-<<<<<<< HEAD
     rowSeriesNumber: {
       title: '',
       width: 30,
@@ -560,8 +559,6 @@ export default function WatchlistPage() {
       },
       dragOrder: true,
     },
-=======
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
   }), [columns, tableData, baseVTableTheme])
 
   // 处理表格点击事件 - 点击任意单元格都选中整行

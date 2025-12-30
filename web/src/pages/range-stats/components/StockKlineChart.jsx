@@ -333,16 +333,12 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
   const indicators = useMemo(() => {
     if (!data?.values?.length || data.isTrend) return null
     const zhixing = calculateZhixing(data.values)
-<<<<<<< HEAD
     const kdj = calculateKDJ(data.values)
     const xipan = calculateXipan(data.values)
-=======
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     return {
       bbi: calculateBBI(data.values),
       zhixingShort: zhixing.shortTrend,
       zhixingLong: zhixing.longShort,
-<<<<<<< HEAD
       ...calculateMACD(data.values),
       kdjK: kdj.k,
       kdjD: kdj.d,
@@ -354,9 +350,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
       xipanWhiteLow20: xipan.whiteLow20Buy,
       xipanCrossRed: xipan.whiteCrossRedBuy,
       xipanCrossYellow: xipan.whiteCrossYellowBuy,
-=======
-      ...calculateMACD(data.values)
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
     }
   }, [data])
   
@@ -367,17 +360,11 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
   useEffect(() => {
     if (!chartInstanceRef.current || !indicators || data?.isTrend) return
     
-<<<<<<< HEAD
     // 获取当前 dataZoom 状态（注意 getOption 可能返回 null 或空数组）
     const option = chartInstanceRef.current.getOption()
     if (!option) return
     const dataZoomArr = option.dataZoom
     const currentZoom = (dataZoomArr && dataZoomArr.length > 0) ? dataZoomArr[0] : { start: 0, end: 100 }
-=======
-    // 获取当前 dataZoom 状态
-    const option = chartInstanceRef.current.getOption()
-    const currentZoom = option.dataZoom?.[0] || { start: 0, end: 100 }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
 
     // 构建指标 series
     const indicatorSeries = showZhixing ? [
@@ -387,11 +374,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
         data: indicators.zhixingShort,
         smooth: false,
         symbol: 'none',
-<<<<<<< HEAD
         lineStyle: { width: 1.5, color: '#00e676' }  // 绿色
-=======
-        lineStyle: { width: 1, color: '#ffffff' }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       },
       {
         name: '多空线',
@@ -399,11 +382,7 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
         data: indicators.zhixingLong,
         smooth: false,
         symbol: 'none',
-<<<<<<< HEAD
         lineStyle: { width: 1.5, color: '#ff9800' }  // 橙色
-=======
-        lineStyle: { width: 1, color: '#ffff00' }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       }
     ] : [
       {
@@ -423,7 +402,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
       dataZoom: [{ start: currentZoom.start, end: currentZoom.end }],
       series: [
         { name: stockName, type: 'candlestick', data: data.values },
-<<<<<<< HEAD
         { name: 'Volume', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes },
         // KDJ 指标
         { name: 'K', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: indicators.kdjK },
@@ -442,13 +420,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
         { name: '白线下20', type: 'bar', xAxisIndex: 4, yAxisIndex: 4, data: indicators.xipanWhiteLow20 },
         { name: '白穿红', type: 'bar', xAxisIndex: 4, yAxisIndex: 4, data: indicators.xipanCrossRed },
         { name: '白穿黄', type: 'bar', xAxisIndex: 4, yAxisIndex: 4, data: indicators.xipanCrossYellow }
-=======
-        { name: 'Volume', type: 'bar', data: data.volumes },
-        ...indicatorSeries,
-        { name: 'DIF', type: 'line', data: indicators.dif },
-        { name: 'DEA', type: 'line', data: indicators.dea },
-        { name: 'MACD', type: 'bar', data: indicators.macd }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
       ]
     }, { replaceMerge: ['series'] })
   }, [showZhixing, indicators, data, stockName])
@@ -684,7 +655,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
           formatter: (params) => {
             const kline = params.find(p => p.seriesName === stockName)
             if (!kline) return ''
-<<<<<<< HEAD
             const dataIndex = kline.dataIndex
             // 从原始数据获取
             const rawData = data.values[dataIndex]
@@ -713,30 +683,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             html += `<div>涨幅: <span style="color:${safeChangePct >= 0 ? upColor : downColor}">${safeChangePct >= 0 ? '+' : ''}${safeChangePct.toFixed(2)}%</span></div>`
             html += `<div>换手: ${safeTurnover ? safeTurnover.toFixed(2) + '%' : '-'}</div>`
             html += `<div>J值: <span style="color:#e91e63">${j}</span></div>`
-=======
-            const [open, close, low, high] = kline.data
-            const volume = params.find(p => p.seriesName === 'Volume')
-            const bbi = params.find(p => p.seriesName === 'BBI')
-            const zhixingShort = params.find(p => p.seriesName === '短期趋势')
-            const zhixingLong = params.find(p => p.seriesName === '多空线')
-            const dif = params.find(p => p.seriesName === 'DIF')
-            const dea = params.find(p => p.seriesName === 'DEA')
-            const macdBar = params.find(p => p.seriesName === 'MACD')
-            
-            let html = `<div style="font-size:12px">`
-            html += `<div style="font-weight:bold;margin-bottom:4px">${kline.axisValue}</div>`
-            html += `<div>开: <span style="color:${close >= open ? upColor : downColor}">${open}</span></div>`
-            html += `<div>收: <span style="color:${close >= open ? upColor : downColor}">${close}</span></div>`
-            html += `<div>高: <span style="color:${upColor}">${high}</span></div>`
-            html += `<div>低: <span style="color:${downColor}">${low}</span></div>`
-            if (volume) html += `<div>成交量: ${(volume.data[1] / 10000).toFixed(0)}万</div>`
-            if (bbi && bbi.data !== '-') html += `<div style="color:#ff9800">BBI: ${bbi.data}</div>`
-            if (zhixingShort && zhixingShort.data !== '-') html += `<div style="color:#ffffff">短期趋势: ${zhixingShort.data}</div>`
-            if (zhixingLong && zhixingLong.data !== '-') html += `<div style="color:#ffff00">多空线: ${zhixingLong.data}</div>`
-            if (dif && dif.data !== '-') html += `<div style="color:#2196f3">DIF: ${dif.data}</div>`
-            if (dea && dea.data !== '-') html += `<div style="color:#ff5722">DEA: ${dea.data}</div>`
-            if (macdBar && macdBar.data !== '-') html += `<div>MACD: ${macdBar.data}</div>`
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             html += `</div>`
             return html
           }
@@ -785,7 +731,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             gridIndex: 2, 
             data: data.categoryData, 
             boundaryGap: true,
-<<<<<<< HEAD
             axisLine: { onZero: false, lineStyle: { color: echartsTheme.axisLine.lineStyle.color } }, 
             axisLabel: { show: false },
             splitLine: { show: false },
@@ -810,12 +755,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             splitLine: { show: false },
             axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color },
             axisPointer: { label: { show: false } }
-=======
-            axisLine: { onZero: false, lineStyle: { color: echartsTheme.axisLine.lineStyle.color } },
-            splitLine: { show: false },
-            axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color },
-            axisPointer: { show: true }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
           }
         ],
         yAxis: [
@@ -855,7 +794,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             scale: true, 
             gridIndex: 3, 
             splitNumber: 2, 
-<<<<<<< HEAD
             axisLabel: { fontSize: 9, color: echartsTheme.axisLabel.color }, 
             splitLine: { show: true, lineStyle: { color: echartsTheme.splitLine.lineStyle.color, type: 'dashed' } },
             splitArea: { show: false },
@@ -867,9 +805,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             max: 100,
             splitNumber: 2, 
             axisLabel: { fontSize: 9, color: echartsTheme.axisLabel.color }, 
-=======
-            axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color }, 
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             splitLine: { show: true, lineStyle: { color: echartsTheme.splitLine.lineStyle.color, type: 'dashed' } },
             splitArea: { show: false },
             axisPointer: { show: true }
@@ -940,7 +875,6 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
             data: data.volumes,
             barWidth: '60%'
           },
-<<<<<<< HEAD
           // KDJ 指标 - K线黑色，D线橙色，J线粉色
           { 
             name: 'K', 
@@ -972,37 +906,22 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
           // 根据开关显示 BBI 或双线战法
           ...(currentShowZhixing ? [
             // 知行短期趋势线: EMA(EMA(C,10),10) - 绿色
-=======
-          // 根据开关显示 BBI 或双线战法
-          ...(currentShowZhixing ? [
-            // 知行短期趋势线: EMA(EMA(C,10),10), COLORFFFFFF, LINETHICK1
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             {
               name: '短期趋势',
               type: 'line',
               data: currentIndicators?.zhixingShort || [],
               smooth: false,
               symbol: 'none',
-<<<<<<< HEAD
               lineStyle: { width: 1.5, color: '#00e676' }
             },
             // 知行多空线: (MA14+MA28+MA57+MA114)/4 - 橙色
-=======
-              lineStyle: { width: 1, color: '#ffffff' }
-            },
-            // 知行多空线: (MA14+MA28+MA57+MA114)/4 - 黄色
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             {
               name: '多空线',
               type: 'line',
               data: currentIndicators?.zhixingLong || [],
               smooth: false,
               symbol: 'none',
-<<<<<<< HEAD
               lineStyle: { width: 1.5, color: '#ff9800' }
-=======
-              lineStyle: { width: 1, color: '#ffff00' }
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             }
           ] : [
             {
@@ -1017,13 +936,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
           {
             name: 'DIF',
             type: 'line',
-<<<<<<< HEAD
             xAxisIndex: 3,
             yAxisIndex: 3,
-=======
-            xAxisIndex: 2,
-            yAxisIndex: 2,
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             data: currentIndicators?.dif || [],
             symbol: 'none',
             lineStyle: { width: 1, color: '#2196f3' }
@@ -1031,13 +945,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
           {
             name: 'DEA',
             type: 'line',
-<<<<<<< HEAD
             xAxisIndex: 3,
             yAxisIndex: 3,
-=======
-            xAxisIndex: 2,
-            yAxisIndex: 2,
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             data: currentIndicators?.dea || [],
             symbol: 'none',
             lineStyle: { width: 1, color: '#ff5722' }
@@ -1045,13 +954,8 @@ const StockKlineChart = memo(({ data, stockName, isMobile, market = 'a', showZhi
           {
             name: 'MACD',
             type: 'bar',
-<<<<<<< HEAD
             xAxisIndex: 3,
             yAxisIndex: 3,
-=======
-            xAxisIndex: 2,
-            yAxisIndex: 2,
->>>>>>> 9b7d799f0bcdd7afd15e7d57b2a138b1f6af6a1c
             data: currentIndicators?.macd || [],
             barWidth: '60%',
             itemStyle: {
