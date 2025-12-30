@@ -8,8 +8,8 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 # 配置 npm 使用国内镜像源（淘宝镜像）
 RUN npm config set registry https://registry.npmmirror.com
 
-# 安装 pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# 安装 pnpm（锁定版本，与本地保持一致）
+RUN corepack enable && corepack prepare pnpm@8.6.10 --activate
 
 # 复制 package.json 和 lock 文件
 COPY package.json pnpm-lock.yaml ./
