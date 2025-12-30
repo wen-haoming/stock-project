@@ -8,10 +8,10 @@ import { reportTypeOptions, financeMetrics, financeTableColumns } from '@/consta
 import { 
   StockKlineChart, 
   FinanceChart, 
-  BasicInfoCard, 
   NewsList, 
   AnnouncementTable,
-  StockIndicatorsPanel,
+  StockOverviewHeader,
+  StockDiagnosisPanel,
 } from './components'
 import { useTheme } from '../../contexts/ThemeContext'
 
@@ -531,10 +531,19 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   // Tab 1: K线走势 + 指标卡片
   const quoteContent = (
     <div style={{ padding: '12px 16px' }}>
-      {/* 基本面数据放在K线上方 */}
-      <BasicInfoCard stock={displayStock} />
+      {/* 顶部概览区：核心结论引领 */}
+      <StockOverviewHeader stock={displayStock} klineData={klineData} />
       
-      <Card title="K线走势" size="small" style={{ marginBottom: 12 }} extra={klineExtra}>
+      <Card 
+        title={null}
+        size="small" 
+        style={{ marginBottom: 12 }} 
+        extra={klineExtra}
+        styles={{ 
+          header: { borderBottom: 'none', paddingBottom: 0 },
+          body: { paddingTop: 8 }
+        }}
+      >
         <Spin spinning={klineLoading}>
           {klineData?.values?.length > 0 ? (
             <StockKlineChart 
@@ -553,8 +562,8 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         </Spin>
       </Card>
       
-      {/* 综合指标面板 */}
-      <StockIndicatorsPanel stock={displayStock} klineData={klineData} />
+      {/* 底部诊断区：强化视觉 */}
+      <StockDiagnosisPanel stock={displayStock} klineData={klineData} />
     </div>
   )
 
@@ -656,11 +665,30 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     { key: 'news', label: '公告资讯', children: newsContent },
   ]
   
-  // Tab 栏右侧的额外内容：股票名称 + 自选按钮
+  // 涨跌幅颜色
+  const changePercent = displayStock?.changePercent || 0
+  const priceColor = changePercent > 0 ? '#f5222d' : changePercent < 0 ? '#52c41a' : (currentTheme.custom?.textColor || '#666')
+  
+  // Tab 栏右侧的额外内容：股票名称 + 价格 + 涨跌幅 + 自选按钮
   const tabBarExtraContent = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 16 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingRight: 16 }}>
       <span style={{ fontSize: 14, fontWeight: 500 }}>
         {displayStock?.name} ({displayStock?.symbol})
+      </span>
+      <span style={{ 
+        fontSize: 16, 
+        fontWeight: 700, 
+        color: priceColor,
+        fontFamily: 'DIN Alternate, Consolas, monospace',
+      }}>
+        {displayStock?.close?.toFixed(2) || displayStock?.price?.toFixed(2) || '-'}
+      </span>
+      <span style={{ 
+        fontSize: 13, 
+        fontWeight: 600, 
+        color: priceColor,
+      }}>
+        {changePercent > 0 ? '+' : ''}{changePercent.toFixed(2)}%
       </span>
       <Tooltip title={isWatchlisted ? '从自选中移除' : '添加到自选'}>
         <Button

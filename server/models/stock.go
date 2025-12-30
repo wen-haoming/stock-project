@@ -20,7 +20,8 @@ type StockData struct {
 	Volume         int64          `json:"volume" bson:"volume"`
 	TotalMarketCap float64        `json:"totalMarketCap" bson:"totalMarketCap"`
 	CircMarketCap  float64        `json:"circMarketCap" bson:"circMarketCap"`
-	PERatio        float64        `json:"peRatio" bson:"peRatio"`
+	PERatio        float64        `json:"peRatio" bson:"peRatio"`         // 动态市盈率(TTM)
+	PERatioStatic  float64        `json:"peRatioStatic" bson:"peRatioStatic"` // 静态市盈率(LYR)
 	PBRatio        float64        `json:"pbRatio" bson:"pbRatio"`
 	Industry       string         `json:"industry" bson:"industry"`
 	KDJ            *KDJIndicator  `json:"kdj,omitempty" bson:"kdj,omitempty"`
@@ -69,7 +70,8 @@ type RangeStockData struct {
 	ChangePct      float64 `json:"changePct" bson:"changePct"`
 	TotalMarketCap float64 `json:"totalMarketCap" bson:"totalMarketCap"`
 	CircMarketCap  float64 `json:"circMarketCap" bson:"circMarketCap"`
-	PERatio        float64 `json:"peRatio" bson:"peRatio"`
+	PERatio        float64 `json:"peRatio" bson:"peRatio"`         // 动态市盈率(TTM)
+	PERatioStatic  float64 `json:"peRatioStatic" bson:"peRatioStatic"` // 静态市盈率(LYR)
 	PBRatio        float64 `json:"pbRatio" bson:"pbRatio"`
 	Industry       string  `json:"industry" bson:"industry"`
 	Turnover       float64 `json:"turnover" bson:"turnover"`

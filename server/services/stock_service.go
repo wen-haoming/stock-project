@@ -99,7 +99,7 @@ func (s *StockService) fetchStockDataPaginated(fs, market string) ([]models.Stoc
 		params.Set("invt", "2")
 		params.Set("fid", "f3")
 		params.Set("fs", fs)
-		params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100")
+		params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100,f115")
 
 		apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
 		body, err := utils.FetchURL(apiURL)
@@ -154,7 +154,8 @@ func (s *StockService) parseEastMoneyResponse(body []byte, market string) ([]mod
 			Turnover:       getFloat(item, "f6"),
 			Amplitude:      getFloat(item, "f7"),
 			TurnoverRate:   getFloat(item, "f8"),
-			PERatio:        getFloat(item, "f9"),
+			PERatio:        getFloat(item, "f9"),  // 动态市盈率(TTM)
+			PERatioStatic:  getFloat(item, "f115"), // 静态市盈率(LYR)
 			High:           getFloat(item, "f15"),
 			Low:            getFloat(item, "f16"),
 			Open:           getFloat(item, "f17"),

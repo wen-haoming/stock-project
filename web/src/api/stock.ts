@@ -48,7 +48,8 @@ interface StockInfo {
   floatMarketCap: number
   totalShares: number
   floatShares: number
-  peRatio: number
+  peRatio: number      // 动态市盈率(TTM)
+  peRatioStatic: number // 静态市盈率(LYR)
   pbRatio: number
   turnoverRate: number
   amplitude: number
@@ -413,7 +414,7 @@ export const fetchStockInfo = async (
       secid = `116.${symbol}`
     }
     
-    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f71,f100,f116,f117,f162,f164,f167,f168,f169,f170,f173,f183,f184,f185,f186,f187,f188`
+    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f71,f100,f115,f116,f117,f162,f164,f167,f168,f169,f170,f173,f183,f184,f185,f186,f187,f188`
     const response = await axios.get(url)
     const data = response.data?.data
     
@@ -443,7 +444,8 @@ export const fetchStockInfo = async (
       floatMarketCap: data.f117,
       totalShares: data.f183,
       floatShares: data.f184,
-      peRatio: data.f162 / 100,
+      peRatio: data.f162 / 100,      // 动态市盈率(TTM)
+      peRatioStatic: data.f115 / 100, // 静态市盈率(LYR)
       pbRatio: data.f167 / 100,
       turnoverRate: data.f168 / 100,
       amplitude: data.f50 / 100,

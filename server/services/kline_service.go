@@ -600,7 +600,7 @@ func (s *KlineService) FetchStockDetailFromAPI(symbol, market string) (*models.S
 
 	params := url.Values{}
 	params.Set("secid", secid)
-	params.Set("fields", "f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f116,f117,f162,f167,f168,f169,f170")
+	params.Set("fields", "f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f115,f116,f117,f162,f167,f168,f169,f170")
 
 	apiURL := "https://push2.eastmoney.com/api/qt/stock/get?" + params.Encode()
 	body, err := utils.FetchURL(apiURL)
@@ -636,7 +636,8 @@ func (s *KlineService) FetchStockDetailFromAPI(symbol, market string) (*models.S
 		ChangeAmt:      getFloat(resp.Data, "f169") / 100,
 		TotalMarketCap: getFloat(resp.Data, "f116"),
 		CircMarketCap:  getFloat(resp.Data, "f117"),
-		PERatio:        getFloat(resp.Data, "f162"),
+		PERatio:        getFloat(resp.Data, "f162"),  // 动态市盈率(TTM)
+		PERatioStatic:  getFloat(resp.Data, "f115"),  // 静态市盈率(LYR)
 		PBRatio:        getFloat(resp.Data, "f167"),
 		UpdatedAt:      time.Now(),
 	}

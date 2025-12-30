@@ -138,6 +138,7 @@ func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery)
 			TotalMarketCap: stock.TotalMarketCap,
 			CircMarketCap:  stock.CircMarketCap,
 			PERatio:        stock.PERatio,
+			PERatioStatic:  stock.PERatioStatic,
 			PBRatio:        stock.PBRatio,
 			Industry:       stock.Industry,
 			Turnover:       stock.Turnover,
