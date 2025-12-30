@@ -1,17 +1,17 @@
 import { memo } from 'react'
-import { Card, Progress, Tooltip } from 'antd'
+import { Progress, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../../../contexts/ThemeContext'
 
 /**
- * 估值分析卡片 - PE/PB/PS及历史分位
+ * 估值分析 - PE/PB/PS及历史分位
  */
 function ValuationCard({ stock }) {
   const { isDark } = useTheme()
 
-  const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
   const subTextColor = isDark ? '#999' : '#666'
+  const borderColor = isDark ? '#333' : '#f0f0f0'
 
   // 从stock获取或模拟数据
   const valuation = {
@@ -44,7 +44,7 @@ function ValuationCard({ stock }) {
   }
 
   const ValuationItem = ({ label, value, percentile, industryAvg, tip }) => (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
           {label}
@@ -54,7 +54,7 @@ function ValuationCard({ stock }) {
             </Tooltip>
           )}
         </span>
-        <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>{value}</span>
+        <span style={{ color: textColor, fontWeight: 500, fontSize: 11 }}>{value}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Progress 
@@ -63,7 +63,7 @@ function ValuationCard({ stock }) {
           size="small" 
           style={{ flex: 1 }}
           strokeColor={getPercentileColor(percentile)}
-          trailColor={isDark ? '#333' : '#f0f0f0'}
+          trailColor={borderColor}
         />
         <span style={{ 
           color: getPercentileColor(percentile), 
@@ -80,12 +80,8 @@ function ValuationCard({ stock }) {
   )
 
   return (
-    <Card 
-      title="估值分析" 
-      size="small" 
-      style={cardStyle}
-      styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-    >
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>估值分析</div>
       <ValuationItem 
         label="市盈率 PE(TTM)" 
         value={valuation.pe} 
@@ -107,26 +103,7 @@ function ValuationCard({ stock }) {
         industryAvg={valuation.psIndustryAvg}
         tip="股价/每股销售额，适用于亏损公司"
       />
-      
-      <div style={{ 
-        borderTop: isDark ? '1px solid #333' : '1px solid #f0f0f0', 
-        paddingTop: 6, 
-        marginTop: 4,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <span style={{ color: subTextColor, fontSize: 11 }}>
-          DCF估值
-          <Tooltip title="基于现金流折现模型的内在价值估算">
-            <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 9 }} />
-          </Tooltip>
-        </span>
-        <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>
-          ¥{valuation.dcfValue}
-        </span>
-      </div>
-    </Card>
+    </div>
   )
 }
 

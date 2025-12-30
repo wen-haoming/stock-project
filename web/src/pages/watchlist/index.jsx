@@ -9,6 +9,7 @@ import StockDetail from '../range-stats/StockDetail'
 import { fetchStockInfo, fetchStockTrend } from '../../api/stock'
 import { upColor, downColor } from '../../utils/chart'
 import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
+import { StockTableToolbar, exportColumnPresets } from '../../components/StockTable'
 
 // 市场标签配置
 const MARKET_TAG_CONFIG = {
@@ -800,6 +801,16 @@ export default function WatchlistPage() {
           {isTradeTime() && (
             <Tag color="green" style={{ margin: 0 }}>交易中</Tag>
           )}
+          
+          <StockTableToolbar
+            data={tableData}
+            columns={exportColumnPresets.watchlist}
+            title={`自选股 - ${activeGroup.name}`}
+            fileName={`自选股_${activeGroup.name}`}
+            sheetName="自选股"
+            containerRef={tableContainerRef}
+            isDark={isDark}
+          />
           
           <div style={{ flex: 1 }} />
           <div ref={searchContainerRef} style={{ position: 'relative', width: 240 }}>

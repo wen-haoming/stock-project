@@ -144,10 +144,10 @@ function RangeStatsPC() {
 
   // 查询条件状态
   const [minChangePct, setMinChangePct] = useState(60)
-  const [marketCapMode, setMarketCapMode] = useState('range')
-  const [marketCapValue, setMarketCapValue] = useState(null)
-  const [minMarketCap, setMinMarketCap] = useState(20)
-  const [maxMarketCap, setMaxMarketCap] = useState(1000)
+  const [marketCapMode, setMarketCapMode] = useState('greater')
+  const [marketCapValue, setMarketCapValue] = useState(2000)
+  const [minMarketCap, setMinMarketCap] = useState(null)
+  const [maxMarketCap, setMaxMarketCap] = useState(null)
 
   // 当前市场的指数配置
   const indexConfig = useMemo(() => indexConfigs[market] || indexConfigs.hk, [market])

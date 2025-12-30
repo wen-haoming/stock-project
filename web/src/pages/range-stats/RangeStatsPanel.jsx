@@ -1,13 +1,13 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Space, Spin } from 'antd'
-import { SearchOutlined, DownloadOutlined, CopyOutlined, CameraOutlined } from '@ant-design/icons'
+import { Card, DatePicker, Button, Tag, message, InputNumber, Select, Grid, Spin } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
 import { ListTable } from '@visactor/react-vtable'
 import axios from 'axios'
 import dayjs from 'dayjs'
-import * as XLSX from 'xlsx'
-import html2canvas from 'html2canvas'
 import StockDetailDrawer from './StockDetailDrawer'
 import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
+import { StockTableToolbar, exportColumnPresets } from '../../components/StockTable'
+import { upColor, downColor } from '../../utils/chart'
 
 const { RangePicker } = DatePicker
 const { useBreakpoint } = Grid
@@ -50,10 +50,6 @@ const getDatePresets = (market) => {
 
   return [...marketPresets, ...commonPresets]
 }
-
-// 颜色配置
-const upColor = '#ec5a5a'
-const downColor = '#47b262'
 
 export default function RangeStatsPanel({
   dateRange: externalDateRange,
@@ -270,103 +266,6 @@ export default function RangeStatsPanel({
     return parts.join(' | ')
   }, [dateRange, minChangePct, marketCapMode, marketCapValue, minMarketCap, maxMarketCap, selectedIndustry])
 
-  const handleExportExcel = useCallback(() => {
-    if (!allStockData.length) {
-      message.warning('没有数据可导出')
-      return
-    }
-
-    const title = getQueryTitle()
-    const exportData = allStockData.map((item, index) => ({
-      '排名': index + 1,
-      '代码': item.symbol,
-      '名称': item.name,
-      '起始价': item.startPrice?.toFixed(3),
-      '结束价': item.endPrice?.toFixed(3),
-      '涨幅(%)': item.changePct?.toFixed(2),
-      '现价': item.latestPrice?.toFixed(2),
-      '市值(亿)': item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
-      '市盈率': item.peRatio?.toFixed(2) || '-',
-      '市净率': item.pbRatio?.toFixed(2) || '-',
-      '换手率(%)': item.turnoverRate?.toFixed(2) || '-',
-    }))
-
-    const ws = XLSX.utils.json_to_sheet([])
-    XLSX.utils.sheet_add_aoa(ws, [[title]], { origin: 'A1' })
-    XLSX.utils.sheet_add_aoa(ws, [[]], { origin: 'A2' })
-    XLSX.utils.sheet_add_json(ws, exportData, { origin: 'A3' })
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }]
-    
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '区间涨幅')
-    
-    const fileName = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.xlsx`
-    XLSX.writeFile(wb, fileName)
-    message.success('导出成功')
-  }, [allStockData, dateRange, getQueryTitle])
-
-  const handleCopy = useCallback(async () => {
-    if (!allStockData.length) {
-      message.warning('没有数据可复制')
-      return
-    }
-
-    const title = getQueryTitle()
-    const header = ['排名', '代码', '名称', '起始价', '结束价', '涨幅(%)', '现价', '市值(亿)', '市盈率', '市净率', '换手率(%)'].join('\t')
-    const rows = allStockData.map((item, index) => [
-      index + 1,
-      item.symbol,
-      item.name,
-      item.startPrice?.toFixed(3),
-      item.endPrice?.toFixed(3),
-      item.changePct?.toFixed(2),
-      item.latestPrice?.toFixed(2),
-      item.totalMarketCap ? (item.totalMarketCap / 100000000).toFixed(2) : '-',
-      item.peRatio?.toFixed(2) || '-',
-      item.pbRatio?.toFixed(2) || '-',
-      item.turnoverRate?.toFixed(2) || '-',
-    ].join('\t'))
-
-    const text = [title, '', header, ...rows].join('\n')
-    
-    try {
-      await navigator.clipboard.writeText(text)
-      message.success(`已复制 ${allStockData.length} 条数据`)
-    } catch {
-      message.error('复制失败，请手动复制')
-    }
-  }, [allStockData, getQueryTitle])
-
-  const handleScreenshot = useCallback(async () => {
-    if (!tableCardRef.current || !allStockData.length) {
-      message.warning('没有数据可截图')
-      return
-    }
-
-    const hide = message.loading('正在生成截图...', 0)
-    
-    try {
-      const canvas = await html2canvas(tableCardRef.current, {
-        backgroundColor: '#fff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      })
-      
-      const link = document.createElement('a')
-      link.download = `区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}.png`
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-      
-      hide()
-      message.success('截图已保存')
-    } catch (error) {
-      hide()
-      console.error('截图失败:', error)
-      message.error('截图失败')
-    }
-  }, [allStockData, dateRange])
-
   // 排序后的数据
   const sortedStockData = useMemo(() => {
     if (!allStockData.length) return allStockData
@@ -472,6 +371,14 @@ export default function RangeStatsPanel({
       width: 75, 
       sort: true,
       fieldFormat: (record) => record.changePct != null ? `${record.changePct.toFixed(2)}%` : '-',
+      style: (args) => {
+        const record = args.table?.getCellOriginRecord(args.col, args.row)
+        if (!record) return {}
+        return { 
+          color: record.changePct >= 0 ? upColor : downColor,
+          fontWeight: 500
+        }
+      }
     },
     { 
       field: 'latestPrice', 
@@ -680,12 +587,15 @@ export default function RangeStatsPanel({
               </span>
               {allStockData.length > 0 && <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>共{allStockData.length}只</Tag>}
             </div>
-            {!isMobile && allStockData.length > 0 && (
-              <Space size="small">
-                <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>复制</Button>
-                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportExcel}>导出Excel</Button>
-                <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshot}>截图</Button>
-              </Space>
+            {!isMobile && (
+              <StockTableToolbar
+                data={sortedStockData}
+                columns={exportColumnPresets.rangeStats}
+                title={getQueryTitle()}
+                fileName={`区间涨幅_${dateRange[0]?.format('YYYYMMDD')}_${dateRange[1]?.format('YYYYMMDD')}`}
+                sheetName="区间涨幅"
+                containerRef={tableCardRef}
+              />
             )}
           </div>
         }

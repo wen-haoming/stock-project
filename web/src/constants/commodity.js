@@ -67,12 +67,14 @@ export const commodityConfig = {
     { name: '棉花', code: 'CT00Y', market: '101', region: 'international', label: 'ICE棉' },
   ],
   '金融板块': [
-    { name: '10年国债', code: 'Tm', market: '114', region: 'domestic' },
-    { name: '2年国债', code: 'TSm', market: '114', region: 'domestic' },
-    { name: '5年国债', code: 'TFm', market: '114', region: 'domestic' },
-    { name: '30年国债', code: 'TLm', market: '114', region: 'domestic' },
-    { name: '美国10年国债', code: 'ZN00Y', market: '101', region: 'international', label: '美10Y' },
-    { name: '美国2年国债', code: 'ZT00Y', market: '101', region: 'international', label: '美2Y' },
+    { name: '2年国债', code: '130130', market: '8', region: 'domestic' },
+    { name: '5年国债', code: '050130', market: '8', region: 'domestic' },
+    { name: '10年国债', code: '110130', market: '8', region: 'domestic' },
+    { name: '30年国债', code: '140130', market: '8', region: 'domestic' },
+    { name: '美国2年国债', code: 'ZT00Y', market: '101', region: 'international', label: '美2Y国债' },
+    { name: '美国5年国债', code: 'ZF00Y', market: '101', region: 'international', label: '美5Y国债' },
+    { name: '美国10年国债', code: 'ZN00Y', market: '101', region: 'international', label: '美10Y国债' },
+    { name: '美国30年国债', code: 'ZB00Y', market: '101', region: 'international', label: '美30Y国债' },
   ],
 }
 
@@ -85,11 +87,3 @@ export const categoryColors = {
   '农产品': '#52c41a',
   '金融板块': '#1890ff',
 }
-
-// 时间周期配置
-export const periodOptions = [
-  { label: '1月', value: '1m' },
-  { label: '3月', value: '3m' },
-  { label: '6月', value: '6m' },
-  { label: '1年', value: '1y' },
-]

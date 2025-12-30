@@ -11,11 +11,7 @@ import {
   BasicInfoCard, 
   NewsList, 
   AnnouncementTable,
-  TechnicalIndicatorsCard,
-  MarketPerformanceCard,
-  MoneyFlowCard,
-  RiskAssessmentCard,
-  ValuationCard,
+  StockIndicatorsPanel,
 } from './components'
 import { useTheme } from '../../contexts/ThemeContext'
 
@@ -557,17 +553,8 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         </Spin>
       </Card>
       
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', 
-        gap: 8 
-      }}>
-        <TechnicalIndicatorsCard klineData={klineData} />
-        <MarketPerformanceCard stock={displayStock} />
-        <MoneyFlowCard stock={displayStock} />
-        <RiskAssessmentCard klineData={klineData} />
-        <ValuationCard stock={displayStock} />
-      </div>
+      {/* 综合指标面板 */}
+      <StockIndicatorsPanel stock={displayStock} klineData={klineData} />
     </div>
   )
 

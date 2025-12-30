@@ -1,17 +1,17 @@
 import { memo } from 'react'
-import { Card, Tooltip } from 'antd'
+import { Tooltip } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../../../contexts/ThemeContext'
 
 /**
- * 市场表现卡片 - 多周期涨跌幅、相对表现
+ * 市场表现 - 多周期涨跌幅、相对表现
  */
 function MarketPerformanceCard({ stock }) {
   const { isDark } = useTheme()
 
-  const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
   const subTextColor = isDark ? '#999' : '#666'
+  const borderColor = isDark ? '#333' : '#f0f0f0'
 
   // 模拟数据（实际应从API获取）
   const performance = {
@@ -42,8 +42,8 @@ function MarketPerformanceCard({ stock }) {
       display: 'flex', 
       justifyContent: 'space-between', 
       alignItems: 'center',
-      padding: '4px 0',
-      borderBottom: isDark ? '1px solid #333' : '1px solid #f0f0f0'
+      padding: '3px 0',
+      borderBottom: `1px solid ${borderColor}`
     }}>
       <span style={{ color: subTextColor, fontSize: 11 }}>
         {label}
@@ -53,17 +53,13 @@ function MarketPerformanceCard({ stock }) {
           </Tooltip>
         )}
       </span>
-      <span style={{ fontSize: 12 }}>{value}</span>
+      <span style={{ fontSize: 11 }}>{value}</span>
     </div>
   )
 
   return (
-    <Card 
-      title="市场表现" 
-      size="small" 
-      style={cardStyle}
-      styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '4px 12px' } }}
-    >
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>市场表现</div>
       <PerformanceRow label="今日涨跌" value={formatPercent(performance.day1)} />
       <PerformanceRow label="5日涨跌" value={formatPercent(performance.day5)} tip="近5个交易日累计涨跌幅" />
       <PerformanceRow label="20日涨跌" value={formatPercent(performance.day20)} tip="近20个交易日累计涨跌幅" />
@@ -82,7 +78,7 @@ function MarketPerformanceCard({ stock }) {
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center',
-        padding: '4px 0'
+        padding: '3px 0'
       }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
           行业排名
@@ -90,11 +86,11 @@ function MarketPerformanceCard({ stock }) {
             <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 9 }} />
           </Tooltip>
         </span>
-        <span style={{ color: textColor, fontSize: 12, fontWeight: 500 }}>
+        <span style={{ color: textColor, fontSize: 11, fontWeight: 500 }}>
           {performance.industryRank}/{performance.industryTotal}
         </span>
       </div>
-    </Card>
+    </div>
   )
 }
 

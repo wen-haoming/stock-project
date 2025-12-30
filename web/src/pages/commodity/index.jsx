@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react'
-import { Row, Col, Radio, Grid, Button, Segmented, message } from 'antd'
+import { Radio, Grid, Button, Segmented, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
-import { commodityConfig, categoryColors, periodOptions } from '@/constants/commodity'
+import { commodityConfig, categoryColors } from '@/constants/commodity'
 import { CommodityCard, CommodityDetailDrawer } from './components'
 import { useTheme } from '../../contexts/ThemeContext'
 
@@ -15,10 +15,9 @@ export default function CommodityPage() {
   const screens = useBreakpoint()
   const isMobile = !screens.md
   const [searchParams, setSearchParams] = useSearchParams()
-  const { theme: currentTheme, isDark } = useTheme()
+  const { theme: currentTheme } = useTheme()
   
   // 从 URL 读取筛选条件
-  const period = searchParams.get('period') || '3m'
   const region = searchParams.get('region') || 'all'
   const selectedCategory = searchParams.get('category') || 'all'
   
@@ -34,7 +33,7 @@ export default function CommodityPage() {
   const updateSearchParams = useCallback((key, value) => {
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev)
-      if (value === 'all' || value === '3m') {
+      if (value === 'all') {
         newParams.delete(key)
       } else {
         newParams.set(key, value)
@@ -43,7 +42,6 @@ export default function CommodityPage() {
     })
   }, [setSearchParams])
 
-  const setPeriod = (value) => updateSearchParams('period', value)
   const setRegion = (value) => updateSearchParams('region', value)
   const setCategory = (value) => updateSearchParams('category', value)
 
@@ -89,18 +87,6 @@ export default function CommodityPage() {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Radio.Group 
-              value={period} 
-              onChange={(e) => setPeriod(e.target.value)} 
-              size="small"
-              optionType="button"
-            >
-              {periodOptions.map(opt => (
-                <Radio.Button key={opt.value} value={opt.value}>
-                  {opt.label}
-                </Radio.Button>
-              ))}
-            </Radio.Group>
             <Button 
               size="small" 
               icon={<ReloadOutlined />}
@@ -172,20 +158,23 @@ export default function CommodityPage() {
                 ({items.length})
               </span>
             </div>
-            <Row gutter={[isMobile ? 8 : 12, isMobile ? 8 : 12]}>
+            <div style={{ 
+              display: 'flex', 
+              flexWrap: 'wrap', 
+              gap: isMobile ? 8 : 12,
+            }}>
               {items.map((commodity, idx) => (
-                <Col key={`${commodity.code}-${idx}`} xs={12} sm={8} md={6} lg={4} xl={4}>
-                  <CommodityCard 
-                    commodity={commodity} 
-                    period={period} 
-                    isMobile={isMobile}
-                    categoryColor={categoryColors[category]}
-                    onClick={(c, d) => handleCardClick(c, d, categoryColors[category])}
-                    refreshKey={refreshKey}
-                  />
-                </Col>
+                <CommodityCard 
+                  key={`${commodity.code}-${idx}`}
+                  commodity={commodity} 
+                  isMobile={isMobile}
+                  categoryColor={categoryColors[category]}
+                  onClick={(c, d) => handleCardClick(c, d, categoryColors[category])}
+                  refreshKey={refreshKey}
+                  cardWidth={isMobile ? 'calc(50% - 4px)' : 'calc(16.666% - 10px)'}
+                />
               ))}
-            </Row>
+            </div>
           </div>
         )
       })}

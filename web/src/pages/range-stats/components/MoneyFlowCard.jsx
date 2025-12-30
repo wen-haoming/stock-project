@@ -1,17 +1,17 @@
 import { memo } from 'react'
-import { Card, Progress, Tooltip } from 'antd'
+import { Progress, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../../../contexts/ThemeContext'
 
 /**
- * 资金流向卡片 - 主力/大单/中单/小单净流入
+ * 资金流向 - 主力/大单/中单/小单净流入
  */
 function MoneyFlowCard({ stock }) {
   const { isDark } = useTheme()
 
-  const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
   const subTextColor = isDark ? '#999' : '#666'
+  const borderColor = isDark ? '#333' : '#f0f0f0'
 
   // 模拟数据（实际应从API获取）
   const moneyFlow = {
@@ -28,14 +28,14 @@ function MoneyFlowCard({ stock }) {
   const formatMoney = (val) => {
     const color = val > 0 ? '#f5222d' : val < 0 ? '#52c41a' : textColor
     return (
-      <span style={{ color, fontWeight: 500, fontSize: 12 }}>
+      <span style={{ color, fontWeight: 500, fontSize: 11 }}>
         {val > 0 ? '+' : ''}{val.toFixed(2)}亿
       </span>
     )
   }
 
   const FlowItem = ({ label, value, percent, tip }) => (
-    <div style={{ marginBottom: 6 }}>
+    <div style={{ marginBottom: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
           {label}
@@ -52,18 +52,14 @@ function MoneyFlowCard({ stock }) {
         showInfo={false} 
         size="small" 
         strokeColor={value > 0 ? '#f5222d' : '#52c41a'}
-        trailColor={isDark ? '#333' : '#f0f0f0'}
+        trailColor={borderColor}
       />
     </div>
   )
 
   return (
-    <Card 
-      title="资金流向" 
-      size="small" 
-      style={cardStyle}
-      styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-    >
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>资金流向</div>
       <FlowItem 
         label="主力净流入" 
         value={moneyFlow.main} 
@@ -89,8 +85,8 @@ function MoneyFlowCard({ stock }) {
         tip="10万元以下订单净买入"
       />
       
-      <div style={{ borderTop: isDark ? '1px solid #333' : '1px solid #f0f0f0', paddingTop: 6, marginTop: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+      <div style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 4, marginTop: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
           <span style={{ color: subTextColor, fontSize: 11 }}>
             北向资金
             <Tooltip title="沪深港通北向资金净买入">
@@ -106,10 +102,10 @@ function MoneyFlowCard({ stock }) {
               <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 9 }} />
             </Tooltip>
           </span>
-          <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>{moneyFlow.institutionHold}%</span>
+          <span style={{ color: textColor, fontWeight: 500, fontSize: 11 }}>{moneyFlow.institutionHold}%</span>
         </div>
       </div>
-    </Card>
+    </div>
   )
 }
 

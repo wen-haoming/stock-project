@@ -1,14 +1,39 @@
-import { useState, useEffect } from 'react'
-import { Drawer, Spin, Empty, Segmented, List, Tag } from 'antd'
-import { RiseOutlined, FallOutlined, LinkOutlined } from '@ant-design/icons'
-import { fetchCommodityKline, fetchCommodityNews } from '@/api/commodity'
+import { useState, useEffect, useCallback } from 'react'
+import { Drawer, Spin, Empty, Tag, Card, Radio, Button, Space } from 'antd'
+import { RiseOutlined, FallOutlined, PlusOutlined, MinusOutlined } from '@ant-design/icons'
+import { fetchCommodityKline, fetchCommodityTrend } from '@/api/commodity'
 import { getImpactAnalysis } from '@/constants/impactAnalysis'
-import DetailChart from './DetailChart'
+import { useTheme } from '../../../contexts/ThemeContext'
+import CommodityKlineChart from './CommodityKlineChart'
+
+// K线周期配置
+const KLINE_PERIODS = [
+  { key: 'trend', label: '分时' },
+  { key: 'day', label: '日K' },
+  { key: 'week', label: '周K' },
+  { key: 'month', label: '月K' },
+]
+
+// 时间范围配置
+const TIME_RANGES = [
+  { label: '1月', months: 1 },
+  { label: '3月', months: 3 },
+  { label: '6月', months: 6 },
+  { label: '1年', months: 12 },
+  { label: '3年', months: 36 },
+]
+
+// K线类型映射
+const KLINE_TYPE_MAP = {
+  day: 101,
+  week: 102,
+  month: 103,
+}
 
 /**
  * 股票影响区块组件
  */
-const StockImpactSection = ({ marketName, impact: marketImpact }) => {
+const StockImpactSection = ({ marketName, impact: marketImpact, isDark }) => {
   const trendColor = {
     '利好': '#389e0d',
     '利空': '#cf1322',
@@ -20,16 +45,16 @@ const StockImpactSection = ({ marketName, impact: marketImpact }) => {
   
   return (
     <div style={{ 
-      background: '#fafafa', 
+      background: isDark ? 'rgba(255,255,255,0.04)' : '#fafafa', 
       borderRadius: 8, 
       padding: 12,
       marginBottom: 12 
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontWeight: 600, color: '#262626' }}>{marketName}</span>
+        <span style={{ fontWeight: 600 }}>{marketName}</span>
         <Tag color={trendColor} style={{ margin: 0 }}>{marketImpact.trend}</Tag>
       </div>
-      <div style={{ color: '#595959', fontSize: 13, marginBottom: 8 }}>
+      <div style={{ color: isDark ? '#aaa' : '#595959', fontSize: 13, marginBottom: 8 }}>
         {marketImpact.detail}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -53,13 +78,13 @@ const StockImpactSection = ({ marketName, impact: marketImpact }) => {
  * 商品详情抽屉组件
  */
 const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData, categoryColor, isMobile }) => {
-  const [news, setNews] = useState([])
-  const [newsLoading, setNewsLoading] = useState(false)
-  const [klineType, setKlineType] = useState(101)
-  const [chartType, setChartType] = useState('kline')
+  const { theme: currentTheme, isDark } = useTheme()
+  const [klinePeriod, setKlinePeriod] = useState('trend')
   const [detailData, setDetailData] = useState(null)
   const [chartLoading, setChartLoading] = useState(false)
+  const [timeRangeIndex, setTimeRangeIndex] = useState(1) // 默认3月
   
+  // 使用 detailData 或 initialData
   const data = detailData || initialData
   const isUp = data?.changePct >= 0
   const color = isUp ? '#cf1322' : '#389e0d'
@@ -67,36 +92,110 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
   const displayName = commodity?.label || commodity?.name || ''
   const impact = commodity ? getImpactAnalysis(commodity.name, data?.changePct || 0, data?.latestPrice || 0) : null
 
-  // 加载K线数据
-  useEffect(() => {
-    if (visible && commodity) {
-      setChartLoading(true)
-      fetchCommodityKline(commodity.code, commodity.market, '1y', klineType).then(result => {
-        setDetailData(result)
-        setChartLoading(false)
-      })
-    }
-  }, [visible, commodity, klineType])
+  // 当前是否为分时模式
+  const isTrendMode = klinePeriod === 'trend'
 
-  // 加载新闻
+  // 打开时重置状态并加载数据
   useEffect(() => {
     if (visible && commodity) {
-      setNewsLoading(true)
-      fetchCommodityNews(commodity.name).then(list => {
-        setNews(list)
-        setNewsLoading(false)
-      })
+      setKlinePeriod('trend')
+      setDetailData(null)
+      setChartLoading(true)
+      setTimeRangeIndex(1)
+      
+      // 加载分时数据
+      fetchCommodityTrend(commodity.code, commodity.market)
+        .then(result => {
+          setDetailData(result)
+        })
+        .finally(() => {
+          setChartLoading(false)
+        })
     }
   }, [visible, commodity])
 
-  // 关闭时重置状态
-  useEffect(() => {
-    if (!visible) {
-      setDetailData(null)
-      setKlineType(101)
-      setChartType('kline')
+  // 加载K线数据
+  const loadKlineData = useCallback(async (period, rangeMonths = 3) => {
+    if (!commodity) return
+    
+    setChartLoading(true)
+    try {
+      let result
+      if (period === 'trend') {
+        result = await fetchCommodityTrend(commodity.code, commodity.market)
+      } else {
+        const klineType = KLINE_TYPE_MAP[period] || 101
+        const periodMap = { 1: '1m', 3: '3m', 6: '6m', 12: '1y', 36: '3y' }
+        result = await fetchCommodityKline(commodity.code, commodity.market, periodMap[rangeMonths] || '3m', klineType)
+      }
+      setDetailData(result)
+    } finally {
+      setChartLoading(false)
     }
-  }, [visible])
+  }, [commodity])
+
+  // 处理周期变化
+  const handlePeriodChange = (period) => {
+    setKlinePeriod(period)
+    setTimeRangeIndex(1) // 重置为3月
+    loadKlineData(period, 3)
+  }
+
+  // 放大（减少时间范围）
+  const handleZoomIn = useCallback(() => {
+    if (timeRangeIndex > 0) {
+      const newIndex = timeRangeIndex - 1
+      setTimeRangeIndex(newIndex)
+      loadKlineData(klinePeriod, TIME_RANGES[newIndex].months)
+    }
+  }, [timeRangeIndex, klinePeriod, loadKlineData])
+
+  // 缩小（增加时间范围）
+  const handleZoomOut = useCallback(() => {
+    if (timeRangeIndex < TIME_RANGES.length - 1) {
+      const newIndex = timeRangeIndex + 1
+      setTimeRangeIndex(newIndex)
+      loadKlineData(klinePeriod, TIME_RANGES[newIndex].months)
+    }
+  }, [timeRangeIndex, klinePeriod, loadKlineData])
+
+  // K线图操作栏
+  const klineExtra = (
+    <Space size={4}>
+      <Radio.Group 
+        value={klinePeriod} 
+        onChange={(e) => handlePeriodChange(e.target.value)} 
+        size="small"
+        buttonStyle="solid"
+      >
+        {KLINE_PERIODS.map(p => (
+          <Radio.Button key={p.key} value={p.key} style={{ padding: '0 8px' }}>{p.label}</Radio.Button>
+        ))}
+      </Radio.Group>
+      {!isTrendMode && (
+        <>
+          <Button
+            type="default"
+            shape="circle"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={handleZoomIn}
+            disabled={timeRangeIndex === 0}
+            title={`放大 (当前: ${TIME_RANGES[timeRangeIndex].label})`}
+          />
+          <Button
+            type="default"
+            shape="circle"
+            size="small"
+            icon={<MinusOutlined />}
+            onClick={handleZoomOut}
+            disabled={timeRangeIndex === TIME_RANGES.length - 1}
+            title={`缩小 (当前: ${TIME_RANGES[timeRangeIndex].label})`}
+          />
+        </>
+      )}
+    </Space>
+  )
 
   if (!commodity) return null
 
@@ -116,21 +215,23 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
             color: commodity.region === 'domestic' ? '#d48806' : '#1677ff',
             padding: '2px 8px',
             borderRadius: 10,
-            background: commodity.region === 'domestic' ? '#fffbe6' : '#e6f4ff',
+            background: commodity.region === 'domestic' 
+              ? (isDark ? 'rgba(212,136,6,0.2)' : '#fffbe6') 
+              : (isDark ? 'rgba(22,119,255,0.2)' : '#e6f4ff'),
           }}>
             {commodity.region === 'domestic' ? '国内' : '国际'}
           </span>
         </div>
       }
       placement="right"
-      width={isMobile ? '100%' : 480}
+      width={isMobile ? '100%' : '50%'}
       onClose={onClose}
       open={visible}
       styles={{ body: { padding: 16 } }}
     >
       {/* 价格信息 */}
       <div style={{ 
-        background: '#fafafa', 
+        background: isDark ? 'rgba(255,255,255,0.04)' : '#fafafa', 
         borderRadius: 8, 
         padding: 16, 
         marginBottom: 16 
@@ -149,134 +250,50 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
             {isUp ? '+' : ''}{data?.changePct?.toFixed(2)}%
           </span>
         </div>
-        <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
+        <div style={{ color: isDark ? '#888' : '#8c8c8c', fontSize: 12, marginTop: 4 }}>
           {impact?.desc}
         </div>
       </div>
 
-      {/* 历史走势图 */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ 
-          fontSize: 14, 
-          fontWeight: 600, 
-          color: '#262626', 
-          marginBottom: 12,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
+      {/* K线走势图 */}
+      <Card 
+        title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 3, height: 14, borderRadius: 2, background: categoryColor }} />
-            历史走势
+            {isTrendMode ? '分时走势' : `K线走势 (${TIME_RANGES[timeRangeIndex].label})`}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Segmented
-              size="small"
-              value={klineType}
-              onChange={setKlineType}
-              options={[
-                { label: '日K', value: 101 },
-                { label: '周K', value: 102 },
-                { label: '月K', value: 103 },
-              ]}
-              style={{ background: '#f5f5f5' }}
-            />
-            <Segmented
-              size="small"
-              value={chartType}
-              onChange={setChartType}
-              options={[
-                { label: 'K线', value: 'kline' },
-                { label: '折线', value: 'line' },
-              ]}
-              style={{ background: '#f5f5f5' }}
-            />
-          </div>
-        </div>
+        }
+        size="small" 
+        style={{ marginBottom: 16 }}
+        extra={klineExtra}
+      >
         <Spin spinning={chartLoading}>
           {data?.prices?.length ? (
-            <DetailChart data={data} color={color} chartType={chartType} />
+            <CommodityKlineChart data={data} color={color} isTrend={isTrendMode} />
           ) : (
-            <Empty description="暂无K线数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '40px 0' }} />
+            <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '40px 0' }} />
           )}
         </Spin>
-      </div>
+      </Card>
 
       {/* 市场影响分析 */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ 
-          fontSize: 14, 
-          fontWeight: 600, 
-          color: '#262626', 
-          marginBottom: 12,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6
-        }}>
-          <span style={{ width: 3, height: 14, borderRadius: 2, background: categoryColor }} />
-          市场影响分析
-        </div>
-        
+      <Card 
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 3, height: 14, borderRadius: 2, background: categoryColor }} />
+            市场影响分析
+          </div>
+        }
+        size="small"
+      >
         {impact && (
           <>
-            <StockImpactSection marketName="A股" impact={impact.aStock} />
-            <StockImpactSection marketName="港股" impact={impact.hkStock} />
-            <StockImpactSection marketName="美股" impact={impact.usStock} />
+            <StockImpactSection marketName="A股" impact={impact.aStock} isDark={isDark} />
+            <StockImpactSection marketName="港股" impact={impact.hkStock} isDark={isDark} />
+            <StockImpactSection marketName="美股" impact={impact.usStock} isDark={isDark} />
           </>
         )}
-      </div>
-
-      {/* 相关新闻 */}
-      <div>
-        <div style={{ 
-          fontSize: 14, 
-          fontWeight: 600, 
-          color: '#262626', 
-          marginBottom: 12,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6
-        }}>
-          <span style={{ width: 3, height: 14, borderRadius: 2, background: categoryColor }} />
-          相关新闻
-        </div>
-        
-        <Spin spinning={newsLoading}>
-          {news.length > 0 ? (
-            <List
-              size="small"
-              dataSource={news}
-              renderItem={(item) => (
-                <List.Item style={{ padding: '8px 0', borderBottom: '1px solid #f5f5f5' }}>
-                  <div style={{ width: '100%' }}>
-                    <a 
-                      href={item.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ 
-                        color: '#262626', 
-                        fontSize: 13,
-                        display: 'block',
-                        marginBottom: 4,
-                        lineHeight: 1.5
-                      }}
-                    >
-                      {item.title}
-                      <LinkOutlined style={{ marginLeft: 4, fontSize: 10, color: '#8c8c8c' }} />
-                    </a>
-                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#8c8c8c' }}>
-                      <span>{item.source}</span>
-                      <span>{item.time}</span>
-                    </div>
-                  </div>
-                </List.Item>
-              )}
-            />
-          ) : (
-            <Empty description="暂无相关新闻" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Spin>
-      </div>
+      </Card>
     </Drawer>
   )
 }

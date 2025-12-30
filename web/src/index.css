@@ -13,16 +13,24 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* 日期选择器预设面板宽度 */
+/* 日期选择器预设面板样式 */
 .ant-picker-presets {
-  min-width: 280px !important;
+  /* max-width: 120px !important; */
+  min-width: auto !important;
+}
+
+.ant-picker-presets ul {
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 .ant-picker-presets ul li {
   white-space: nowrap !important;
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  margin: 0 !important;
 }
 
-/* 预设选项样式 */
-.ant-picker-presets ul li {
-  font-size: 13px;
+.ant-picker-presets ul li span {
+  font-size: 12px !important;
 }

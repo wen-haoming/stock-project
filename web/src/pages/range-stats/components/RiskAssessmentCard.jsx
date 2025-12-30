@@ -1,10 +1,10 @@
 import { memo, useMemo } from 'react'
-import { Card, Progress, Tooltip, Tag } from 'antd'
+import { Progress, Tooltip, Tag } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../../../contexts/ThemeContext'
 
 /**
- * 风险评估卡片 - 波动率、最大回撤、夏普比率、Beta
+ * 风险评估 - 波动率、最大回撤、夏普比率、Beta
  */
 function RiskAssessmentCard({ klineData }) {
   const { isDark } = useTheme()
@@ -62,22 +62,23 @@ function RiskAssessmentCard({ klineData }) {
     return { volatility, maxDrawdown, sharpeRatio, beta, riskLevel, riskColor }
   }, [klineData])
 
-  const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
   const subTextColor = isDark ? '#999' : '#666'
+  const borderColor = isDark ? '#333' : '#f0f0f0'
 
   if (!riskMetrics) {
     return (
-      <Card title="风险评估" size="small" style={cardStyle} styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}>
-        <div style={{ color: '#999', textAlign: 'center', padding: 12 }}>暂无数据</div>
-      </Card>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>风险评估</div>
+        <div style={{ color: '#999', fontSize: 11 }}>暂无数据</div>
+      </div>
     )
   }
 
   const { volatility, maxDrawdown, sharpeRatio, beta, riskLevel, riskColor } = riskMetrics
 
   const MetricItem = ({ label, value, unit = '', tip, progress, progressColor }) => (
-    <div style={{ marginBottom: 6 }}>
+    <div style={{ marginBottom: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
           {label}
@@ -87,7 +88,7 @@ function RiskAssessmentCard({ klineData }) {
             </Tooltip>
           )}
         </span>
-        <span style={{ color: textColor, fontWeight: 500, fontSize: 12 }}>
+        <span style={{ color: textColor, fontWeight: 500, fontSize: 11 }}>
           {value}{unit}
         </span>
       </div>
@@ -97,24 +98,18 @@ function RiskAssessmentCard({ klineData }) {
           showInfo={false} 
           size="small" 
           strokeColor={progressColor || '#1890ff'}
-          trailColor={isDark ? '#333' : '#f0f0f0'}
+          trailColor={borderColor}
         />
       )}
     </div>
   )
 
   return (
-    <Card 
-      title={
-        <span>
-          风险评估
-          <Tag color={riskColor} style={{ marginLeft: 8, fontSize: 10 }}>{riskLevel}风险</Tag>
-        </span>
-      }
-      size="small" 
-      style={cardStyle}
-      styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-    >
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+        风险评估
+        <Tag color={riskColor} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{riskLevel}风险</Tag>
+      </div>
       <MetricItem 
         label="年化波动率" 
         value={volatility.toFixed(1)} 
@@ -141,7 +136,7 @@ function RiskAssessmentCard({ klineData }) {
         value={beta.toFixed(2)} 
         tip="相对大盘的波动性，>1波动大于大盘，<1波动小于大盘"
       />
-    </Card>
+    </div>
   )
 }
 

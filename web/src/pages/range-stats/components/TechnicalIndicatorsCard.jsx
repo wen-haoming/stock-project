@@ -1,10 +1,10 @@
 import { memo, useMemo } from 'react'
-import { Card, Tooltip, Progress } from 'antd'
+import { Tooltip, Progress } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { useTheme } from '../../../contexts/ThemeContext'
 
 /**
- * 技术指标卡片 - RSI、MACD、布林带、量比
+ * 技术指标 - RSI、MACD、布林带、量比
  */
 function TechnicalIndicatorsCard({ klineData }) {
   const { isDark } = useTheme()
@@ -78,15 +78,16 @@ function TechnicalIndicatorsCard({ klineData }) {
     return ema
   }
 
-  const cardStyle = { background: isDark ? '#1f1f1f' : '#fff' }
   const textColor = isDark ? '#e0e0e0' : '#333'
   const subTextColor = isDark ? '#999' : '#666'
+  const borderColor = isDark ? '#333' : '#f0f0f0'
 
   if (!indicators) {
     return (
-      <Card title="技术指标" size="small" style={cardStyle} styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined }, body: { padding: '8px 12px' } }}>
-        <div style={{ color: '#999', textAlign: 'center', padding: 12 }}>暂无数据</div>
-      </Card>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>技术指标</div>
+        <div style={{ color: '#999', fontSize: 11 }}>暂无数据</div>
+      </div>
     )
   }
 
@@ -114,7 +115,7 @@ function TechnicalIndicatorsCard({ klineData }) {
   }
 
   const IndicatorItem = ({ label, value, unit = '', status, tip, progress }) => (
-    <div style={{ marginBottom: 6 }}>
+    <div style={{ marginBottom: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
         <span style={{ color: subTextColor, fontSize: 11 }}>
           {label}
@@ -124,7 +125,7 @@ function TechnicalIndicatorsCard({ klineData }) {
             </Tooltip>
           )}
         </span>
-        <span style={{ color: status?.color || textColor, fontWeight: 500, fontSize: 12 }}>
+        <span style={{ color: status?.color || textColor, fontWeight: 500, fontSize: 11 }}>
           {value !== null ? `${value}${unit}` : '-'}
           {status && <span style={{ marginLeft: 4, fontSize: 10 }}>({status.text})</span>}
         </span>
@@ -135,19 +136,15 @@ function TechnicalIndicatorsCard({ klineData }) {
           showInfo={false} 
           size="small" 
           strokeColor={status?.color || '#1890ff'}
-          trailColor={isDark ? '#333' : '#f0f0f0'}
+          trailColor={borderColor}
         />
       )}
     </div>
   )
 
   return (
-    <Card 
-      title="技术指标" 
-      size="small" 
-      style={cardStyle}
-      styles={{ header: { color: textColor, borderBottom: isDark ? '1px solid #333' : undefined, minHeight: 32, padding: '0 12px' }, body: { padding: '8px 12px' } }}
-    >
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: textColor, marginBottom: 6 }}>技术指标</div>
       <IndicatorItem 
         label="RSI(14)" 
         value={rsi?.toFixed(1)} 
@@ -174,7 +171,7 @@ function TechnicalIndicatorsCard({ klineData }) {
         status={volumeRatio !== null ? getVolumeStatus(volumeRatio) : null}
         tip="当日成交量与5日平均成交量的比值"
       />
-    </Card>
+    </div>
   )
 }
 

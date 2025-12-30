@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Card, Spin, Grid, Tag, DatePicker, Collapse, Typography, List, Empty } from 'antd'
+import { Card, Spin, Grid, Tag, DatePicker, Collapse, Typography, List, Empty, Row, Col } from 'antd'
 import { LinkOutlined, ReadOutlined, FileTextOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import IndexMobile from './IndexMobile'
+import { ExchangeKlineChart, TopGainersTable } from './components'
 import { useTheme, getEChartsTheme } from '../../contexts/ThemeContext'
 
 const { useBreakpoint } = Grid
@@ -554,40 +555,65 @@ function MarketOverviewPC() {
   }
 
   return (
-    <Card
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 'bold' }}>汇率走势</span>
-          <RangePicker
-            value={dateRange}
-            onChange={handleDateRangeChange}
-            allowClear={true}
-            size="middle"
-            style={{ width: 260 }}
-            presets={datePresets}
-          />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {renderChangeTag('美元/CNH', exchangeChange, exchangeRateConfig.usdcny.color)}
-            {renderChangeTag('恒指', hsiChange, indexConfigs.hsi.color)}
-            {renderChangeTag('上证', shChange, indexConfigs.sh.color)}
-          </div>
-          <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto' }}>（使用工具栏画笔选择区间）</span>
-        </div>
-      }
-      size="small"
-      styles={{ body: { padding: 0 } }}
-    >
-      <div style={{ position: 'relative' }}>
-        {loading && (
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', zIndex: 10 }}>
-            <Spin size="large" />
-          </div>
-        )}
-        <div ref={chartRef} style={{ height: 500 }} />
-      </div>
+    <div>
+      {/* 上部：汇率走势图 + K线图 */}
+      <Row gutter={16}>
+        {/* 左侧：汇率走势对比图 */}
+        <Col span={14}>
+          <Card
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 'bold' }}>汇率走势</span>
+                <RangePicker
+                  value={dateRange}
+                  onChange={handleDateRangeChange}
+                  allowClear={true}
+                  size="small"
+                  style={{ width: 240 }}
+                  presets={datePresets}
+                />
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {renderChangeTag('美元/CNH', exchangeChange, exchangeRateConfig.usdcny.color)}
+                  {renderChangeTag('恒指', hsiChange, indexConfigs.hsi.color)}
+                  {renderChangeTag('上证', shChange, indexConfigs.sh.color)}
+                </div>
+              </div>
+            }
+            extra={<span style={{ fontSize: 11, color: '#999' }}>（画笔选择区间）</span>}
+            size="small"
+            styles={{ body: { padding: 0 } }}
+          >
+            <div style={{ position: 'relative' }}>
+              {loading && (
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', zIndex: 10 }}>
+                  <Spin size="large" />
+                </div>
+              )}
+              <div ref={chartRef} style={{ height: 450 }} />
+            </div>
+          </Card>
+        </Col>
+
+        {/* 右侧：汇率K线图 */}
+        <Col span={10}>
+          <Card size="small" styles={{ body: { padding: 12 } }}>
+            <ExchangeKlineChart height={420} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 涨幅榜 */}
+      <Row gutter={16} style={{ marginTop: 16 }}>
+        <Col span={12}>
+          <TopGainersTable market="a" title="A股涨幅榜" height={350} />
+        </Col>
+        <Col span={12}>
+          <TopGainersTable market="hk" title="港股涨幅榜" height={350} />
+        </Col>
+      </Row>
 
       {/* 底部内容：左侧科普 + 右侧新闻 */}
-      <div style={{ display: 'flex', gap: 16, padding: 16, borderTop: `1px solid ${currentTheme.custom.borderColor}`, background: currentTheme.custom.bgColorSecondary }}>
+      <div style={{ display: 'flex', gap: 16, padding: 16, marginTop: 16, borderRadius: 8, background: currentTheme.custom.bgColorSecondary }}>
         {/* 左侧：汇率科普内容 */}
         <Card 
           title={<span><ReadOutlined style={{ marginRight: 8 }} />汇率基础科普</span>}
@@ -699,6 +725,6 @@ function MarketOverviewPC() {
           <ExchangeRateNews />
         </Card>
       </div>
-    </Card>
+    </div>
   )
 }
