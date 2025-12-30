@@ -5,7 +5,19 @@ import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
 import { fetchStockKline, fetchStockTrend, fetchStockNews, fetchFinanceData, fetchAnnouncements, fetchStockInfo } from '@/api/stock'
 import { reportTypeOptions, financeMetrics, financeTableColumns } from '@/constants/finance'
-import { StockKlineChart, FinanceChart, BasicInfoCard, NewsList, AnnouncementTable } from './components'
+import { 
+  StockKlineChart, 
+  FinanceChart, 
+  BasicInfoCard, 
+  NewsList, 
+  AnnouncementTable,
+  TechnicalIndicatorsCard,
+  MarketPerformanceCard,
+  MoneyFlowCard,
+  RiskAssessmentCard,
+  ValuationCard,
+} from './components'
+import { useTheme } from '../../contexts/ThemeContext'
 
 // 自选股存储 key（与 watchlist 页面保持一致）
 const WATCHLIST_STORAGE_KEY = 'watchlist_data'
@@ -82,6 +94,7 @@ const TIME_RANGES = [
  * 股票详情组件
  */
 function StockDetail({ stock, market = 'hk', dateRange }) {
+  const { theme: currentTheme } = useTheme()
   const [activeTab, setActiveTab] = useState('quote')
   const [loading, setLoading] = useState(false)
   const [stockInfo, setStockInfo] = useState(null)  // 股票基础信息
@@ -101,6 +114,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   const [announcementLoading, setAnnouncementLoading] = useState(false)
   const [announcementCategory, setAnnouncementCategory] = useState('0')
   const [isWatchlisted, setIsWatchlisted] = useState(false)
+  const [showZhixing, setShowZhixing] = useState(false) // 双线战法开关
   
   // 记录已加载的 Tab，避免重复加载
   const loadedTabsRef = useRef(new Set())
@@ -197,6 +211,22 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     }
   }, [loadKlineData])
 
+  // 切换指标类型（BBI/双线）- 双线需要更多数据
+  const handleIndicatorChange = useCallback((type) => {
+    const isZhixing = type === 'zhixing'
+    setShowZhixing(isZhixing)
+    
+    // 双线战法需要MA114，至少需要8个月数据（约170个交易日）
+    // 如果当前数据不足，自动扩大范围
+    if (isZhixing && klinePeriod === 'day' && TIME_RANGES[klineRangeIndex].months < 8) {
+      const minRangeIndex = TIME_RANGES.findIndex(r => r.months >= 8)
+      if (minRangeIndex !== -1 && minRangeIndex !== klineRangeIndex) {
+        setKlineRangeIndex(minRangeIndex)
+        loadKlineData(TIME_RANGES[minRangeIndex].months, klinePeriod)
+      }
+    }
+  }, [klinePeriod, klineRangeIndex, loadKlineData])
+
   // 报告类型变化
   const handleReportTypeChange = useCallback((value) => {
     setReportType(value)
@@ -248,40 +278,49 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     loadAnnouncements(page, pageSize, announcementCategory)
   }, [loadAnnouncements, announcementCategory])
 
-  // 加载数据 - 只加载当前 Tab 需要的核心数据
+  // 加载数据 - 保持当前操作状态，只重置数据
   const loadData = useCallback(async () => {
     if (!stock) return
     
     setLoading(true)
-    // 重置所有状态
+    // 只重置数据，不重置用户的操作状态（如 Tab、K线周期等）
     setStockInfo(null)
     setKlineData(null)
-    setKlinePeriod('day')
-    setKlineRangeIndex(1) // 默认3个月
     setFinanceData(null)
     setStockNews([])
-    setFinanceMetric('netProfit')
-    setReportType('')
     setAnnouncements([])
     setAnnouncementTotal(0)
-    setAnnouncementPagination({ current: 1, pageSize: 10 })
-    setAnnouncementCategory('0')
-    loadedTabsRef.current = new Set(['quote']) // 重置已加载的 Tab
+    // 重置已加载的 Tab 标记，以便重新加载新股票的数据
+    loadedTabsRef.current = new Set()
 
     try {
-      // 只加载行情 Tab 需要的数据：股票信息 + K线（默认3个月）
-      const [info, kline] = await Promise.all([
-        fetchStockInfo(stock.symbol, stock.name, market),
-        fetchStockKline(stock.symbol, market, 3, 'day'),
-      ])
+      // 根据当前 K线周期加载数据
+      const currentPeriod = klinePeriod
+      const currentRangeIndex = klineRangeIndex
+      
+      // 加载股票信息
+      const info = await fetchStockInfo(stock.symbol, stock.name, market)
       setStockInfo(info)
+      
+      // 根据当前周期加载 K线数据
+      let kline
+      if (currentPeriod === 'trend') {
+        kline = await fetchStockTrend(stock.symbol, market, 1)
+        kline.isTrend = true
+      } else {
+        const months = TIME_RANGES[currentRangeIndex]?.months || 3
+        kline = await fetchStockKline(stock.symbol, market, months, currentPeriod)
+      }
       setKlineData(kline)
+      
+      // 标记当前 Tab 已加载
+      loadedTabsRef.current.add(activeTab)
     } catch (error) {
       console.error('加载数据失败:', error)
     } finally {
       setLoading(false)
     }
-  }, [stock, market])
+  }, [stock, market, klinePeriod, klineRangeIndex, activeTab])
 
   // Tab 切换时懒加载数据
   const handleTabChange = useCallback((key) => {
@@ -448,6 +487,16 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   // K线控制栏
   const klineExtra = (
     <Space size="small">
+      {klinePeriod !== 'trend' && (
+        <Radio.Group 
+          value={showZhixing ? 'zhixing' : 'bbi'} 
+          onChange={(e) => handleIndicatorChange(e.target.value)}
+          size="small"
+        >
+          <Radio.Button value="bbi" style={{ padding: '0 8px', fontSize: 12 }}>BBI</Radio.Button>
+          <Radio.Button value="zhixing" style={{ padding: '0 8px', fontSize: 12 }}>双线</Radio.Button>
+        </Radio.Group>
+      )}
       <Radio.Group 
         value={klinePeriod} 
         onChange={(e) => handlePeriodChange(e.target.value)} 
@@ -483,9 +532,12 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     </Space>
   )
 
-  // Tab 1: K线走势 + 行情报价
+  // Tab 1: K线走势 + 指标卡片
   const quoteContent = (
     <div style={{ padding: '12px 16px' }}>
+      {/* 基本面数据放在K线上方 */}
+      <BasicInfoCard stock={displayStock} />
+      
       <Card title="K线走势" size="small" style={{ marginBottom: 12 }} extra={klineExtra}>
         <Spin spinning={klineLoading}>
           {klineData?.values?.length > 0 ? (
@@ -495,6 +547,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
               isMobile={false} 
               dateRange={dateRange}
               market={market}
+              showZhixing={showZhixing}
             />
           ) : (
             <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -504,7 +557,17 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         </Spin>
       </Card>
       
-      <BasicInfoCard stock={displayStock} isMobile={false} />
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', 
+        gap: 8 
+      }}>
+        <TechnicalIndicatorsCard klineData={klineData} />
+        <MarketPerformanceCard stock={displayStock} />
+        <MoneyFlowCard stock={displayStock} />
+        <RiskAssessmentCard klineData={klineData} />
+        <ValuationCard stock={displayStock} />
+      </div>
     </div>
   )
 
@@ -632,7 +695,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         items={tabItems}
         size="small"
         style={{ height: '100%' }}
-        tabBarStyle={{ margin: 0, paddingLeft: 16, background: '#fff' }}
+        tabBarStyle={{ margin: 0, paddingLeft: 16, background: currentTheme.custom.bgColor }}
         tabBarExtraContent={tabBarExtraContent}
       />
     </Spin>

@@ -5,6 +5,7 @@ import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import IndexMobile from './IndexMobile'
+import { useTheme, getEChartsTheme } from '../../contexts/ThemeContext'
 
 const { useBreakpoint } = Grid
 const { RangePicker } = DatePicker
@@ -138,6 +139,8 @@ function MarketOverviewPC() {
   const chartRef = useRef(null)
   const chartInstanceRef = useRef(null)
   const dataRef = useRef({ dates: [], hsiMap: {}, shMap: {}, exchangeMap: {} })
+  const { isDark, theme: currentTheme } = useTheme()
+  const echartsTheme = getEChartsTheme(isDark)
 
   const [dateRange, setDateRange] = useState([null, null]) // 默认无日期区间
   const [loading, setLoading] = useState(false)
@@ -335,10 +338,10 @@ function MarketOverviewPC() {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        borderColor: '#ccc',
+        backgroundColor: echartsTheme.tooltip.backgroundColor,
+        borderColor: echartsTheme.tooltip.borderColor,
         borderWidth: 1,
-        textStyle: { color: '#333', fontSize: 12 },
+        textStyle: { color: echartsTheme.tooltip.textStyle.color, fontSize: 12 },
         formatter: (params) => {
           if (!params || !params.length) return ''
           const date = params[0].axisValue
@@ -354,7 +357,7 @@ function MarketOverviewPC() {
       legend: {
         data: [exchangeRateConfig.usdcny.name, indexConfigs.hsi.name, indexConfigs.sh.name],
         top: 10,
-        textStyle: { fontSize: 12 }
+        textStyle: { fontSize: 12, color: echartsTheme.legend.textStyle.color }
       },
       toolbox: {
         feature: {
@@ -362,12 +365,14 @@ function MarketOverviewPC() {
         },
         right: 10,
         top: 5,
-        itemSize: 15
+        itemSize: 15,
+        iconStyle: { borderColor: isDark ? '#888' : '#666' }
       },
       brush: {
         xAxisIndex: 'all',
         brushLink: 'all',
-        outOfBrush: { colorAlpha: 0.3 }
+        outOfBrush: { colorAlpha: 0.3 },
+        brushStyle: echartsTheme.brush.brushStyle
       },
       grid: {
         left: '3%',
@@ -380,8 +385,8 @@ function MarketOverviewPC() {
         type: 'category',
         data: dates,
         boundaryGap: false,
-        axisLabel: { fontSize: 10 },
-        axisLine: { lineStyle: { color: '#999' } }
+        axisLabel: { fontSize: 10, color: echartsTheme.axisLabel.color },
+        axisLine: { lineStyle: { color: echartsTheme.axisLine.lineStyle.color } }
       },
       yAxis: [
         {
@@ -390,7 +395,7 @@ function MarketOverviewPC() {
           position: 'right',
           axisLine: { show: true, lineStyle: { color: exchangeRateConfig.usdcny.color } },
           axisLabel: { fontSize: 10, color: exchangeRateConfig.usdcny.color },
-          splitLine: { show: true, lineStyle: { type: 'dashed', color: '#eee' } },
+          splitLine: { show: true, lineStyle: { type: 'dashed', color: echartsTheme.splitLine.lineStyle.color } },
           scale: true,
         },
         {
@@ -414,8 +419,28 @@ function MarketOverviewPC() {
         }
       ],
       dataZoom: [
-        { type: 'inside', start: zoomStart, end: zoomEnd, minSpan: 0 },
-        { type: 'slider', start: zoomStart, end: zoomEnd, height: 20, bottom: 10, minSpan: 0 }
+        { 
+          type: 'inside', 
+          start: zoomStart, 
+          end: zoomEnd, 
+          minSpan: 0 
+        },
+        { 
+          type: 'slider', 
+          start: zoomStart, 
+          end: zoomEnd, 
+          height: 20, 
+          bottom: 10, 
+          minSpan: 0,
+          backgroundColor: echartsTheme.dataZoom.backgroundColor,
+          dataBackground: {
+            lineStyle: { color: echartsTheme.dataZoom.dataBackgroundColor },
+            areaStyle: { color: echartsTheme.dataZoom.dataBackgroundColor }
+          },
+          fillerColor: echartsTheme.dataZoom.fillerColor,
+          handleStyle: { color: echartsTheme.dataZoom.handleColor },
+          textStyle: { color: echartsTheme.dataZoom.textStyle.color }
+        }
       ],
       series: [
         {
@@ -467,7 +492,7 @@ function MarketOverviewPC() {
       // 清除 brush
       chartInstanceRef.current.dispatchAction({ type: 'brush', command: 'clear', areas: [] })
     }
-  }, [hsiData, shData, exchangeData, dateRange])
+  }, [hsiData, shData, exchangeData, dateRange, echartsTheme, isDark])
 
   // 日期范围变化（支持清空）
   const handleDateRangeChange = (dates) => {
@@ -562,7 +587,7 @@ function MarketOverviewPC() {
       </div>
 
       {/* 底部内容：左侧科普 + 右侧新闻 */}
-      <div style={{ display: 'flex', gap: 16, padding: 16, borderTop: '1px solid #f0f0f0', background: '#fafafa' }}>
+      <div style={{ display: 'flex', gap: 16, padding: 16, borderTop: `1px solid ${currentTheme.custom.borderColor}`, background: currentTheme.custom.bgColorSecondary }}>
         {/* 左侧：汇率科普内容 */}
         <Card 
           title={<span><ReadOutlined style={{ marginRight: 8 }} />汇率基础科普</span>}

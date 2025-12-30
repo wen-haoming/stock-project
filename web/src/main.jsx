@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
+import { ThemeProvider } from './contexts/ThemeContext'
 import App from './App.jsx'
 import RangeStats from './pages/range-stats/index.jsx'
 import MarketOverview from './pages/market-overview/index.jsx'
@@ -15,7 +16,7 @@ import './index.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ConfigProvider locale={zhCN}>
+    <ThemeProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<App />}>
@@ -31,6 +32,6 @@ createRoot(document.getElementById('root')).render(
           <Route path="/stock/:symbol" element={<DetailMobilePage />} />
         </Routes>
       </BrowserRouter>
-    </ConfigProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

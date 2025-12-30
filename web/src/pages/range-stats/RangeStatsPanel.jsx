@@ -7,6 +7,7 @@ import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
 import StockDetailDrawer from './StockDetailDrawer'
+import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
 
 const { RangePicker } = DatePicker
 const { useBreakpoint } = Grid
@@ -68,6 +69,7 @@ export default function RangeStatsPanel({
   const isMobile = !screens.md
   const tableCardRef = useRef(null)
   const vtableRef = useRef(null)
+  const { vtableTheme } = useTheme()
 
   const [internalDateRange, setInternalDateRange] = useState([dayjs('2024-01-02'), dayjs().subtract(1, 'day')])
   const [internalMarket, setInternalMarket] = useState('hk')
@@ -516,12 +518,13 @@ export default function RangeStatsPanel({
     }))
   }, [sortedStockData])
 
-  // VTable 配置 - 金融风格主题
+  // VTable 配置 - 使用主题
+  const baseVTableTheme = useMemo(() => getVTableTheme(vtableTheme, { rowHeight: 32, headerRowHeight: 32, fontSize: 13 }), [vtableTheme])
+  
   const vtableOption = useMemo(() => ({
     columns,
     records: tableRecords,
-    defaultRowHeight: 32,
-    defaultHeaderRowHeight: 32,
+    ...baseVTableTheme,
     widthMode: 'adaptive',
     autoWrapText: false,
     sortState: {
@@ -531,38 +534,7 @@ export default function RangeStatsPanel({
     hover: {
       highlightMode: 'row',
     },
-    theme: {
-      defaultStyle: {
-        fontSize: 13,
-        fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace, -apple-system, BlinkMacSystemFont',
-        color: '#333',
-        borderColor: '#e8e8e8',
-        borderLineWidth: 1,
-      },
-      headerStyle: {
-        fontSize: 12,
-        fontWeight: 600,
-        color: '#666',
-        bgColor: '#f7f7f7',
-        borderColor: '#e0e0e0',
-        padding: [6, 8, 6, 8],
-      },
-      bodyStyle: {
-        padding: [4, 8, 4, 8],
-        bgColor: '#fff',
-        hover: {
-          cellBgColor: '#f0f7ff',
-          inlineColumnBgColor: '#f0f7ff',
-          inlineRowBgColor: '#f0f7ff',
-        },
-      },
-      frameStyle: {
-        borderColor: '#d9d9d9',
-        borderLineWidth: 1,
-        cornerRadius: 4,
-      },
-    },
-  }), [columns, tableRecords, sortState])
+  }), [columns, tableRecords, sortState, baseVTableTheme])
 
   // 处理表格点击
   const handleTableClick = useCallback((args) => {

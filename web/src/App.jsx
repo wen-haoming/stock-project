@@ -1,6 +1,8 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Grid } from 'antd'
-import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined } from '@ant-design/icons'
+import { Layout, Menu, Grid, ConfigProvider, Switch, Tooltip, App as AntdApp } from 'antd'
+import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
+import zhCN from 'antd/locale/zh_CN'
+import { useTheme } from './contexts/ThemeContext'
 
 const { Content, Header } = Layout
 const { useBreakpoint } = Grid
@@ -14,11 +16,12 @@ const menuItems = [
   { key: '/commodity', label: '大宗商品', icon: <GoldOutlined /> },
 ]
 
-function App() {
+function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
   const screens = useBreakpoint()
   const isMobile = !screens.md
+  const { isDark, toggleTheme, theme: currentTheme } = useTheme()
 
   const currentPath = location.pathname === '/' ? '/watchlist' : location.pathname
 
@@ -29,7 +32,7 @@ function App() {
     <Layout style={{ minHeight: '100vh', height: '100vh' }}>
       <Header style={{ 
         padding: '0 10px', 
-        background: '#001529', 
+        background: currentTheme.custom.headerBg, 
         display: 'flex', 
         alignItems: 'center',
         height: 32,
@@ -60,14 +63,42 @@ function App() {
             lineHeight: '32px',
           }}
         />
+        {/* 主题切换按钮 */}
+        <Tooltip title={isDark ? '切换亮色主题' : '切换暗色主题'}>
+          <Switch
+            checked={isDark}
+            onChange={toggleTheme}
+            checkedChildren={<MoonOutlined />}
+            unCheckedChildren={<SunOutlined />}
+            style={{ marginLeft: 8 }}
+          />
+        </Tooltip>
       </Header>
       <Content style={isFullHeight 
-        ? { background: '#fff', height: 'calc(100vh - 32px)', overflow: 'hidden' } 
-        : { margin: isMobile ? 6 : 10, padding: isMobile ? 6 : 10, background: '#fff', borderRadius: 4, overflow: 'auto' }
+        ? { background: currentTheme.custom.bgColor, height: 'calc(100vh - 32px)', overflow: 'hidden' } 
+        : { margin: isMobile ? 6 : 10, padding: isMobile ? 6 : 10, background: currentTheme.custom.bgColor, borderRadius: 4, overflow: 'auto' }
       }>
         <Outlet />
       </Content>
     </Layout>
+  )
+}
+
+function App() {
+  const { theme: currentTheme } = useTheme()
+
+  return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        algorithm: currentTheme.algorithm,
+        token: currentTheme.token,
+      }}
+    >
+      <AntdApp>
+        <AppContent />
+      </AntdApp>
+    </ConfigProvider>
   )
 }
 

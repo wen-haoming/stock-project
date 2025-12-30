@@ -3,6 +3,7 @@ import { Spin, Tooltip } from 'antd'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { fetchCommodityKline } from '@/api/commodity'
 import { getImpactAnalysis } from '@/constants/impactAnalysis'
+import { useTheme } from '../../../contexts/ThemeContext'
 import MiniChart from './MiniChart'
 import ImpactTag from './ImpactTag'
 
@@ -10,6 +11,7 @@ import ImpactTag from './ImpactTag'
  * 商品卡片组件
  */
 const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClick, refreshKey }) => {
+  const { theme: currentTheme, isDark } = useTheme()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const isFirstLoad = useRef(true)
@@ -42,15 +44,15 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
   return (
     <div style={{ 
       height: '100%',
-      background: '#fff',
+      background: currentTheme.custom.bgColor,
       borderRadius: 6,
-      border: '1px solid #f0f0f0',
+      border: `1px solid ${currentTheme.custom.borderColor}`,
       overflow: 'hidden',
       transition: 'box-shadow 0.2s',
       cursor: data?.prices?.length ? 'pointer' : 'default',
     }}
     onClick={handleClick}
-    onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
+    onMouseEnter={(e) => e.currentTarget.style.boxShadow = isDark ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.08)'}
     onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}
     >
       {/* 顶部分类色条 */}
@@ -65,7 +67,7 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
                 <span style={{ 
                   fontSize: isMobile ? 13 : 14, 
                   fontWeight: 600,
-                  color: '#262626'
+                  color: currentTheme.custom.textColor
                 }}>
                   {displayName}
                 </span>
@@ -74,7 +76,9 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
                   color: commodity.region === 'domestic' ? '#d48806' : '#1677ff',
                   padding: '1px 6px',
                   borderRadius: 10,
-                  background: commodity.region === 'domestic' ? '#fffbe6' : '#e6f4ff',
+                  background: commodity.region === 'domestic' 
+                    ? (isDark ? 'rgba(212,136,6,0.2)' : '#fffbe6') 
+                    : (isDark ? 'rgba(22,119,255,0.2)' : '#e6f4ff'),
                 }}>
                   {commodity.region === 'domestic' ? '国内' : '国际'}
                 </span>
@@ -100,13 +104,13 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
               <MiniChart data={data} color={color} height={isMobile ? 32 : 38} />
 
               {/* 分隔线 */}
-              <div style={{ height: 1, background: '#f5f5f5', margin: '8px 0' }} />
+              <div style={{ height: 1, background: currentTheme.custom.borderColor, margin: '8px 0' }} />
 
               {/* 影响分析 */}
               <div style={{ fontSize: 11 }}>
                 <Tooltip title={impact.desc} placement="top">
                   <div style={{ 
-                    color: '#8c8c8c', 
+                    color: currentTheme.custom.textColorSecondary, 
                     fontSize: 10, 
                     marginBottom: 6,
                     cursor: 'help',
@@ -122,12 +126,12 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
                 {/* A股 */}
                 <div style={{ marginBottom: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: '#8c8c8c', fontSize: 10, width: 28 }}>A股</span>
+                    <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>A股</span>
                     <ImpactTag trend={impact.aStock.trend} />
                   </div>
                   <Tooltip title={impact.aStock.detail} placement="top">
                     <div style={{ 
-                      color: '#595959', 
+                      color: currentTheme.custom.textColor, 
                       fontSize: 10, 
                       marginTop: 2,
                       paddingLeft: 28,
@@ -144,12 +148,12 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
                 {/* 港股 */}
                 <div style={{ marginBottom: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: '#8c8c8c', fontSize: 10, width: 28 }}>港股</span>
+                    <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>港股</span>
                     <ImpactTag trend={impact.hkStock.trend} />
                   </div>
                   <Tooltip title={impact.hkStock.detail} placement="top">
                     <div style={{ 
-                      color: '#595959', 
+                      color: currentTheme.custom.textColor, 
                       fontSize: 10, 
                       marginTop: 2,
                       paddingLeft: 28,
@@ -166,12 +170,12 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
                 {/* 美股 */}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: '#8c8c8c', fontSize: 10, width: 28 }}>美股</span>
+                    <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>美股</span>
                     <ImpactTag trend={impact.usStock.trend} />
                   </div>
                   <Tooltip title={impact.usStock.detail} placement="top">
                     <div style={{ 
-                      color: '#595959', 
+                      color: currentTheme.custom.textColor, 
                       fontSize: 10, 
                       marginTop: 2,
                       paddingLeft: 28,
@@ -187,7 +191,7 @@ const CommodityCard = memo(({ commodity, period, isMobile, categoryColor, onClic
               </div>
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: '#bfbfbf', fontSize: 12 }}>
+            <div style={{ textAlign: 'center', padding: '20px 0', color: currentTheme.custom.textColorSecondary, fontSize: 12 }}>
               暂无数据
             </div>
           )}

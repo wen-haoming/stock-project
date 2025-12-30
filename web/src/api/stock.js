@@ -139,7 +139,16 @@ export const fetchStockKline = async (symbol, market = 'hk', months = 2, period 
       categoryData.push(fields[0])
       const open = parseFloat(fields[1])
       const close = parseFloat(fields[2])
-      values.push([open, close, parseFloat(fields[4]), parseFloat(fields[3])])
+      const changePct = parseFloat(fields[8])  // 涨幅
+      const turnoverRate = parseFloat(fields[10])  // 换手率
+      values.push([
+        open, 
+        close, 
+        parseFloat(fields[4]), 
+        parseFloat(fields[3]), 
+        isNaN(changePct) ? 0 : changePct, 
+        isNaN(turnoverRate) || turnoverRate < 0 ? 0 : turnoverRate
+      ])
       volumes.push([categoryData.length - 1, parseInt(fields[5]), open > close ? 1 : -1])
     })
 

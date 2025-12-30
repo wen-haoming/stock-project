@@ -8,6 +8,7 @@ import axios from 'axios'
 import StockDetail from '../range-stats/StockDetail'
 import { fetchStockInfo, fetchStockTrend } from '../../api/stock'
 import { upColor, downColor } from '../../utils/chart'
+import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
 
 // 市场标签配置
 const MARKET_TAG_CONFIG = {
@@ -53,6 +54,8 @@ const MAX_DRAWER_WIDTH_RATIO = 0.9
 const POLL_INTERVAL = 10000
 
 export default function WatchlistPage() {
+  const { vtableTheme, theme: currentTheme, isDark } = useTheme()
+  
   const [watchlistData, setWatchlistData] = useLocalStorageState(STORAGE_KEY, {
     defaultValue: { groups: [DEFAULT_GROUP], activeGroupId: 'default' }
   })
@@ -81,6 +84,9 @@ export default function WatchlistPage() {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const searchContainerRef = useRef(null)
   
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, stock: null })
+  
   const [stockQuotes, setStockQuotes] = useState({})
   const [trendDataMap, setTrendDataMap] = useState({})
   
@@ -93,6 +99,13 @@ export default function WatchlistPage() {
   useClickAway(() => {
     setShowSearchDropdown(false)
   }, searchContainerRef)
+  
+  // 点击页面任意位置关闭右键菜单
+  useEffect(() => {
+    const handleClick = () => setContextMenu(prev => ({ ...prev, visible: false }))
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [])
   
   // 获取所有股票数据
   const fetchAllStockData = useMemoizedFn(async (stocks, includeTrend = true) => {
@@ -228,6 +241,25 @@ export default function WatchlistPage() {
     fetchAllStockData([newStock], true)
   })
 
+  // 删除自选股
+  const handleRemoveStock = useMemoizedFn((stock) => {
+    const newGroups = groups.map(g => {
+      if (g.id === activeGroupId) {
+        return { ...g, stocks: g.stocks.filter(s => !(s.symbol === stock.symbol && s.market === stock.market)) }
+      }
+      return g
+    })
+    setGroups(newGroups)
+    
+    // 如果删除的是当前选中的股票，清除选中状态
+    if (selectedStock?.symbol === stock.symbol && selectedStock?.market === stock.market) {
+      setSelectedStock(null)
+      setSelectedRowIndex(-1)
+    }
+    
+    message.success(`已删除 ${stock.name}`)
+  })
+
   const handleGroupSubmit = useMemoizedFn(() => {
     groupForm.validateFields().then(values => {
       let newGroups
@@ -338,7 +370,7 @@ export default function WatchlistPage() {
         y: padding,
         width: chartWidth,
         height: chartHeight,
-        fill: '#f5f5f5',
+        fill: isDark ? '#333' : '#f5f5f5',
       })
       container.add(bgRect)
       return {
@@ -369,7 +401,7 @@ export default function WatchlistPage() {
           { x: padding, y: preCloseY },
           { x: padding + chartWidth, y: preCloseY }
         ],
-        stroke: '#999',
+        stroke: isDark ? '#666' : '#999',
         lineWidth: 0.5,
         lineDash: [2, 2],
       })
@@ -394,7 +426,7 @@ export default function WatchlistPage() {
       rootContainer: container,
       renderDefault: false,
     }
-  }, [])
+  }, [isDark])
 
   // VTable 列配置
   const columns = useMemo(() => [
@@ -420,7 +452,7 @@ export default function WatchlistPage() {
         const record = args.table?.getCellOriginRecord(args.col, args.row)
         const changePct = record?.changePct
         return {
-          color: changePct > 0 ? upColor : changePct < 0 ? downColor : '#333',
+          color: changePct > 0 ? upColor : changePct < 0 ? downColor : vtableTheme.textColor,
         }
       }
     },
@@ -433,7 +465,7 @@ export default function WatchlistPage() {
         const record = args.table?.getCellOriginRecord(args.col, args.row)
         const changePct = record?.changePct
         return {
-          color: changePct > 0 ? upColor : changePct < 0 ? downColor : '#333',
+          color: changePct > 0 ? upColor : changePct < 0 ? downColor : vtableTheme.textColor,
           fontWeight: 500,
         }
       }
@@ -498,14 +530,15 @@ export default function WatchlistPage() {
       width: 65,
       fieldFormat: (record) => record.preClose?.toFixed(2) || '-',
     },
-  ], [renderSparkline])
+  ], [renderSparkline, vtableTheme.textColor])
 
-  // VTable 配置 - 金融风格主题
+  // VTable 配置 - 使用主题
+  const baseVTableTheme = useMemo(() => getVTableTheme(vtableTheme, { rowHeight: 40, headerRowHeight: 32, fontSize: 13 }), [vtableTheme])
+  
   const vtableOption = useMemo(() => ({
     columns,
     records: tableData,
-    defaultRowHeight: 40,
-    defaultHeaderRowHeight: 32,
+    ...baseVTableTheme,
     widthMode: 'adaptive',
     autoWrapText: false,
     hover: {
@@ -514,43 +547,19 @@ export default function WatchlistPage() {
     select: {
       highlightMode: 'row',
     },
-    theme: {
-      defaultStyle: {
-        fontSize: 13,
-        fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace, -apple-system, BlinkMacSystemFont',
-        color: '#333',
-        borderColor: '#e8e8e8',
-        borderLineWidth: 1,
-      },
+    rowSeriesNumber: {
+      title: '',
+      width: 30,
       headerStyle: {
-        fontSize: 12,
-        fontWeight: 600,
-        color: '#666',
-        bgColor: '#f7f7f7',
-        borderColor: '#e0e0e0',
-        padding: [8, 8, 8, 8],
+        color: 'transparent',
       },
-      bodyStyle: {
-        padding: [6, 8, 6, 8],
-        bgColor: '#fff',
-        hover: {
-          cellBgColor: '#f0f7ff',
-          inlineColumnBgColor: '#f0f7ff',
-          inlineRowBgColor: '#f0f7ff',
-        },
-        select: {
-          cellBgColor: '#e6f4ff',
-          inlineColumnBgColor: '#e6f4ff',
-          inlineRowBgColor: '#e6f4ff',
-        },
+      style: {
+        color: '#999',
+        fontSize: 11,
       },
-      frameStyle: {
-        borderColor: '#d9d9d9',
-        borderLineWidth: 1,
-        cornerRadius: 4,
-      },
+      dragOrder: true,
     },
-  }), [columns, tableData])
+  }), [columns, tableData, baseVTableTheme])
 
   // 处理表格点击事件 - 点击任意单元格都选中整行
   const handleTableClick = useCallback((args) => {
@@ -568,11 +577,55 @@ export default function WatchlistPage() {
     vtableRef.current?.selectRow(row)
   }, [])
 
+  // 处理右键菜单
+  const handleContextMenu = useCallback((args) => {
+    const { col, row, event } = args
+    if (row === 0) return // 表头不处理
+    
+    const record = vtableRef.current?.getRecordByRowCol(col, row)
+    if (!record) return
+    
+    event.preventDefault()
+    setContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      stock: { symbol: record.symbol, name: record.name, market: record.market }
+    })
+  }, [])
+
+  // 处理拖拽排序
+  const handleDragEnd = useCallback((args) => {
+    const { source, target } = args
+    if (!source || !target || source.row === target.row) return
+    
+    // source.row 和 target.row 是 VTable 的行号（从1开始，0是表头）
+    const fromIndex = source.row - 1
+    const toIndex = target.row - 1
+    
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= activeGroup.stocks.length || toIndex >= activeGroup.stocks.length) return
+    
+    const newStocks = [...activeGroup.stocks]
+    const [removed] = newStocks.splice(fromIndex, 1)
+    newStocks.splice(toIndex, 0, removed)
+    
+    const newGroups = groups.map(g => {
+      if (g.id === activeGroupId) {
+        return { ...g, stocks: newStocks }
+      }
+      return g
+    })
+    setGroups(newGroups)
+  }, [activeGroup.stocks, groups, activeGroupId, setGroups])
+
   // VTable 挂载后绑定事件
   const handleVTableReady = useCallback((instance) => {
     vtableRef.current = instance
     instance.on('click_cell', handleTableClick)
-  }, [handleTableClick])
+    instance.on('contextmenu_cell', handleContextMenu)
+    // 监听行拖拽排序事件
+    instance.on('change_header_position', handleDragEnd)
+  }, [handleTableClick, handleContextMenu, handleDragEnd])
 
   // 监听 tableData 变化，更新 VTable
   useEffect(() => {
@@ -640,6 +693,11 @@ export default function WatchlistPage() {
   }, [drawerWidth, setDrawerWidth])
 
   // 搜索下拉框
+  const dropdownBg = isDark ? '#1f1f1f' : '#fff'
+  const dropdownHoverBg = isDark ? '#2a2a2a' : '#f5f5f5'
+  const dropdownBorderColor = isDark ? '#333' : '#f5f5f5'
+  const dropdownDisabledBg = isDark ? '#252525' : '#fafafa'
+  
   const searchDropdown = (
     <div style={{
       position: 'absolute',
@@ -648,9 +706,9 @@ export default function WatchlistPage() {
       right: 0,
       maxHeight: 300,
       overflow: 'auto',
-      background: '#fff',
+      background: dropdownBg,
       borderRadius: 8,
-      boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
+      boxShadow: isDark ? '0 6px 16px rgba(0,0,0,0.4)' : '0 6px 16px rgba(0,0,0,0.12)',
       zIndex: 1000,
       marginTop: 4
     }}>
@@ -675,13 +733,13 @@ export default function WatchlistPage() {
               style={{
                 padding: '10px 12px',
                 cursor: isAdded ? 'not-allowed' : 'pointer',
-                borderBottom: index < searchResults.length - 1 ? '1px solid #f5f5f5' : 'none',
-                background: isAdded ? '#fafafa' : '#fff',
+                borderBottom: index < searchResults.length - 1 ? `1px solid ${dropdownBorderColor}` : 'none',
+                background: isAdded ? dropdownDisabledBg : dropdownBg,
                 opacity: isAdded ? 0.6 : 1,
                 transition: 'background 0.2s'
               }}
-              onMouseEnter={(e) => !isAdded && (e.currentTarget.style.background = '#f5f5f5')}
-              onMouseLeave={(e) => !isAdded && (e.currentTarget.style.background = '#fff')}
+              onMouseEnter={(e) => !isAdded && (e.currentTarget.style.background = dropdownHoverBg)}
+              onMouseLeave={(e) => !isAdded && (e.currentTarget.style.background = isAdded ? dropdownDisabledBg : dropdownBg)}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -695,7 +753,7 @@ export default function WatchlistPage() {
                       </Tag>
                     )}
                   </div>
-                  <div style={{ fontWeight: 500, fontSize: 14, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 500, fontSize: 14, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isDark ? '#d4d4d4' : 'inherit' }}>
                     {stock.name}
                   </div>
                   <div style={{ fontSize: 12, color: '#999' }}>{stock.symbol}</div>
@@ -714,9 +772,9 @@ export default function WatchlistPage() {
   )
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: currentTheme.custom.bgColor, overflow: 'hidden' }}>
       {/* 顶部工具栏 */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+      <div style={{ padding: '8px 16px', borderBottom: `1px solid ${currentTheme.custom.borderColor}`, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Select
             value={activeGroupId}
@@ -760,7 +818,7 @@ export default function WatchlistPage() {
       </div>
 
       {/* 表格区域 */}
-      <div ref={tableContainerRef} style={{ flex: 1, overflow: 'hidden' }}>
+      <div ref={tableContainerRef} style={{ flex: 1, overflow: 'hidden', background: currentTheme.custom.bgColor }}>
         {activeGroup.stocks.length === 0 ? (
           <Empty description="暂无自选股，请搜索添加" style={{ marginTop: 80 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
@@ -784,7 +842,7 @@ export default function WatchlistPage() {
         mask={false}
         styles={{ 
           header: { padding: '8px 16px', minHeight: 'auto' },
-          body: { padding: 0, background: '#f5f5f5' },
+          body: { padding: 0, background: currentTheme.custom.bgColorSecondary },
           wrapper: { transition: isResizing ? 'none' : undefined }
         }}
       >
@@ -823,6 +881,46 @@ export default function WatchlistPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 右键菜单 */}
+      {contextMenu.visible && (
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+            background: isDark ? '#1f1f1f' : '#fff',
+            borderRadius: 6,
+            boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.5)' : '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 1050,
+            minWidth: 120,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            onClick={() => {
+              if (contextMenu.stock) {
+                handleRemoveStock(contextMenu.stock)
+              }
+              setContextMenu({ visible: false, x: 0, y: 0, stock: null })
+            }}
+            style={{
+              padding: '8px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              color: '#ff4d4f',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = isDark ? '#2a2a2a' : '#f5f5f5'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <DeleteOutlined />
+            <span>删除自选</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -6,6 +6,7 @@ import { useKeyPress } from 'ahooks'
 import axios from 'axios'
 import StockDetail from '../range-stats/StockDetail'
 import { upColor, downColor } from '../../utils/chart'
+import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
 
 // 异动类型
 const signalOptions = [
@@ -35,6 +36,7 @@ export default function StockPickerPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tableRef = useRef(null)
   const vtableRef = useRef(null)
+  const { vtableTheme, theme: currentTheme, isDark } = useTheme()
   
   // 筛选条件
   const market = searchParams.get('market') || 'A股'
@@ -158,7 +160,9 @@ export default function StockPickerPage() {
     }
   }, { exactMatch: true })
 
-  // VTable 配置
+  // VTable 配置 - 使用主题
+  const baseVTableTheme = useMemo(() => getVTableTheme(vtableTheme, { rowHeight: 36, headerRowHeight: 32, fontSize: 12 }), [vtableTheme])
+  
   const tableOption = useMemo(() => ({
     columns: [
       { 
@@ -168,7 +172,7 @@ export default function StockPickerPage() {
         style: {
           fontSize: 12,
           fontWeight: 500,
-          color: '#262626',
+          color: vtableTheme.textColor,
           padding: [8, 8]
         }
       },
@@ -193,7 +197,7 @@ export default function StockPickerPage() {
       },
     ],
     records: stocks,
-    defaultRowHeight: 36,
+    ...baseVTableTheme,
     autoFillWidth: true,
     hover: {
       highlightMode: 'row'
@@ -201,28 +205,7 @@ export default function StockPickerPage() {
     select: {
       highlightMode: 'row'
     },
-    theme: {
-      defaultStyle: {
-        fontSize: 12,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-      },
-      headerStyle: {
-        fontSize: 11,
-        fontWeight: 600,
-        color: '#8c8c8c',
-        bgColor: '#fafafa',
-        padding: [8, 8]
-      },
-      bodyStyle: {
-        hover: {
-          cellBgColor: '#f5f5f5'
-        },
-        select: {
-          cellBgColor: '#e6f4ff'
-        }
-      }
-    }
-  }), [stocks])
+  }), [stocks, baseVTableTheme, vtableTheme.textColor])
 
   // 处理行点击
   const handleCellClick = useCallback((args) => {
@@ -257,13 +240,13 @@ export default function StockPickerPage() {
       height: '100%', 
       display: 'flex', 
       flexDirection: 'column',
-      background: '#fafafa',
+      background: currentTheme.custom.bgColorSecondary,
       overflow: 'hidden'
     }}>
       {/* 筛选区域 - 紧凑布局 */}
       <div style={{ 
-        background: '#fff',
-        borderBottom: '1px solid #f0f0f0',
+        background: currentTheme.custom.bgColor,
+        borderBottom: `1px solid ${currentTheme.custom.borderColor}`,
         padding: '8px 16px',
         flexShrink: 0,
       }}>
@@ -375,8 +358,8 @@ export default function StockPickerPage() {
         <div style={{ 
           width: 200, 
           flexShrink: 0,
-          borderRight: '1px solid #f0f0f0',
-          background: '#fff',
+          borderRight: `1px solid ${currentTheme.custom.borderColor}`,
+          background: currentTheme.custom.bgColor,
           display: 'flex',
           flexDirection: 'column'
         }}>
@@ -388,7 +371,7 @@ export default function StockPickerPage() {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'rgba(255,255,255,0.8)',
+                background: isDark ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -420,7 +403,7 @@ export default function StockPickerPage() {
         </div>
 
         {/* 详情区域 - 复用 StockDetail 组件 */}
-        <div style={{ flex: 1, background: '#f5f5f5', minWidth: 0, overflow: 'auto' }}>
+        <div style={{ flex: 1, background: currentTheme.custom.bgColorSecondary, minWidth: 0, overflow: 'auto' }}>
           {selectedStock ? (
             <StockDetail 
               stock={selectedStock} 
