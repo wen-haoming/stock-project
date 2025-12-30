@@ -8,11 +8,9 @@ export const downColor = '#47b262'
 
 /**
  * 计算均线
- * @param {number} dayCount - 均线天数
- * @param {Array} data - K线数据
  */
-export const calculateMA = (dayCount, data) => {
-  const result = []
+export const calculateMA = (dayCount: number, data: number[][]): (number | string)[] => {
+  const result: (number | string)[] = []
   for (let i = 0; i < data.length; i++) {
     if (i < dayCount) {
       result.push('-')
@@ -27,14 +25,19 @@ export const calculateMA = (dayCount, data) => {
   return result
 }
 
+interface KlineData {
+  categoryData: string[]
+  values: number[][]
+  volumes: number[][]
+}
+
 /**
  * 解析 K 线原始数据
- * @param {Array} rawData - 原始K线数据
  */
-export const parseKlineData = (rawData) => {
-  const categoryData = []
-  const values = []
-  const volumes = []
+export const parseKlineData = (rawData: string[]): KlineData => {
+  const categoryData: string[] = []
+  const values: number[][] = []
+  const volumes: number[][] = []
 
   rawData.forEach((item, idx) => {
     const fields = item.split(',')

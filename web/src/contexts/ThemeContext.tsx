@@ -1,16 +1,53 @@
-import { createContext, useContext, useState, useEffect, useMemo } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react'
 import { theme } from 'antd'
 
-const ThemeContext = createContext()
+interface VTableTheme {
+  bgColor: string
+  headerBgColor: string
+  textColor: string
+  headerTextColor: string
+  borderColor: string
+  hoverBgColor: string
+  selectBgColor: string
+}
+
+interface CustomTheme {
+  bgColor: string
+  bgColorSecondary: string
+  textColor: string
+  textColorSecondary: string
+  borderColor: string
+  headerBg: string
+  vtable: VTableTheme
+}
+
+interface ThemeConfig {
+  algorithm: typeof theme.defaultAlgorithm | typeof theme.darkAlgorithm
+  token: {
+    colorPrimary: string
+    borderRadius: number
+    colorBgContainer?: string
+    colorBgElevated?: string
+  }
+  custom: CustomTheme
+}
+
+interface ThemeContextValue {
+  isDark: boolean
+  toggleTheme: () => void
+  theme: ThemeConfig
+  vtableTheme: VTableTheme
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 // 亮色主题
-const lightTheme = {
+const lightTheme: ThemeConfig = {
   algorithm: theme.defaultAlgorithm,
   token: {
     colorPrimary: '#1677ff',
     borderRadius: 4,
   },
-  // 自定义变量
   custom: {
     bgColor: '#fff',
     bgColorSecondary: '#f5f5f5',
@@ -18,7 +55,6 @@ const lightTheme = {
     textColorSecondary: '#666',
     borderColor: '#e8e8e8',
     headerBg: '#001529',
-    // VTable 主题
     vtable: {
       bgColor: '#fff',
       headerBgColor: '#f7f7f7',
@@ -31,8 +67,8 @@ const lightTheme = {
   }
 }
 
-// 暗色主题 - 参考专业股票软件风格
-const darkTheme = {
+// 暗色主题
+const darkTheme: ThemeConfig = {
   algorithm: theme.darkAlgorithm,
   token: {
     colorPrimary: '#1677ff',
@@ -40,7 +76,6 @@ const darkTheme = {
     colorBgContainer: '#191919',
     colorBgElevated: '#1f1f1f',
   },
-  // 自定义变量
   custom: {
     bgColor: '#191919',
     bgColorSecondary: '#1f1f1f',
@@ -48,7 +83,6 @@ const darkTheme = {
     textColorSecondary: '#808080',
     borderColor: '#2a2a2a',
     headerBg: '#141414',
-    // VTable 主题
     vtable: {
       bgColor: '#191919',
       headerBgColor: '#1f1f1f',
@@ -61,7 +95,11 @@ const darkTheme = {
   }
 }
 
-export function ThemeProvider({ children }) {
+interface ThemeProviderProps {
+  children: ReactNode
+}
+
+export function ThemeProvider({ children }: ThemeProviderProps) {
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme')
     return saved === 'dark'
@@ -69,7 +107,6 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     localStorage.setItem('theme', isDark ? 'dark' : 'light')
-    // 设置 body 背景色
     document.body.style.backgroundColor = isDark ? '#141414' : '#f0f2f5'
   }, [isDark])
 
@@ -91,7 +128,7 @@ export function ThemeProvider({ children }) {
   )
 }
 
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext)
   if (!context) {
     throw new Error('useTheme must be used within a ThemeProvider')
@@ -99,13 +136,18 @@ export function useTheme() {
   return context
 }
 
+interface VTableThemeOptions {
+  rowHeight?: number
+  headerRowHeight?: number
+  fontSize?: number
+}
+
 // 生成 VTable 主题配置
-export function getVTableTheme(vtableTheme, options = {}) {
+export function getVTableTheme(vtableTheme: VTableTheme, options: VTableThemeOptions = {}) {
   const { rowHeight = 32, headerRowHeight = 32, fontSize = 12 } = options
   return {
     defaultRowHeight: rowHeight,
     defaultHeaderRowHeight: headerRowHeight,
-    // 设置表格外部空白区域的背景色
     underlayBackgroundColor: vtableTheme.bgColor,
     theme: {
       underlayBackgroundColor: vtableTheme.bgColor,
@@ -151,8 +193,36 @@ export function getVTableTheme(vtableTheme, options = {}) {
   }
 }
 
+export interface EChartsTheme {
+  backgroundColor: string
+  textStyle: { color: string }
+  axisLine: { lineStyle: { color: string } }
+  axisLabel: { color: string }
+  splitLine: { lineStyle: { color: string } }
+  tooltip: {
+    backgroundColor: string
+    borderColor: string
+    textStyle: { color: string }
+  }
+  legend: { textStyle: { color: string } }
+  dataZoom: {
+    backgroundColor: string
+    dataBackgroundColor: string
+    fillerColor: string
+    handleColor: string
+    textStyle: { color: string }
+  }
+  brush: {
+    brushStyle: {
+      borderWidth: number
+      color: string
+      borderColor: string
+    }
+  }
+}
+
 // 生成 ECharts 主题配置
-export function getEChartsTheme(isDark) {
+export function getEChartsTheme(isDark: boolean): EChartsTheme {
   return {
     backgroundColor: 'transparent',
     textStyle: { color: isDark ? '#e0e0e0' : '#333' },
@@ -172,7 +242,6 @@ export function getEChartsTheme(isDark) {
       handleColor: isDark ? '#555' : '#a0a0a0',
       textStyle: { color: isDark ? '#808080' : '#666' },
     },
-    // brush 选区样式
     brush: {
       brushStyle: {
         borderWidth: 1,

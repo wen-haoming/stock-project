@@ -4,28 +4,47 @@
 import axios from 'axios'
 import dayjs from 'dayjs'
 
+interface CommodityKlineData {
+  dates: string[]
+  prices: number[]
+  latestPrice: number
+  changePct: number
+  name: string
+  klines: number[][]
+  volumes: number[][]
+  isTrend: boolean
+  preClose?: number
+  avgPrices?: number[]
+}
+
+interface NewsItem {
+  title: string
+  url: string
+  source: string
+  time: string
+}
+
 /**
  * 获取期货K线数据
- * @param {string} code - 期货代码
- * @param {string} market - 市场代码
- * @param {string} period - 时间周期 '1m' | '3m' | '6m' | '1y'（可选，如果提供 startDate/endDate 则忽略）
- * @param {number} klineType - K线类型 101=日K, 102=周K, 103=月K
- * @param {string} startDate - 开始日期 YYYYMMDD
- * @param {string} endDate - 结束日期 YYYYMMDD
  */
-export const fetchCommodityKline = async (code, market, period = '1y', klineType = 101, startDate, endDate) => {
+export const fetchCommodityKline = async (
+  code: string, 
+  market: string, 
+  period: '1m' | '3m' | '6m' | '1y' = '1y', 
+  klineType: number = 101, 
+  startDate?: string, 
+  endDate?: string
+): Promise<CommodityKlineData> => {
   try {
     if (!code || !market) return { dates: [], prices: [], latestPrice: 0, changePct: 0, name: '', klines: [], volumes: [], isTrend: false }
 
-    let start, end
+    let start: string, end: string
     
     if (startDate && endDate) {
-      // 使用传入的日期范围
       start = startDate
       end = endDate
     } else {
-      // 使用 period 计算日期范围
-      const periodMap = { '1m': 1, '3m': 3, '6m': 6, '1y': 12 }
+      const periodMap: Record<string, number> = { '1m': 1, '3m': 3, '6m': 6, '1y': 12 }
       const months = periodMap[period] || 12
       start = dayjs().subtract(months, 'month').format('YYYYMMDD')
       end = dayjs().format('YYYYMMDD')
@@ -34,13 +53,13 @@ export const fetchCommodityKline = async (code, market, period = '1y', klineType
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=${klineType}&fqt=1&beg=${start}&end=${end}`
     
     const response = await axios.get(url)
-    const rawData = response.data?.data?.klines || []
+    const rawData: string[] = response.data?.data?.klines || []
     const name = response.data?.data?.name || code
 
-    const dates = []
-    const prices = []
-    const klines = []
-    const volumes = []
+    const dates: string[] = []
+    const prices: number[] = []
+    const klines: number[][] = []
+    const volumes: number[][] = []
     
     rawData.forEach((item, idx) => {
       const fields = item.split(',')
@@ -53,7 +72,6 @@ export const fetchCommodityKline = async (code, market, period = '1y', klineType
       dates.push(fields[0])
       prices.push(close)
       klines.push([open, close, low, high])
-      // 成交量：[index, volume, direction] direction: 1=涨, -1=跌
       volumes.push([idx, vol, close >= open ? 1 : -1])
     })
 
@@ -70,18 +88,14 @@ export const fetchCommodityKline = async (code, market, period = '1y', klineType
 
 /**
  * 获取期货分时数据（当天）
- * @param {string} code - 期货代码
- * @param {string} market - 市场代码
  */
-export const fetchCommodityTrend = async (code, market) => {
+export const fetchCommodityTrend = async (code: string, market: string): Promise<CommodityKlineData> => {
   try {
     if (!code || !market) return { dates: [], prices: [], latestPrice: 0, changePct: 0, name: '', klines: [], volumes: [], isTrend: true }
 
     const timestamp = Date.now()
     
-    // 国际期货（market=101）使用不同的分时接口
     if (market === '101') {
-      // 国际期货使用1分钟K线模拟分时
       const today = dayjs().format('YYYYMMDD')
       const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=1&fqt=1&beg=${today}&end=${today}&_=${timestamp}`
       
@@ -89,16 +103,15 @@ export const fetchCommodityTrend = async (code, market) => {
       const data = response.data?.data
       
       if (!data || !data.klines?.length) {
-        // 如果当天无数据，返回最近的日K数据
         return fetchCommodityKline(code, market, '1m', 101)
       }
       
       const name = data.name || code
-      const klines = data.klines || []
+      const klines: string[] = data.klines || []
       
-      const dates = []
-      const prices = []
-      const volumes = []
+      const dates: string[] = []
+      const prices: number[] = []
+      const volumes: number[][] = []
       
       klines.forEach((item, idx) => {
         const fields = item.split(',')
@@ -128,25 +141,23 @@ export const fetchCommodityTrend = async (code, market) => {
       }
     }
     
-    // 国内期货使用分时接口
     const url = `https://push2his.eastmoney.com/api/qt/stock/trends2/get?fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=7eea3edcaed734bea9cbfc24409ed989&ndays=1&iscr=0&secid=${market}.${code}&_=${timestamp}`
     
     const response = await axios.get(url)
     const data = response.data?.data
     
     if (!data || !data.trends?.length) {
-      // 如果分时数据为空（非交易时间），返回最近的日K数据
       return fetchCommodityKline(code, market, '1m', 101)
     }
     
     const name = data.name || code
     const preClose = data.preClose
-    const trends = data.trends || []
+    const trends: string[] = data.trends || []
     
-    const dates = []
-    const prices = []
-    const avgPrices = []
-    const volumes = []
+    const dates: string[] = []
+    const prices: number[] = []
+    const avgPrices: number[] = []
+    const volumes: number[][] = []
     
     trends.forEach((item, idx) => {
       const fields = item.split(',')
@@ -163,7 +174,6 @@ export const fetchCommodityTrend = async (code, market) => {
     })
     
     if (prices.length === 0) {
-      // 如果解析后无有效数据，返回最近的日K数据
       return fetchCommodityKline(code, market, '1m', 101)
     }
     
@@ -184,21 +194,19 @@ export const fetchCommodityTrend = async (code, market) => {
     }
   } catch (error) {
     console.error('获取分时数据失败:', error)
-    // 出错时返回最近的日K数据
     return fetchCommodityKline(code, market, '1m', 101)
   }
 }
 
 /**
  * 获取商品相关新闻
- * @param {string} keyword - 搜索关键词
  */
-export const fetchCommodityNews = async (keyword) => {
+export const fetchCommodityNews = async (keyword: string): Promise<NewsItem[]> => {
   try {
     const url = `https://searchapi.eastmoney.com/api/Info/Search?appkey=796d6e5f5765626368617432303135&pageindex=1&pagesize=10&keyword=${encodeURIComponent(keyword)}&type=1`
     const response = await axios.get(url)
     const list = response.data?.Data?.List || []
-    return list.map(item => ({
+    return list.map((item: any) => ({
       title: item.Title?.replace(/<[^>]+>/g, '') || '',
       url: item.Url || '',
       source: item.Source || '东方财富',

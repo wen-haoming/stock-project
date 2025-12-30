@@ -3,23 +3,77 @@
  */
 import axios from 'axios'
 import dayjs from 'dayjs'
+import type { KlineData, TrendData, NewsItem, FinanceData } from '../types'
+
+interface TrendResponse {
+  categoryData: string[]
+  values: number[][]
+  volumes: number[][]
+  preClose: number
+}
+
+interface AnnouncementItem {
+  title: string
+  date: string
+  code: string
+  category: string
+  url: string
+  pdfUrl: string
+}
+
+interface AnnouncementResponse {
+  list: AnnouncementItem[]
+  total: number
+}
+
+interface StockInfo {
+  symbol: string
+  name: string
+  industry: string
+  latestPrice: number
+  changePct: number
+  changeAmt: number
+  open: number
+  high: number
+  low: number
+  preClose: number
+  limitUp: number
+  limitDown: number
+  avgPrice: number
+  volume: number
+  amount: number
+  outerVol: number
+  innerVol: number
+  totalMarketCap: number
+  floatMarketCap: number
+  totalShares: number
+  floatShares: number
+  peRatio: number
+  pbRatio: number
+  turnoverRate: number
+  amplitude: number
+  volumeRatio: number
+  eps: number
+  navps: number
+  roe: number
+}
 
 /**
  * 获取分时数据
- * @param {string} symbol - 股票代码
- * @param {string} market - 市场类型 'a' | 'hk'
- * @param {number} ndays - 天数 1-5
  */
-export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
+export const fetchStockTrend = async (
+  symbol: string, 
+  market: 'a' | 'hk' = 'hk', 
+  ndays: number = 1
+): Promise<TrendResponse> => {
   try {
-    let secid
+    let secid: string
     if (market === 'a') {
       secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
     } else {
       secid = `116.${symbol}`
     }
     
-    // 添加时间戳防止缓存
     const timestamp = Date.now()
     const url = `https://push2his.eastmoney.com/api/qt/stock/trends2/get?fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=7eea3edcaed734bea9cbfc24409ed989&ndays=${ndays}&iscr=0&secid=${secid}&_=${timestamp}`
     
@@ -29,11 +83,9 @@ export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
     if (!data) return { categoryData: [], values: [], volumes: [], preClose: 0 }
     
     const preClose = data.preClose
-    let trends = data.trends || []
+    let trends: string[] = data.trends || []
     
-    // 只保留最新交易日的分时数据
     if (ndays === 1 && trends.length > 0) {
-      // 获取最后一条数据的日期作为最新交易日
       const lastItem = trends[trends.length - 1]
       const latestDate = lastItem.split(',')[0]?.split(' ')[0]
       if (latestDate) {
@@ -44,40 +96,28 @@ export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
       }
     }
     
-    const categoryData = []
-    const values = []
-    const volumes = []
+    const categoryData: string[] = []
+    const values: number[][] = []
+    const volumes: number[][] = []
     
     let prevPrice = preClose
-    
-    // 累计值用于计算分时均线
     let totalVolume = 0
     let totalAmount = 0
-    
-    // A股成交量单位是手(100股)，港股成交量单位是股
     const volumeMultiplier = market === 'a' ? 100 : 1
     
     trends.forEach((item, index) => {
       const fields = item.split(',')
-      // 东方财富分时数据字段（8个）: 
-      // fields[0]=时间, fields[1]=开盘, fields[2]=收盘(现价), 
-      // fields[3]=最高, fields[4]=最低, fields[5]=成交量, 
-      // fields[6]=成交额(元), fields[7]=均价
       const time = fields[0].split(' ')[1] || fields[0]
-      const price = parseFloat(fields[2])         // 现价是收盘价
-      const volume = parseFloat(fields[5]) || 0   // 当前分钟成交量
-      const amount = parseFloat(fields[6]) || 0   // 当前分钟成交额(元)
+      const price = parseFloat(fields[2])
+      const volume = parseFloat(fields[5]) || 0
+      const amount = parseFloat(fields[6]) || 0
       
-      // 累加计算分时均线
       totalVolume += volume * volumeMultiplier
       totalAmount += amount
-      
-      // 分时均线 = 累计成交额 / 累计成交量(股)
       const avgPrice = totalVolume > 0 ? totalAmount / totalVolume : price
       
       categoryData.push(time)
       values.push([price, avgPrice])
-      // 成交量颜色：当前价格>=前一个价格为红(涨)，否则为绿(跌)
       volumes.push([index, volume, price >= prevPrice ? 1 : -1])
       prevPrice = price
     })
@@ -91,56 +131,54 @@ export const fetchStockTrend = async (symbol, market = 'hk', ndays = 1) => {
 
 /**
  * 获取个股 K 线数据
- * @param {string} symbol - 股票代码
- * @param {string} market - 市场类型 'a' | 'hk'
- * @param {number} months - 获取月数，默认2个月
- * @param {string} period - K线周期: 'day'(日) | 'week'(周) | 'month'(月) | 'quarter'(季) | 'year'(年)
  */
-export const fetchStockKline = async (symbol, market = 'hk', months = 2, period = 'day') => {
+export const fetchStockKline = async (
+  symbol: string, 
+  market: 'a' | 'hk' = 'hk', 
+  months: number = 2, 
+  period: 'day' | 'week' | 'month' | 'quarter' | 'year' = 'day'
+): Promise<KlineData> => {
   try {
-    // 根据周期类型调整最小时间范围，确保有足够的K线数据
     let actualMonths = months
     if (period === 'year') {
-      actualMonths = Math.max(months, 240) // 至少20年
+      actualMonths = Math.max(months, 240)
     } else if (period === 'quarter') {
-      actualMonths = Math.max(months, 120) // 至少10年
+      actualMonths = Math.max(months, 120)
     } else if (period === 'month') {
-      actualMonths = Math.max(months, 60) // 至少5年
+      actualMonths = Math.max(months, 60)
     } else if (period === 'week') {
-      actualMonths = Math.max(months, 36) // 至少3年
+      actualMonths = Math.max(months, 36)
     }
     
     const start = dayjs().subtract(actualMonths, 'month').format('YYYYMMDD')
     const end = dayjs().format('YYYYMMDD')
     
-    // 根据市场类型构建 secid
-    let secid
+    let secid: string
     if (market === 'a') {
       secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
     } else {
       secid = `116.${symbol}`
     }
     
-    // K线周期映射: 101=日, 102=周, 103=月, 104=季, 105=年
-    const kltMap = { day: 101, week: 102, month: 103, quarter: 104, year: 105 }
+    const kltMap: Record<string, number> = { day: 101, week: 102, month: 103, quarter: 104, year: 105 }
     const klt = kltMap[period] || 101
     
     const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=${start}&end=${end}`
 
     const response = await axios.get(url)
-    const rawData = response.data?.data?.klines || []
+    const rawData: string[] = response.data?.data?.klines || []
 
-    const categoryData = []
-    const values = []
-    const volumes = []
+    const categoryData: string[] = []
+    const values: number[][] = []
+    const volumes: number[][] = []
 
     rawData.forEach((item) => {
       const fields = item.split(',')
       categoryData.push(fields[0])
       const open = parseFloat(fields[1])
       const close = parseFloat(fields[2])
-      const changePct = parseFloat(fields[8])  // 涨幅
-      const turnoverRate = parseFloat(fields[10])  // 换手率
+      const changePct = parseFloat(fields[8])
+      const turnoverRate = parseFloat(fields[10])
       values.push([
         open, 
         close, 
@@ -161,15 +199,14 @@ export const fetchStockKline = async (symbol, market = 'hk', months = 2, period 
 
 /**
  * 获取个股新闻
- * @param {string} name - 股票名称
  */
-export const fetchStockNews = async (name) => {
+export const fetchStockNews = async (name: string): Promise<NewsItem[]> => {
   try {
     const response = await axios.get('/api/v1/stock/news', {
       params: { keyword: name }
     })
     const data = response.data
-    return (data?.result?.cmsArticleWebOld || []).map(item => ({
+    return (data?.result?.cmsArticleWebOld || []).map((item: any) => ({
       title: item.title?.replace(/<\/?em>/g, ''),
       url: item.url,
       date: item.date,
@@ -183,19 +220,20 @@ export const fetchStockNews = async (name) => {
 
 /**
  * 获取A股公告列表
- * @param {string} symbol - 股票代码
- * @param {number} page - 页码
- * @param {number} pageSize - 每页条数
- * @param {string} category - 分类
  */
-export const fetchAnnouncements = async (symbol, page = 1, pageSize = 10, category = '0') => {
+export const fetchAnnouncements = async (
+  symbol: string, 
+  page: number = 1, 
+  pageSize: number = 10, 
+  category: string = '0'
+): Promise<AnnouncementResponse> => {
   try {
     const response = await axios.get('/api/v1/stock/announcements', {
       params: { symbol, page, page_size: pageSize, category }
     })
     const data = response.data?.data || {}
     return {
-      list: (data.list || []).map(item => {
+      list: (data.list || []).map((item: any) => {
         let timestamp = Date.now()
         if (item.eiTime) {
           const eiTime = item.eiTime.replace(/:(\d{3})$/, '.$1')
@@ -226,13 +264,14 @@ export const fetchAnnouncements = async (symbol, page = 1, pageSize = 10, catego
 
 /**
  * 获取财务数据
- * @param {string} symbol - 股票代码
- * @param {string} reportType - 报告类型 '' | '2' | '4'
- * @param {string} market - 市场类型 'a' | 'hk'
  */
-export const fetchFinanceData = async (symbol, reportType = '', market = 'hk') => {
+export const fetchFinanceData = async (
+  symbol: string, 
+  reportType: string = '', 
+  market: 'a' | 'hk' = 'hk'
+): Promise<FinanceData[]> => {
   try {
-    let url
+    let url: string
     
     if (market === 'a') {
       const params = new URLSearchParams({
@@ -265,14 +304,13 @@ export const fetchFinanceData = async (symbol, reportType = '', market = 'hk') =
     }
     
     const response = await axios.get(url)
-    let result = response.data?.result?.data || []
+    let result: any[] = response.data?.result?.data || []
     
     if (!result.length) return []
     
-    // 根据报告类型过滤
     const dateField = market === 'a' ? 'REPORTDATE' : 'REPORT_DATE'
     if (reportType) {
-      const monthMap = { '1': 3, '2': 6, '3': 9, '4': 12 }
+      const monthMap: Record<string, number> = { '1': 3, '2': 6, '3': 9, '4': 12 }
       const targetMonth = monthMap[reportType]
       if (targetMonth) {
         result = result.filter(item => {
@@ -282,7 +320,6 @@ export const fetchFinanceData = async (symbol, reportType = '', market = 'hk') =
       }
     }
     
-    // A股字段映射
     if (market === 'a') {
       return result.map(item => {
         const reportDate = item.REPORTDATE || ''
@@ -319,7 +356,6 @@ export const fetchFinanceData = async (symbol, reportType = '', market = 'hk') =
       }).reverse()
     }
     
-    // 港股字段映射
     return result.map(item => {
       const reportDate = item.REPORT_DATE || ''
       const date = dayjs(reportDate)
@@ -362,13 +398,14 @@ export const fetchFinanceData = async (symbol, reportType = '', market = 'hk') =
 
 /**
  * 获取股票基本信息
- * @param {string} symbol - 股票代码
- * @param {string} name - 股票名称（备用）
- * @param {string} market - 市场类型 'a' | 'hk'
  */
-export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
+export const fetchStockInfo = async (
+  symbol: string, 
+  name: string = '', 
+  market: 'a' | 'hk' = 'hk'
+): Promise<StockInfo | null> => {
   try {
-    let secid
+    let secid: string
     if (market === 'a') {
       const prefix = symbol.startsWith('6') ? '1' : '0'
       secid = `${prefix}.${symbol}`
@@ -376,12 +413,6 @@ export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
       secid = `116.${symbol}`
     }
     
-    // 扩展字段获取更多数据
-    // f43最新价 f44最高 f45最低 f46今开 f47成交量 f48成交额 f50振幅 f51涨停 f52跌停 
-    // f55量比 f57代码 f58名称 f60昨收 f71均价 f100行业 f112板块
-    // f116总市值 f117流通市值 f162市盈率 f163市盈率TTM f164市净率 f167市净率
-    // f168换手率 f169涨跌额 f170涨跌幅 f173ROE f183总股本 f184流通股本 f185外盘 f186内盘
-    // f187每股收益 f188每股净资产
     const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f71,f100,f116,f117,f162,f164,f167,f168,f169,f170,f173,f183,f184,f185,f186,f187,f188`
     const response = await axios.get(url)
     const data = response.data?.data
@@ -393,46 +424,44 @@ export const fetchStockInfo = async (symbol, name = '', market = 'hk') => {
     return {
       symbol: data.f57 || symbol,
       name: data.f58 || name,
-      industry: data.f100 || '',           // 行业
-      latestPrice: data.f43 / priceDiv,    // 最新价
-      changePct: data.f170 / 100,          // 涨跌幅
-      changeAmt: data.f169 / priceDiv,     // 涨跌额
-      open: data.f46 / priceDiv,           // 今开
-      high: data.f44 / priceDiv,           // 最高
-      low: data.f45 / priceDiv,            // 最低
-      preClose: data.f60 / priceDiv,       // 昨收
-      limitUp: data.f51 / priceDiv,        // 涨停价
-      limitDown: data.f52 / priceDiv,      // 跌停价
-      avgPrice: data.f71 / priceDiv,       // 均价
-      volume: data.f47,                    // 成交量（手）
-      amount: data.f48,                    // 成交额
-      outerVol: data.f185,                 // 外盘
-      innerVol: data.f186,                 // 内盘
-      totalMarketCap: data.f116,           // 总市值
-      floatMarketCap: data.f117,           // 流通市值
-      totalShares: data.f183,              // 总股本
-      floatShares: data.f184,              // 流通股本
-      peRatio: data.f162 / 100,            // 市盈率(动)
-      pbRatio: data.f167 / 100,            // 市净率
-      turnoverRate: data.f168 / 100,       // 换手率
-      amplitude: data.f50 / 100,           // 振幅
-      volumeRatio: data.f55 / 100,         // 量比
-      eps: data.f187 / 100,                // 每股收益
-      navps: data.f188 / 100,              // 每股净资产
-      roe: data.f173 / 100,                // ROE
+      industry: data.f100 || '',
+      latestPrice: data.f43 / priceDiv,
+      changePct: data.f170 / 100,
+      changeAmt: data.f169 / priceDiv,
+      open: data.f46 / priceDiv,
+      high: data.f44 / priceDiv,
+      low: data.f45 / priceDiv,
+      preClose: data.f60 / priceDiv,
+      limitUp: data.f51 / priceDiv,
+      limitDown: data.f52 / priceDiv,
+      avgPrice: data.f71 / priceDiv,
+      volume: data.f47,
+      amount: data.f48,
+      outerVol: data.f185,
+      innerVol: data.f186,
+      totalMarketCap: data.f116,
+      floatMarketCap: data.f117,
+      totalShares: data.f183,
+      floatShares: data.f184,
+      peRatio: data.f162 / 100,
+      pbRatio: data.f167 / 100,
+      turnoverRate: data.f168 / 100,
+      amplitude: data.f50 / 100,
+      volumeRatio: data.f55 / 100,
+      eps: data.f187 / 100,
+      navps: data.f188 / 100,
+      roe: data.f173 / 100,
     }
   } catch (error) {
     console.error('获取股票信息失败:', error)
-    return name ? { symbol, name } : null
+    return name ? { symbol, name } as StockInfo : null
   }
 }
 
 /**
- * 搜索股票（支持代码和名称模糊搜索）
- * @param {string} keyword - 搜索关键词
- * @param {number} limit - 返回数量限制
+ * 搜索股票
  */
-export const searchStocks = async (keyword, limit = 20) => {
+export const searchStocks = async (keyword: string, limit: number = 20) => {
   try {
     const response = await axios.get('/api/v1/stock/search', {
       params: { keyword, limit }
