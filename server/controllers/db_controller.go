@@ -131,21 +131,42 @@ func (c *DBController) ManualSync(ctx *gin.Context) {
 
 	// 异步执行同步任务
 	go func() {
-		bgCtx := context.Background()
+		// 创建可取消的context
+		bgCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		
 		switch market {
 		case "hk":
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("hk")
 			log.Printf("[ManualSync] 开始同步港股...")
 			c.syncMarketData(bgCtx, "hk", includeKline)
 		case "a":
+			services.SetSyncCancel("a", cancel)
+			defer services.ClearSyncCancel("a")
 			log.Printf("[ManualSync] 开始同步A股...")
 			c.syncMarketData(bgCtx, "a", includeKline)
 		default:
-			// 同步全部时，先同步A股再同步港股
+			// 同步全部时，先同步A股再同步港股，共用一个cancel
+			services.SetSyncCancel("a", cancel)
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("a")
+			defer services.ClearSyncCancel("hk")
+			
 			log.Printf("[ManualSync] 开始同步全部数据，先A股后港股...")
 			if err := c.syncMarketData(bgCtx, "a", includeKline); err == nil {
+				// 检查是否被取消
+				if bgCtx.Err() != nil {
+					log.Printf("[ManualSync] 同步已被取消")
+					return
+				}
 				log.Printf("[ManualSync] A股同步完成，开始同步港股...")
 				c.syncMarketData(bgCtx, "hk", includeKline)
 			} else {
+				if bgCtx.Err() != nil {
+					log.Printf("[ManualSync] 同步已被取消")
+					return
+				}
 				log.Printf("[ManualSync] A股同步失败，跳过港股: %v", err)
 			}
 		}
@@ -350,6 +371,34 @@ func (c *DBController) GetSyncProgress(ctx *gin.Context) {
 		"code": 0,
 		"data": services.GetAllSyncProgress(),
 	})
+}
+
+// CancelSync 取消同步
+// POST /api/v1/db/sync-cancel
+func (c *DBController) CancelSync(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+	
+	var cancelled bool
+	if market == "all" {
+		// 取消所有市场的同步
+		a := services.CancelSync("a")
+		hk := services.CancelSync("hk")
+		cancelled = a || hk
+	} else {
+		cancelled = services.CancelSync(market)
+	}
+	
+	if cancelled {
+		ctx.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "同步已取消",
+		})
+	} else {
+		ctx.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "没有正在进行的同步任务",
+		})
+	}
 }
 
 // GetKlineDebug 调试接口：查询单只股票的K线数据

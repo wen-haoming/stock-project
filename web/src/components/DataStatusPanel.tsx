@@ -19,7 +19,8 @@ import {
   CheckCircleOutlined, 
   ExclamationCircleOutlined,
   CloudServerOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  StopOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -96,7 +97,7 @@ export default function DataStatusPanel() {
         
         // 检查是否有正在同步的任务
         const activeSyncing = Object.entries(data).find(
-          ([, p]) => p.status !== 'idle' && p.status !== 'completed' && p.status !== 'error'
+          ([, p]) => p.status !== 'idle' && p.status !== 'completed' && p.status !== 'error' && p.status !== 'cancelled'
         )
         
         if (activeSyncing) {
@@ -111,6 +112,9 @@ export default function DataStatusPanel() {
             } else if (p.status === 'error' && !lastCompletedRef.current[market]) {
               lastCompletedRef.current[market] = true
               message.error(`${market === 'a' ? 'A股' : '港股'}同步失败: ${p.error}`)
+            } else if (p.status === 'cancelled' && !lastCompletedRef.current[market]) {
+              lastCompletedRef.current[market] = true
+              message.warning(`${market === 'a' ? 'A股' : '港股'}同步已取消`)
             } else if (p.status === 'idle') {
               lastCompletedRef.current[market] = false
             }
@@ -185,6 +189,17 @@ export default function DataStatusPanel() {
       } else {
         message.error(err.response?.data?.error || '同步请求失败')
       }
+    }
+  }
+
+  const handleCancelSync = async () => {
+    try {
+      const res = await axios.post('/api/v1/db/sync-cancel?market=all')
+      if (res.data.code === 0) {
+        message.info(res.data.message)
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '取消同步失败')
     }
   }
 
@@ -397,17 +412,26 @@ export default function DataStatusPanel() {
 
           <Divider style={{ margin: '8px 0' }} />
 
-          {/* 全量同步按钮 */}
-          <Button 
-            block 
-            type="primary"
-            icon={<SyncOutlined spin={syncing === 'all'} />}
-            loading={syncing === 'all'}
-            disabled={syncing !== null}
-            onClick={() => handleSync('all')}
-          >
-            {syncing === 'all' ? '同步中...' : '同步全部数据'}
-          </Button>
+          {/* 全量同步按钮 / 取消按钮 */}
+          {syncing ? (
+            <Button 
+              block 
+              danger
+              icon={<StopOutlined />}
+              onClick={handleCancelSync}
+            >
+              取消同步
+            </Button>
+          ) : (
+            <Button 
+              block 
+              type="primary"
+              icon={<SyncOutlined />}
+              onClick={() => handleSync('all')}
+            >
+              同步全部数据
+            </Button>
+          )}
         </>
       ) : (
         <div style={{ textAlign: 'center', padding: 20 }}>

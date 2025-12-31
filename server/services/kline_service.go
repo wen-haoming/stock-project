@@ -32,13 +32,16 @@ type SyncProgress struct {
 	Error     string    `json:"error,omitempty"`
 }
 
-// 全局同步进度
+// 全局同步进度和取消控制
 var (
 	syncProgressMu sync.RWMutex
 	syncProgress   = map[string]*SyncProgress{
 		"a":  {Market: "a", Status: "idle"},
 		"hk": {Market: "hk", Status: "idle"},
 	}
+	// 取消函数映射
+	syncCancelMu sync.RWMutex
+	syncCancelFn = map[string]context.CancelFunc{}
 )
 
 // GetSyncProgress 获取同步进度
@@ -146,9 +149,66 @@ func IsSyncing(market string) bool {
 	defer syncProgressMu.RUnlock()
 
 	if p, ok := syncProgress[market]; ok {
-		return p.Status != "idle" && p.Status != "completed" && p.Status != "failed" && p.Status != "error"
+		return p.Status != "idle" && p.Status != "completed" && p.Status != "failed" && p.Status != "error" && p.Status != "cancelled"
 	}
 	return false
+}
+
+// SetSyncCancel 设置同步取消函数
+func SetSyncCancel(market string, cancel context.CancelFunc) {
+	syncCancelMu.Lock()
+	defer syncCancelMu.Unlock()
+	syncCancelFn[market] = cancel
+}
+
+// ClearSyncCancel 清除同步取消函数
+func ClearSyncCancel(market string) {
+	syncCancelMu.Lock()
+	defer syncCancelMu.Unlock()
+	delete(syncCancelFn, market)
+}
+
+// CancelSync 取消同步
+func CancelSync(market string) bool {
+	syncCancelMu.Lock()
+	cancel, ok := syncCancelFn[market]
+	if ok {
+		delete(syncCancelFn, market)
+	}
+	syncCancelMu.Unlock()
+
+	if ok && cancel != nil {
+		cancel()
+		// 更新状态为已取消
+		syncProgressMu.Lock()
+		if p, exists := syncProgress[market]; exists {
+			p.Status = "cancelled"
+			p.Phase = "已取消"
+			p.Message = "用户取消了同步"
+			p.UpdatedAt = time.Now()
+		}
+		syncProgressMu.Unlock()
+		log.Printf("[CancelSync] %s 同步已取消", market)
+		return true
+	}
+	return false
+}
+
+// ResetSyncStatus 重置同步状态为idle
+func ResetSyncStatus(market string) {
+	syncProgressMu.Lock()
+	defer syncProgressMu.Unlock()
+	if p, ok := syncProgress[market]; ok {
+		p.Status = "idle"
+		p.Phase = ""
+		p.Message = ""
+		p.Error = ""
+		p.Current = 0
+		p.Total = 0
+		p.Percent = 0
+		p.Success = 0
+		p.Failed = 0
+	}
 }
 
 // KlineService K线服务
@@ -367,6 +427,7 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 	stockChan := make(chan models.StockData, workerCount*2)
 
 	var successCount, failedCount, processedCount int64
+	var cancelled int32 // 取消标志
 
 	// 启动worker
 	for i := 0; i < workerCount; i++ {
@@ -374,6 +435,17 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 		go func() {
 			defer wg.Done()
 			for stock := range stockChan {
+				// 检查是否被取消
+				if atomic.LoadInt32(&cancelled) == 1 {
+					continue // 消费完channel但不处理
+				}
+				select {
+				case <-ctx.Done():
+					atomic.StoreInt32(&cancelled, 1)
+					continue
+				default:
+				}
+
 				if err := s.FetchAndSaveKlines(ctx, stock.Symbol, market, startDate, endDate); err != nil {
 					atomic.AddInt64(&failedCount, 1)
 				} else {
@@ -381,8 +453,8 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 				}
 				current := atomic.AddInt64(&processedCount, 1)
 
-				// 每500只更新一次进度
-				if current%500 == 0 {
+				// 每500只或最后一批更新进度
+				if current%500 == 0 || current == int64(total) {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
 					// K线同步占 85-99%
@@ -397,14 +469,26 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 		}()
 	}
 
-	// 发送任务
+	// 发送任务（支持取消）
+sendLoop:
 	for _, stock := range stocks {
-		stockChan <- stock
+		select {
+		case <-ctx.Done():
+			log.Printf("[%s] 同步被取消，停止发送任务", marketName)
+			break sendLoop
+		case stockChan <- stock:
+		}
 	}
 	close(stockChan)
 
 	// 等待完成
 	wg.Wait()
+
+	// 检查是否被取消
+	if ctx.Err() != nil {
+		log.Printf("%sK线同步被取消", marketName)
+		return ctx.Err()
+	}
 
 	success := atomic.LoadInt64(&successCount)
 	failed := atomic.LoadInt64(&failedCount)
@@ -454,6 +538,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 	stockChan := make(chan models.StockData, workerCount*2)
 
 	var successCount, failedCount, processedCount int64
+	var cancelled int32 // 取消标志
 
 	// 启动worker
 	for i := 0; i < workerCount; i++ {
@@ -461,6 +546,17 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 		go func() {
 			defer wg.Done()
 			for stock := range stockChan {
+				// 检查是否被取消
+				if atomic.LoadInt32(&cancelled) == 1 {
+					continue // 消费完channel但不处理
+				}
+				select {
+				case <-ctx.Done():
+					atomic.StoreInt32(&cancelled, 1)
+					continue
+				default:
+				}
+
 				if err := s.FetchAndSaveKlines(ctx, stock.Symbol, market, startDate, endDate); err != nil {
 					atomic.AddInt64(&failedCount, 1)
 				} else {
@@ -468,8 +564,8 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 				}
 				current := atomic.AddInt64(&processedCount, 1)
 
-				// 每100只更新一次进度
-				if current%100 == 0 {
+				// 每100只或最后一批更新进度
+				if current%100 == 0 || current == int64(total) {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
 					// K线同步占 85-99%
@@ -484,14 +580,26 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 		}()
 	}
 
-	// 发送任务
+	// 发送任务（支持取消）
+sendLoop:
 	for _, stock := range stocks {
-		stockChan <- stock
+		select {
+		case <-ctx.Done():
+			log.Printf("[%s] 同步被取消，停止发送任务", marketName)
+			break sendLoop
+		case stockChan <- stock:
+		}
 	}
 	close(stockChan)
 
 	// 等待完成
 	wg.Wait()
+
+	// 检查是否被取消
+	if ctx.Err() != nil {
+		log.Printf("%sK线同步被取消", marketName)
+		return ctx.Err()
+	}
 
 	success := atomic.LoadInt64(&successCount)
 	failed := atomic.LoadInt64(&failedCount)
