@@ -58,6 +58,7 @@ func SetupRouter() *gin.Engine {
 		dbCtrl := controllers.NewDBController()
 		v1.GET("/db/status", dbCtrl.GetStatus)
 		v1.GET("/db/sync-progress", dbCtrl.GetSyncProgress)
+		v1.GET("/db/sync-progress/sse", dbCtrl.SyncProgressSSE) // SSE 实时进度
 		v1.GET("/db/kline-debug", dbCtrl.GetKlineDebug)
 		v1.POST("/db/sync", dbCtrl.ManualSync)
 		v1.POST("/db/sync-history", dbCtrl.ManualSyncHistory)

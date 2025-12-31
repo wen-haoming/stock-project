@@ -154,7 +154,8 @@ func (r *KlineRepository) GetAllSymbols(ctx context.Context, market string) ([]s
 // CountKlines 统计K线数量
 func (r *KlineRepository) CountKlines(ctx context.Context, market string) (int64, error) {
 	collection := r.getCollection(market)
-	return collection.CountDocuments(ctx, bson.M{})
+	// 使用 EstimatedDocumentCount 更快（基于集合元数据）
+	return collection.EstimatedDocumentCount(ctx)
 }
 
 // CountKlinesBySymbol 统计指定股票的K线数量

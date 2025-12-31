@@ -266,14 +266,17 @@ func isDerivativeStock(stock models.StockData) bool {
 // GetLastUpdateTime 获取最后更新时间
 func (r *StockRepository) GetLastUpdateTime(ctx context.Context, market string) (time.Time, error) {
 	collection := r.getCollection(market)
+	
+	// 先尝试按 updatedAt 排序
 	opts := options.FindOne().SetSort(bson.D{{Key: "updatedAt", Value: -1}})
-
 	var stock models.StockData
-	err := collection.FindOne(ctx, bson.M{}, opts).Decode(&stock)
-	if err != nil {
-		return time.Time{}, err
+	err := collection.FindOne(ctx, bson.M{"updatedAt": bson.M{"$exists": true, "$ne": nil}}, opts).Decode(&stock)
+	if err == nil && !stock.UpdatedAt.IsZero() {
+		return stock.UpdatedAt, nil
 	}
-	return stock.UpdatedAt, nil
+	
+	// 如果没有 updatedAt 字段，返回零值
+	return time.Time{}, err
 }
 
 // CountByMarket 统计市场股票数量

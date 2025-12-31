@@ -19,14 +19,17 @@ import (
 // SyncProgress 同步进度
 type SyncProgress struct {
 	Market    string    `json:"market"`
-	Status    string    `json:"status"` // idle, syncing, completed, failed
+	Status    string    `json:"status"`  // idle, syncing, fetching, caching, saving, completed, failed, error
+	Phase     string    `json:"phase"`   // 当前阶段描述
 	Total     int       `json:"total"`
 	Current   int       `json:"current"`
+	Percent   int       `json:"percent"` // 百分比
 	Success   int       `json:"success"`
 	Failed    int       `json:"failed"`
 	StartTime time.Time `json:"startTime"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	Message   string    `json:"message"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // 全局同步进度
@@ -59,7 +62,7 @@ func GetAllSyncProgress() map[string]*SyncProgress {
 	return result
 }
 
-// updateSyncProgress 更新同步进度
+// updateSyncProgress 更新同步进度（用于K线同步）
 func updateSyncProgress(market, status string, current, total, success, failed int, message string) {
 	syncProgressMu.Lock()
 	defer syncProgressMu.Unlock()
@@ -75,12 +78,77 @@ func updateSyncProgress(market, status string, current, total, success, failed i
 	}
 
 	p.Status = status
+	p.Phase = message
 	p.Total = total
 	p.Current = current
 	p.Success = success
 	p.Failed = failed
 	p.Message = message
 	p.UpdatedAt = time.Now()
+
+	// 计算百分比
+	if total > 0 {
+		p.Percent = current * 100 / total
+	}
+}
+
+// UpdateStockSyncProgress 更新股票实时数据同步进度
+func UpdateStockSyncProgress(market, status, phase string, current, total int, message string) {
+	syncProgressMu.Lock()
+	defer syncProgressMu.Unlock()
+
+	p := syncProgress[market]
+	if p == nil {
+		p = &SyncProgress{Market: market}
+		syncProgress[market] = p
+	}
+
+	if (status == "fetching" || status == "syncing") && p.Status == "idle" {
+		p.StartTime = time.Now()
+	}
+
+	p.Status = status
+	p.Phase = phase
+	p.Total = total
+	p.Current = current
+	p.Message = message
+	p.UpdatedAt = time.Now()
+	p.Error = ""
+
+	// 计算百分比
+	if total > 0 {
+		p.Percent = current * 100 / total
+	}
+	if status == "completed" || status == "error" {
+		p.Percent = 100
+	}
+}
+
+// SetStockSyncError 设置股票同步错误
+func SetStockSyncError(market string, err error) {
+	syncProgressMu.Lock()
+	defer syncProgressMu.Unlock()
+
+	p := syncProgress[market]
+	if p == nil {
+		p = &SyncProgress{Market: market}
+		syncProgress[market] = p
+	}
+
+	p.Status = "error"
+	p.Error = err.Error()
+	p.UpdatedAt = time.Now()
+}
+
+// IsSyncing 检查是否正在同步
+func IsSyncing(market string) bool {
+	syncProgressMu.RLock()
+	defer syncProgressMu.RUnlock()
+
+	if p, ok := syncProgress[market]; ok {
+		return p.Status != "idle" && p.Status != "completed" && p.Status != "failed" && p.Status != "error"
+	}
+	return false
 }
 
 // KlineService K线服务
@@ -288,7 +356,7 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 	}
 
 	log.Printf("开始增量同步 %d 只%s的K线数据（最近%d天）", total, marketName, days)
-	updateSyncProgress(market, "syncing", 0, total, 0, 0, fmt.Sprintf("开始增量同步%sK线...", marketName))
+	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始增量同步%sK线...", marketName), 85, 100, fmt.Sprintf("共 %d 只股票", total))
 
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
@@ -317,9 +385,10 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 				if current%500 == 0 {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
-					progress := float64(current) / float64(total) * 100
-					msg := fmt.Sprintf("%sK线增量同步中 %.1f%% (%d/%d)", marketName, progress, current, total)
-					updateSyncProgress(market, "syncing", int(current), total, int(success), int(failed), msg)
+					// K线同步占 85-99%
+					percent := 85 + int(float64(current)/float64(total)*14)
+					msg := fmt.Sprintf("%sK线增量同步 %d/%d", marketName, current, total)
+					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, fmt.Sprintf("成功:%d 失败:%d", success, failed))
 					log.Printf("%s增量同步 %d/%d (成功:%d 失败:%d)", marketName, current, total, success, failed)
 				}
 
@@ -339,9 +408,8 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 
 	success := atomic.LoadInt64(&successCount)
 	failed := atomic.LoadInt64(&failedCount)
-	msg := fmt.Sprintf("%sK线增量同步完成，成功 %d/%d", marketName, success, total)
-	updateSyncProgress(market, "completed", total, total, int(success), int(failed), msg)
-	log.Println(msg)
+	log.Printf("%sK线增量同步完成，成功 %d/%d，失败 %d", marketName, success, total, failed)
+	// 不设置 completed，由调用方统一管理
 	return nil
 }
 
@@ -364,7 +432,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 
 	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, limit, 0)
 	if err != nil {
-		updateSyncProgress(market, "failed", 0, 0, 0, 0, fmt.Sprintf("获取股票列表失败: %v", err))
+		UpdateStockSyncProgress(market, "error", "获取股票列表失败", 0, 100, err.Error())
 		return err
 	}
 
@@ -375,7 +443,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 	}
 
 	log.Printf("开始全量同步 %d 只%s的历史K线数据", total, marketName)
-	updateSyncProgress(market, "syncing", 0, total, 0, 0, fmt.Sprintf("开始全量同步%sK线...", marketName))
+	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始全量同步%sK线...", marketName), 85, 100, fmt.Sprintf("共 %d 只股票", total))
 
 	endDate := time.Now().Format("2006-01-02")
 	startDate := "1990-01-01"
@@ -404,9 +472,10 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 				if current%100 == 0 {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
-					progress := float64(current) / float64(total) * 100
-					msg := fmt.Sprintf("%sK线全量同步中 %.1f%% (%d/%d)", marketName, progress, current, total)
-					updateSyncProgress(market, "syncing", int(current), total, int(success), int(failed), msg)
+					// K线同步占 85-99%
+					percent := 85 + int(float64(current)/float64(total)*14)
+					msg := fmt.Sprintf("%sK线全量同步 %d/%d", marketName, current, total)
+					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, fmt.Sprintf("成功:%d 失败:%d", success, failed))
 					log.Printf("全量同步 %d/%d 只%s (成功:%d 失败:%d)", current, total, marketName, success, failed)
 				}
 
@@ -426,9 +495,8 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 
 	success := atomic.LoadInt64(&successCount)
 	failed := atomic.LoadInt64(&failedCount)
-	msg := fmt.Sprintf("%sK线全量同步完成，成功 %d/%d", marketName, success, total)
-	updateSyncProgress(market, "completed", total, total, int(success), int(failed), msg)
-	log.Println(msg)
+	log.Printf("%sK线全量同步完成，成功 %d/%d，失败 %d", marketName, success, total, failed)
+	// 不设置 completed，由调用方统一管理
 	return nil
 }
 
