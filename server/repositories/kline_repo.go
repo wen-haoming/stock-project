@@ -241,3 +241,13 @@ func (r *KlineRepository) DeleteKlinesBySymbol(ctx context.Context, symbol, mark
 	}
 	return result.DeletedCount, nil
 }
+
+// DeleteAllKlines 清空指定市场的所有K线数据
+func (r *KlineRepository) DeleteAllKlines(ctx context.Context, market string) (int64, error) {
+	collection := r.getCollection(market)
+	result, err := collection.DeleteMany(ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}

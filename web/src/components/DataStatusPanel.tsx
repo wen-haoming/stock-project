@@ -20,7 +20,8 @@ import {
   ExclamationCircleOutlined,
   CloudServerOutlined,
   LoadingOutlined,
-  StopOutlined
+  StopOutlined,
+  DeleteOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -200,6 +201,31 @@ export default function DataStatusPanel() {
       }
     } catch (err: any) {
       message.error(err.response?.data?.error || '取消同步失败')
+    }
+  }
+
+  const handleResetAndSync = async () => {
+    // 重置完成状态
+    lastCompletedRef.current = {}
+    
+    try {
+      const res = await axios.post('/api/v1/db/reset-sync?market=all')
+      if (res.data.code === 0) {
+        setSyncing('all')
+        message.info('清空并同步任务已启动')
+        // 确保轮询在运行
+        startPolling()
+      } else {
+        message.error(res.data.error || '启动清空并同步失败')
+      }
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        message.warning('已有同步任务在进行中')
+        setSyncing('all')
+        startPolling()
+      } else {
+        message.error(err.response?.data?.error || '清空并同步请求失败')
+      }
     }
   }
 
@@ -423,14 +449,24 @@ export default function DataStatusPanel() {
               取消同步
             </Button>
           ) : (
-            <Button 
-              block 
-              type="primary"
-              icon={<SyncOutlined />}
-              onClick={() => handleSync('all')}
-            >
-              同步全部数据
-            </Button>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Button 
+                block 
+                type="primary"
+                icon={<SyncOutlined />}
+                onClick={() => handleSync('all')}
+              >
+                同步全部数据
+              </Button>
+              <Button 
+                block 
+                danger
+                icon={<DeleteOutlined />}
+                onClick={handleResetAndSync}
+              >
+                清空并重新同步
+              </Button>
+            </Space>
           )}
         </>
       ) : (

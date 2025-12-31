@@ -401,6 +401,138 @@ func (c *DBController) CancelSync(ctx *gin.Context) {
 	}
 }
 
+// ResetAndSync 清空数据库并重新全量同步
+// POST /api/v1/db/reset-sync
+// 参数:
+//   - market: a / hk / all(默认)
+func (c *DBController) ResetAndSync(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+
+	// 检查是否已在同步中
+	if market == "all" {
+		if services.IsSyncing("a") || services.IsSyncing("hk") {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "已有同步任务在进行中，请先取消或等待完成",
+			})
+			return
+		}
+	} else {
+		if services.IsSyncing(market) {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "该市场已在同步中",
+			})
+			return
+		}
+	}
+
+	// 异步执行清空和同步任务
+	go func() {
+		bgCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		switch market {
+		case "hk":
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("hk")
+			c.resetAndSyncMarket(bgCtx, "hk")
+		case "a":
+			services.SetSyncCancel("a", cancel)
+			defer services.ClearSyncCancel("a")
+			c.resetAndSyncMarket(bgCtx, "a")
+		default:
+			// 全部清空并同步，先A股后港股
+			services.SetSyncCancel("a", cancel)
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("a")
+			defer services.ClearSyncCancel("hk")
+
+			log.Printf("[ResetAndSync] 开始清空并同步全部数据...")
+			if err := c.resetAndSyncMarket(bgCtx, "a"); err == nil {
+				if bgCtx.Err() != nil {
+					log.Printf("[ResetAndSync] 同步已被取消")
+					return
+				}
+				log.Printf("[ResetAndSync] A股完成，开始港股...")
+				c.resetAndSyncMarket(bgCtx, "hk")
+			}
+		}
+		log.Printf("[ResetAndSync] 清空并同步任务全部完成")
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "清空并同步任务已启动，请通过进度接口查看状态",
+	})
+}
+
+// resetAndSyncMarket 清空并同步单个市场
+func (c *DBController) resetAndSyncMarket(ctx context.Context, market string) error {
+	marketName := "A股"
+	if market == "hk" {
+		marketName = "港股"
+	}
+
+	log.Printf("[resetAndSyncMarket] 开始清空%s数据...", marketName)
+	services.UpdateStockSyncProgress(market, "clearing", "正在清空"+marketName+"数据...", 0, 100, "删除K线数据")
+
+	// 1. 清空K线数据
+	klineCount, err := c.klineService.DeleteAllKlines(ctx, market)
+	if err != nil {
+		log.Printf("[resetAndSyncMarket] 清空%sK线数据失败: %v", marketName, err)
+		services.SetStockSyncError(market, err)
+		return err
+	}
+	log.Printf("[resetAndSyncMarket] 已清空%sK线数据: %d 条", marketName, klineCount)
+
+	services.UpdateStockSyncProgress(market, "clearing", "正在清空"+marketName+"数据...", 5, 100, "删除股票数据")
+
+	// 2. 清空股票数据
+	stockCount, err := c.stockService.DeleteAllStocks(ctx, market)
+	if err != nil {
+		log.Printf("[resetAndSyncMarket] 清空%s股票数据失败: %v", marketName, err)
+		services.SetStockSyncError(market, err)
+		return err
+	}
+	log.Printf("[resetAndSyncMarket] 已清空%s股票数据: %d 条", marketName, stockCount)
+
+	// 检查是否被取消
+	if ctx.Err() != nil {
+		log.Printf("[resetAndSyncMarket] 清空操作已被取消")
+		return ctx.Err()
+	}
+
+	// 3. 同步实时数据
+	services.UpdateStockSyncProgress(market, "fetching", "正在获取"+marketName+"数据...", 10, 100, "连接东方财富API")
+	if err := c.stockService.SyncAndCache(ctx, market); err != nil {
+		log.Printf("[resetAndSyncMarket] %s实时数据同步失败: %v", marketName, err)
+		return err
+	}
+	log.Printf("[resetAndSyncMarket] %s实时数据同步完成", marketName)
+
+	// 4. 全量同步K线数据
+	services.UpdateStockSyncProgress(market, "syncing_kline", "正在全量同步"+marketName+"K线数据...", 85, 100, "全量同步")
+	log.Printf("[resetAndSyncMarket] 开始全量同步%sK线数据...", marketName)
+
+	if market == "a" {
+		err = c.klineService.SyncAHistoryDataFull(ctx)
+	} else {
+		err = c.klineService.SyncHKHistoryDataFull(ctx)
+	}
+
+	if err != nil {
+		log.Printf("[resetAndSyncMarket] %sK线全量同步失败: %v", marketName, err)
+		services.SetStockSyncError(market, err)
+		return err
+	}
+
+	// 5. 完成
+	services.UpdateStockSyncProgress(market, "completed", "同步完成", 100, 100, fmt.Sprintf("%s数据清空并同步完成", marketName))
+	log.Printf("[resetAndSyncMarket] %s清空并同步全部完成", marketName)
+	return nil
+}
+
 // GetKlineDebug 调试接口：查询单只股票的K线数据
 // GET /api/v1/db/kline-debug?symbol=09992&market=hk
 func (c *DBController) GetKlineDebug(ctx *gin.Context) {

@@ -685,3 +685,10 @@ func (s *StockService) BatchSyncAndCache(ctx context.Context) error {
 	}
 	return hkErr
 }
+
+// DeleteAllStocks 清空指定市场的所有股票数据
+func (s *StockService) DeleteAllStocks(ctx context.Context, market string) (int64, error) {
+	// 同时清空实时缓存
+	s.realtimeCache.Clear(market)
+	return s.stockRepo.DeleteAllStocks(ctx, market)
+}

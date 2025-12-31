@@ -294,3 +294,13 @@ func (r *StockRepository) DeleteOldData(ctx context.Context, market string, befo
 	}
 	return result.DeletedCount, nil
 }
+
+// DeleteAllStocks 清空指定市场的所有股票数据
+func (r *StockRepository) DeleteAllStocks(ctx context.Context, market string) (int64, error) {
+	collection := r.getCollection(market)
+	result, err := collection.DeleteMany(ctx, bson.M{})
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}

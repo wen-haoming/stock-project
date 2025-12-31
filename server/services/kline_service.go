@@ -833,3 +833,8 @@ func getString2(m map[string]any, key string) string {
 	}
 	return ""
 }
+
+// DeleteAllKlines 清空指定市场的所有K线数据
+func (s *KlineService) DeleteAllKlines(ctx context.Context, market string) (int64, error) {
+	return s.klineRepo.DeleteAllKlines(ctx, market)
+}
