@@ -11,7 +11,8 @@ import {
   Statistic,
   Row,
   Col,
-  Progress
+  Progress,
+  Modal
 } from 'antd'
 import { 
   DatabaseOutlined, 
@@ -229,19 +230,32 @@ export default function DataStatusPanel() {
     }
   }
 
-  const handleClearKlines = async (market: 'a' | 'hk' | 'all') => {
-    const marketName = market === 'a' ? 'A股' : market === 'hk' ? '港股' : '全部'
-    try {
-      const res = await axios.post(`/api/v1/db/clear-klines?market=${market}`)
-      if (res.data.code === 0) {
-        message.success(`${marketName}K线数据已清空，共删除 ${res.data.deleted} 条`)
-        fetchStatus()
-      } else {
-        message.error(res.data.error || '清空K线失败')
+  const [clearing, setClearing] = useState(false)
+
+  const handleClearKlines = () => {
+    Modal.confirm({
+      title: '确认清空K线数据？',
+      content: '此操作将清空所有A股和港股的K线数据，清空后需要重新同步。',
+      okText: '确认清空',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setClearing(true)
+        try {
+          const res = await axios.post('/api/v1/db/clear-klines?market=all')
+          if (res.data.code === 0) {
+            message.success(`K线数据已清空，共删除 ${res.data.deleted} 条`)
+            fetchStatus()
+          } else {
+            message.error(res.data.error || '清空K线失败')
+          }
+        } catch (err: any) {
+          message.error(err.response?.data?.error || '清空K线请求失败')
+        } finally {
+          setClearing(false)
+        }
       }
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '清空K线请求失败')
-    }
+    })
   }
 
   const formatTime = (timeStr?: string) => {
@@ -473,22 +487,14 @@ export default function DataStatusPanel() {
               >
                 同步全部数据
               </Button>
-              <Space.Compact block>
-                <Button 
-                  style={{ flex: 1 }}
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleClearKlines('a')}
-                >
-                  清空A股K线
-                </Button>
-                <Button 
-                  style={{ flex: 1 }}
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleClearKlines('hk')}
-                >
-                  清空港股K线
-                </Button>
-              </Space.Compact>
+              <Button 
+                block
+                icon={<DeleteOutlined />}
+                loading={clearing}
+                onClick={handleClearKlines}
+              >
+                清空K线数据
+              </Button>
               <Button 
                 block 
                 danger
