@@ -19,8 +19,8 @@ import (
 // SyncProgress 同步进度
 type SyncProgress struct {
 	Market    string    `json:"market"`
-	Status    string    `json:"status"`  // idle, syncing, fetching, caching, saving, completed, failed, error
-	Phase     string    `json:"phase"`   // 当前阶段描述
+	Status    string    `json:"status"` // idle, syncing, fetching, caching, saving, completed, failed, error
+	Phase     string    `json:"phase"`  // 当前阶段描述
 	Total     int       `json:"total"`
 	Current   int       `json:"current"`
 	Percent   int       `json:"percent"` // 百分比
@@ -334,7 +334,7 @@ func (s *KlineService) syncHistoryDataSmart(ctx context.Context, market string) 
 	if err != nil {
 		// 无数据，需要全量同步
 		log.Printf("[%s] 无K线数据，启动后台全量同步...", marketName)
-		return s.syncFullData(ctx, market)
+		return s.syncFullData(ctx, market, false)
 	}
 
 	// 计算缺失天数
@@ -349,9 +349,9 @@ func (s *KlineService) syncHistoryDataSmart(ctx context.Context, market string) 
 	// 根据缺失天数决定同步范围（多同步几天以确保覆盖）
 	syncDays := missingDays + 3 // 多同步3天作为缓冲
 	if syncDays > 365 {
-		// 如果缺失超过一年，执行全量同步
-		log.Printf("[%s] 缺失超过一年，启动全量同步...", marketName)
-		return s.syncFullData(ctx, market)
+		// 如果缺失超过一年，执行断点续传同步
+		log.Printf("[%s] 缺失超过一年，启动断点续传同步...", marketName)
+		return s.syncFullData(ctx, market, true)
 	}
 
 	log.Printf("[%s] 启动增量同步（最近 %d 天）...", marketName, syncDays)
@@ -421,8 +421,8 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
-	// 并发控制
-	const workerCount = 10 // 10个并发worker
+	// 并发控制 - 增量同步用30个并发worker
+	const workerCount = 30
 	var wg sync.WaitGroup
 	stockChan := make(chan models.StockData, workerCount*2)
 
@@ -464,7 +464,7 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 					log.Printf("%s增量同步 %d/%d (成功:%d 失败:%d)", marketName, current, total, success, failed)
 				}
 
-				time.Sleep(10 * time.Millisecond) // 每个worker稍微延迟，避免API限流
+				time.Sleep(3 * time.Millisecond) // 减少延迟，加快同步
 			}
 		}()
 	}
@@ -499,16 +499,27 @@ sendLoop:
 
 // SyncHKHistoryDataFull 强制全量同步港股历史K线
 func (s *KlineService) SyncHKHistoryDataFull(ctx context.Context) error {
-	return s.syncFullData(ctx, "hk")
+	return s.syncFullData(ctx, "hk", false)
 }
 
 // SyncAHistoryDataFull 强制全量同步A股历史K线
 func (s *KlineService) SyncAHistoryDataFull(ctx context.Context) error {
-	return s.syncFullData(ctx, "a")
+	return s.syncFullData(ctx, "a", false)
 }
 
-// syncFullData 强制全量同步K线数据（并发版本）
-func (s *KlineService) syncFullData(ctx context.Context, market string) error {
+// SyncHKHistoryDataResume 断点续传同步港股历史K线
+func (s *KlineService) SyncHKHistoryDataResume(ctx context.Context) error {
+	return s.syncFullData(ctx, "hk", true)
+}
+
+// SyncAHistoryDataResume 断点续传同步A股历史K线
+func (s *KlineService) SyncAHistoryDataResume(ctx context.Context) error {
+	return s.syncFullData(ctx, "a", true)
+}
+
+// syncFullData 全量同步K线数据（支持断点续传）
+// resume: true表示断点续传（跳过已同步的股票），false表示强制全量
+func (s *KlineService) syncFullData(ctx context.Context, market string, resume bool) error {
 	limit := 50000
 	if market == "a" {
 		limit = 10000
@@ -520,20 +531,55 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 		return err
 	}
 
-	total := len(stocks)
 	marketName := "港股"
 	if market == "a" {
 		marketName = "A股"
 	}
 
-	log.Printf("开始全量同步 %d 只%s的历史K线数据", total, marketName)
-	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始全量同步%sK线...", marketName), 85, 100, fmt.Sprintf("共 %d 只股票", total))
-
 	endDate := time.Now().Format("2006-01-02")
 	startDate := "1990-01-01"
 
-	// 并发控制（全量同步用5个worker，因为数据量大）
-	const workerCount = 5
+	// 断点续传：获取已同步的股票列表
+	var syncedSymbols map[string]bool
+	var pendingStocks []models.StockData
+	
+	if resume {
+		log.Printf("[%s] 断点续传模式，检查已同步的股票...", marketName)
+		UpdateStockSyncProgress(market, "syncing_kline", "检查已同步数据...", 85, 100, "断点续传准备中")
+		
+		syncedSymbols, err = s.klineRepo.GetSyncedSymbols(ctx, market, startDate)
+		if err != nil {
+			log.Printf("[%s] 获取已同步股票列表失败: %v，将进行全量同步", marketName, err)
+			syncedSymbols = make(map[string]bool)
+		}
+		
+		// 过滤出未同步的股票
+		for _, stock := range stocks {
+			if !syncedSymbols[stock.Symbol] {
+				pendingStocks = append(pendingStocks, stock)
+			}
+		}
+		
+		log.Printf("[%s] 断点续传: 总共 %d 只，已同步 %d 只，待同步 %d 只", 
+			marketName, len(stocks), len(syncedSymbols), len(pendingStocks))
+		
+		if len(pendingStocks) == 0 {
+			log.Printf("[%s] 所有股票K线已同步完成", marketName)
+			return nil
+		}
+	} else {
+		pendingStocks = stocks
+	}
+
+	total := len(pendingStocks)
+	alreadySynced := len(stocks) - total
+
+	log.Printf("开始同步 %d 只%s的历史K线数据（已跳过 %d 只）", total, marketName, alreadySynced)
+	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始同步%sK线...", marketName), 85, 100, 
+		fmt.Sprintf("待同步 %d 只，已跳过 %d 只", total, alreadySynced))
+
+	// 并发控制 - 全量同步用20个并发worker
+	const workerCount = 20
 	var wg sync.WaitGroup
 	stockChan := make(chan models.StockData, workerCount*2)
 
@@ -570,19 +616,21 @@ func (s *KlineService) syncFullData(ctx context.Context, market string) error {
 					failed := atomic.LoadInt64(&failedCount)
 					// K线同步占 85-99%
 					percent := 85 + int(float64(current)/float64(total)*14)
-					msg := fmt.Sprintf("%sK线全量同步 %d/%d", marketName, current, total)
-					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, fmt.Sprintf("成功:%d 失败:%d", success, failed))
-					log.Printf("全量同步 %d/%d 只%s (成功:%d 失败:%d)", current, total, marketName, success, failed)
+					msg := fmt.Sprintf("%sK线同步 %d/%d", marketName, current, total)
+					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, 
+						fmt.Sprintf("成功:%d 失败:%d 跳过:%d", success, failed, alreadySynced))
+					log.Printf("同步 %d/%d 只%s (成功:%d 失败:%d 跳过:%d)", 
+						current, total, marketName, success, failed, alreadySynced)
 				}
 
-				time.Sleep(20 * time.Millisecond) // 全量同步稍微慢一点，避免API限流
+				time.Sleep(5 * time.Millisecond) // 减少延迟，加快同步
 			}
 		}()
 	}
 
 	// 发送任务（支持取消）
 sendLoop:
-	for _, stock := range stocks {
+	for _, stock := range pendingStocks {
 		select {
 		case <-ctx.Done():
 			log.Printf("[%s] 同步被取消，停止发送任务", marketName)
@@ -603,7 +651,7 @@ sendLoop:
 
 	success := atomic.LoadInt64(&successCount)
 	failed := atomic.LoadInt64(&failedCount)
-	log.Printf("%sK线全量同步完成，成功 %d/%d，失败 %d", marketName, success, total, failed)
+	log.Printf("%sK线同步完成，成功 %d/%d，失败 %d，跳过 %d", marketName, success, total, failed, alreadySynced)
 	// 不设置 completed，由调用方统一管理
 	return nil
 }
@@ -812,8 +860,8 @@ func (s *KlineService) FetchStockDetailFromAPI(symbol, market string) (*models.S
 		ChangeAmt:      getFloat(resp.Data, "f169") / 100,
 		TotalMarketCap: getFloat(resp.Data, "f116"),
 		CircMarketCap:  getFloat(resp.Data, "f117"),
-		PERatio:        getFloat(resp.Data, "f162"),  // 动态市盈率(TTM)
-		PERatioStatic:  getFloat(resp.Data, "f115"),  // 静态市盈率(LYR)
+		PERatio:        getFloat(resp.Data, "f162"), // 动态市盈率(TTM)
+		PERatioStatic:  getFloat(resp.Data, "f115"), // 静态市盈率(LYR)
 		PBRatio:        getFloat(resp.Data, "f167"),
 		UpdatedAt:      time.Now(),
 	}

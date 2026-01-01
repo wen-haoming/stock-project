@@ -251,3 +251,38 @@ func (r *KlineRepository) DeleteAllKlines(ctx context.Context, market string) (i
 	}
 	return result.DeletedCount, nil
 }
+
+// GetSyncedSymbols 获取已同步K线的股票代码集合（用于断点续传）
+// minDate: 最小日期要求，只有K线数据达到该日期的股票才算已同步
+func (r *KlineRepository) GetSyncedSymbols(ctx context.Context, market string, minDate string) (map[string]bool, error) {
+	collection := r.getCollection(market)
+	
+	// 使用聚合查询获取每只股票的最小日期
+	pipeline := mongo.Pipeline{
+		{{Key: "$group", Value: bson.M{
+			"_id":     "$symbol",
+			"minDate": bson.M{"$min": "$date"},
+		}}},
+		{{Key: "$match", Value: bson.M{
+			"minDate": bson.M{"$lte": minDate},
+		}}},
+	}
+	
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	
+	result := make(map[string]bool)
+	for cursor.Next(ctx) {
+		var doc struct {
+			Symbol string `bson:"_id"`
+		}
+		if err := cursor.Decode(&doc); err == nil {
+			result[doc.Symbol] = true
+		}
+	}
+	
+	return result, nil
+}

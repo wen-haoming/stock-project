@@ -275,8 +275,9 @@ func (s *Scheduler) checkAndSyncKlines(ctx context.Context) {
 				log.Printf("[A股] 无K线数据，启动全量同步...")
 				s.klineService.SyncAHistoryDataFull(bgCtx)
 			} else {
-				log.Printf("[A股] K线数据需要更新（最新: %s < %s），启动增量同步...", aLastDate, today)
-				s.klineService.SyncAHistoryData(bgCtx)
+				// 使用断点续传模式，跳过已同步的股票
+				log.Printf("[A股] K线数据需要更新（最新: %s < %s），启动断点续传同步...", aLastDate, today)
+				s.klineService.SyncAHistoryDataResume(bgCtx)
 			}
 		} else {
 			log.Printf("[A股] K线数据已是最新")
@@ -288,8 +289,9 @@ func (s *Scheduler) checkAndSyncKlines(ctx context.Context) {
 				log.Printf("[港股] 无K线数据，启动全量同步...")
 				s.klineService.SyncHKHistoryDataFull(bgCtx)
 			} else {
-				log.Printf("[港股] K线数据需要更新（最新: %s < %s），启动增量同步...", hkLastDate, today)
-				s.klineService.SyncHKHistoryData(bgCtx)
+				// 使用断点续传模式，跳过已同步的股票
+				log.Printf("[港股] K线数据需要更新（最新: %s < %s），启动断点续传同步...", hkLastDate, today)
+				s.klineService.SyncHKHistoryDataResume(bgCtx)
 			}
 		} else {
 			log.Printf("[港股] K线数据已是最新")
