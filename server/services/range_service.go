@@ -6,6 +6,7 @@ import (
 	"log"
 	"server/models"
 	"server/repositories"
+	"server/services"
 	"strconv"
 	"strings"
 )
@@ -86,22 +87,26 @@ func (s *RangeService) GetRangeData(ctx context.Context, query RangeQuery) ([]mo
 }
 
 // calculateRangeData 计算区间涨幅数据
+// 从内存缓存计算，不再从数据库读取
 func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery) ([]models.RangeStockData, error) {
 	log.Printf("计算区间涨幅: %s ~ %s, market=%s", query.StartDate, query.EndDate, query.Market)
 
-	aggResults, err := s.klineRepo.CalculateRangeByAggregation(ctx, query.StartDate, query.EndDate, query.Market)
+	// 从内存缓存计算区间涨幅
+	klineService := services.NewKlineService()
+	aggResults, err := klineService.CalculateRangeByAggregation(ctx, query.StartDate, query.EndDate, query.Market)
 	if err != nil {
 		return nil, err
 	}
 	log.Printf("聚合返回 %d 条", len(aggResults))
 
-	// 获取股票基础信息
+	// 获取股票基础信息（从内存缓存）
 	symbols := make([]string, 0, len(aggResults))
 	for _, r := range aggResults {
 		symbols = append(symbols, r.Symbol)
 	}
 
-	stocks, err := s.stockRepo.GetStocksBySymbols(ctx, symbols, query.Market)
+	stockService := services.NewStockService()
+	stocks, err := stockService.GetStocksBySymbols(ctx, symbols, query.Market)
 	if err != nil {
 		return nil, err
 	}

@@ -96,10 +96,16 @@ func (s *StockPickerService) GetStocks(ctx context.Context, query StockPickerQue
 		query.Limit = 500
 	}
 
-	// 1. 获取股票列表
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, query.Market, 5000, 0)
+	// 1. 获取股票列表（从内存缓存）
+	stockService := NewStockService()
+	stocks, err := stockService.GetStocksByMarketWithCache(ctx, query.Market)
 	if err != nil {
 		return nil, 0, err
+	}
+	
+	// 限制数量
+	if len(stocks) > 5000 {
+		stocks = stocks[:5000]
 	}
 
 	// 2. 获取K线数据用于计算信号
@@ -125,8 +131,9 @@ func (s *StockPickerService) GetStocks(ctx context.Context, query StockPickerQue
 			continue
 		}
 
-		// 获取K线数据计算信号
-		klines, err := s.klineRepo.GetKlinesBySymbol(ctx, stock.Symbol, query.Market, startDate, endDate)
+		// 获取K线数据计算信号（从内存缓存）
+		klineService := NewKlineService()
+		klines, err := klineService.GetKlinesBySymbol(ctx, stock.Symbol, query.Market, startDate, endDate)
 		if err != nil || len(klines) < 5 {
 			continue
 		}
@@ -794,10 +801,17 @@ func (s *StockPickerService) calculateAvgVolume(klines []models.StockKline) (avg
 }
 
 // GetIndustries 获取行业列表
+// 从内存缓存读取
 func (s *StockPickerService) GetIndustries(ctx context.Context, market string) ([]string, error) {
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, 5000, 0)
+	stockService := NewStockService()
+	stocks, err := stockService.GetStocksByMarketWithCache(ctx, market)
 	if err != nil {
 		return nil, err
+	}
+	
+	// 限制数量
+	if len(stocks) > 5000 {
+		stocks = stocks[:5000]
 	}
 
 	industryMap := make(map[string]bool)

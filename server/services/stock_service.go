@@ -9,6 +9,7 @@ import (
 	"server/models"
 	"server/repositories"
 	"server/utils"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -98,6 +99,7 @@ func (s *StockService) GetStocksByMarketWithCache(ctx context.Context, market st
 }
 
 // SearchStocks 搜索股票（支持代码和名称模糊搜索）
+// 从内存缓存搜索，不再从数据库读取
 func (s *StockService) SearchStocks(ctx context.Context, keyword string, limit int) ([]models.StockData, error) {
 	if keyword == "" {
 		return []models.StockData{}, nil
@@ -105,7 +107,83 @@ func (s *StockService) SearchStocks(ctx context.Context, keyword string, limit i
 	if limit <= 0 {
 		limit = 20
 	}
-	return s.stockRepo.SearchStocks(ctx, keyword, limit)
+	
+	// 从实时缓存搜索
+	var allStocks []models.StockData
+	
+	// 搜索A股
+	if s.realtimeCache.IsInitialized() {
+		aStocks := s.realtimeCache.GetAllAsStockData("a")
+		allStocks = append(allStocks, aStocks...)
+	}
+	
+	// 搜索港股
+	if s.realtimeCache.IsInitialized() {
+		hkStocks := s.realtimeCache.GetAllAsStockData("hk")
+		allStocks = append(allStocks, hkStocks...)
+	}
+	
+	// 如果缓存未初始化，返回空结果
+	if len(allStocks) == 0 {
+		return []models.StockData{}, nil
+	}
+	
+	// 过滤匹配的股票
+	var matched []models.StockData
+	keywordLower := strings.ToLower(keyword)
+	for _, stock := range allStocks {
+		if strings.Contains(strings.ToLower(stock.Symbol), keywordLower) ||
+			strings.Contains(strings.ToLower(stock.Name), keywordLower) {
+			matched = append(matched, stock)
+		}
+	}
+	
+	// 排序：个股优先（有行业信息的优先），然后按市值排序
+	sort.Slice(matched, func(i, j int) bool {
+		// 判断是否为衍生品
+		iIsDerivative := isDerivativeStock(matched[i])
+		jIsDerivative := isDerivativeStock(matched[j])
+		
+		// 个股优先
+		if iIsDerivative != jIsDerivative {
+			return !iIsDerivative
+		}
+		
+		// 同类型按市值排序
+		return matched[i].TotalMarketCap > matched[j].TotalMarketCap
+	})
+	
+	// 限制返回数量
+	if len(matched) > limit {
+		matched = matched[:limit]
+	}
+	
+	return matched, nil
+}
+
+// isDerivativeStock 判断是否为衍生品（从stock_repo.go复制）
+func isDerivativeStock(stock models.StockData) bool {
+	// 港股衍生品判断
+	if stock.Market == "hk" {
+		// 行业为空或"-"
+		if stock.Industry == "" || stock.Industry == "-" {
+			return true
+		}
+		// 代码 >= 10000 通常是衍生品
+		if len(stock.Symbol) == 5 {
+			if code, err := strconv.Atoi(stock.Symbol); err == nil && code >= 10000 {
+				return true
+			}
+		}
+		// 名称包含衍生品关键词
+		keywords := []string{"牛", "熊", "购", "沽", "轮", "界内证"}
+		for _, kw := range keywords {
+			if strings.Contains(stock.Name, kw) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FetchHKStockData 从东方财富获取港股数据（分页获取全部）
@@ -315,13 +393,36 @@ func (s *StockService) SaveStocks(ctx context.Context, stocks []models.StockData
 }
 
 // GetStockBySymbol 获取单只股票
+// 从内存缓存读取，不再从数据库读取
 func (s *StockService) GetStockBySymbol(ctx context.Context, symbol, market string) (*models.StockData, error) {
-	return s.stockRepo.GetStockBySymbol(ctx, symbol, market)
+	// 优先从实时缓存读取
+	if s.realtimeCache.IsInitialized() {
+		stock, ok := s.GetStockFromRealtimeCache(symbol, market)
+		if ok {
+			return stock, nil
+		}
+	}
+	
+	// 如果缓存未初始化或未找到，返回错误
+	return nil, fmt.Errorf("stock not found in cache: %s/%s", symbol, market)
 }
 
 // GetStocksBySymbols 批量获取股票
+// 从内存缓存读取，不再从数据库读取
 func (s *StockService) GetStocksBySymbols(ctx context.Context, symbols []string, market string) ([]models.StockData, error) {
-	return s.stockRepo.GetStocksBySymbols(ctx, symbols, market)
+	// 从实时缓存读取
+	if !s.realtimeCache.IsInitialized() {
+		return []models.StockData{}, nil
+	}
+	
+	var result []models.StockData
+	for _, symbol := range symbols {
+		if stock, ok := s.GetStockFromRealtimeCache(symbol, market); ok {
+			result = append(result, *stock)
+		}
+	}
+	
+	return result, nil
 }
 
 // ClearCache 清除缓存

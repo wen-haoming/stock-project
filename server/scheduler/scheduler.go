@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"server/repositories"
 	"server/services"
 	"server/utils"
 	"time"
@@ -151,6 +152,58 @@ func (s *Scheduler) preloadRealtimeCache(ctx context.Context) {
 
 	stats := s.stockService.GetRealtimeCacheStats()
 	log.Printf("实时缓存预热完成: A股 %v只, 港股 %v只", stats["aCount"], stats["hkCount"])
+	
+	// 预热K线缓存（异步，不阻塞启动）
+	go s.preloadKlineCache(ctx)
+}
+
+// preloadKlineCache 预热K线缓存
+func (s *Scheduler) preloadKlineCache(ctx context.Context) {
+	log.Println("开始预热K线缓存...")
+	
+	// 获取所有股票代码
+	stockService := services.NewStockService()
+	aStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "a")
+	hkStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "hk")
+	
+	// 限制数量，避免内存过大
+	maxStocks := 1000
+	if len(aStocks) > maxStocks {
+		aStocks = aStocks[:maxStocks]
+	}
+	if len(hkStocks) > maxStocks {
+		hkStocks = hkStocks[:maxStocks]
+	}
+	
+	// 获取最近90天的K线数据
+	endDate := time.Now().Format("2006-01-02")
+	startDate := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
+	
+	// 加载A股K线（直接从数据库读取）
+	aCount := 0
+	klineCache := repositories.GetKlineCache()
+	klineRepo := repositories.NewKlineRepository()
+	for _, stock := range aStocks {
+		// 直接从数据库读取（绕过服务层）
+		klines, err := klineRepo.GetKlinesBySymbol(ctx, stock.Symbol, "a", startDate, endDate)
+		if err == nil && len(klines) > 0 {
+			klineCache.Set(stock.Symbol, "a", klines)
+			aCount++
+		}
+	}
+	
+	// 加载港股K线（直接从数据库读取）
+	hkCount := 0
+	for _, stock := range hkStocks {
+		// 直接从数据库读取（绕过服务层）
+		klines, err := klineRepo.GetKlinesBySymbol(ctx, stock.Symbol, "hk", startDate, endDate)
+		if err == nil && len(klines) > 0 {
+			klineCache.Set(stock.Symbol, "hk", klines)
+			hkCount++
+		}
+	}
+	
+	log.Printf("K线缓存预热完成: A股 %d只, 港股 %d只", aCount, hkCount)
 }
 
 // syncCurrentDayData 同步当日实时数据

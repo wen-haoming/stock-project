@@ -229,24 +229,37 @@ func ResetSyncStatus(market string) {
 
 // KlineService K线服务
 type KlineService struct {
-	klineRepo *repositories.KlineRepository
-	stockRepo *repositories.StockRepository
+	klineRepo  *repositories.KlineRepository
+	stockRepo  *repositories.StockRepository
+	klineCache *repositories.KlineCache
 }
 
 // NewKlineService 创建K线服务
 func NewKlineService() *KlineService {
 	return &KlineService{
-		klineRepo: repositories.NewKlineRepository(),
-		stockRepo: repositories.NewStockRepository(),
+		klineRepo:  repositories.NewKlineRepository(),
+		stockRepo:  repositories.NewStockRepository(),
+		klineCache: repositories.GetKlineCache(),
 	}
 }
 
 // GetKlinesBySymbol 获取股票K线数据
+// 从内存缓存读取，不再从数据库读取
 func (s *KlineService) GetKlinesBySymbol(ctx context.Context, symbol, market, startDate, endDate string) ([]models.StockKline, error) {
-	return s.klineRepo.GetKlinesBySymbol(ctx, symbol, market, startDate, endDate)
+	// 从内存缓存读取
+	if s.klineCache.IsInitialized() {
+		klines, ok := s.klineCache.Get(symbol, market, startDate, endDate)
+		if ok {
+			return klines, nil
+		}
+	}
+
+	// 如果缓存未初始化或未找到，返回空结果
+	return []models.StockKline{}, nil
 }
 
 // FetchAndSaveKlines 获取并保存K线数据
+// 同时更新内存缓存和数据库
 func (s *KlineService) FetchAndSaveKlines(ctx context.Context, symbol, market, startDate, endDate string) error {
 	klines, err := s.fetchKlineFromAPI(symbol, market, startDate, endDate)
 	if err != nil {
@@ -257,7 +270,27 @@ func (s *KlineService) FetchAndSaveKlines(ctx context.Context, symbol, market, s
 		return nil
 	}
 
+	// 更新内存缓存
+	s.klineCache.Set(symbol, market, klines)
+
+	// 同时写入数据库（用于持久化）
 	return s.klineRepo.UpsertKlines(ctx, klines, market)
+}
+
+// PreloadKlineCache 从数据库加载K线数据到内存缓存
+func (s *KlineService) PreloadKlineCache(ctx context.Context, symbol, market string) error {
+	// 从数据库读取K线数据
+	klines, err := s.klineRepo.GetKlinesBySymbol(ctx, symbol, market, "", "")
+	if err != nil {
+		return err
+	}
+
+	if len(klines) > 0 {
+		// 更新内存缓存
+		s.klineCache.Set(symbol, market, klines)
+	}
+
+	return nil
 }
 
 // fetchKlineFromAPI 从API获取K线数据
@@ -415,15 +448,21 @@ func (s *KlineService) SyncAHistoryDataIncremental(ctx context.Context) error {
 
 // syncIncrementalData 增量同步K线数据（并发版本）
 func (s *KlineService) syncIncrementalData(ctx context.Context, market string, days int) error {
-	limit := 50000
-	if market == "a" {
-		limit = 10000
-	}
-
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, limit, 0)
+	// 从内存缓存获取股票列表
+	stockService := NewStockService()
+	stocks, err := stockService.GetStocksByMarketWithCache(ctx, market)
 	if err != nil {
 		return err
 	}
+
+	limit := len(stocks)
+	if limit > 50000 {
+		limit = 50000
+	}
+	if market == "a" && limit > 10000 {
+		limit = 10000
+	}
+	stocks = stocks[:limit]
 
 	total := len(stocks)
 	marketName := "港股"
@@ -536,16 +575,22 @@ func (s *KlineService) SyncAHistoryDataResume(ctx context.Context) error {
 // syncFullData 全量同步K线数据（支持断点续传）
 // resume: true表示断点续传（跳过已同步的股票），false表示强制全量
 func (s *KlineService) syncFullData(ctx context.Context, market string, resume bool) error {
-	limit := 50000
-	if market == "a" {
-		limit = 10000
-	}
-
-	stocks, err := s.stockRepo.GetStocksByMarket(ctx, market, limit, 0)
+	// 从内存缓存获取股票列表
+	stockService := NewStockService()
+	stocks, err := stockService.GetStocksByMarketWithCache(ctx, market)
 	if err != nil {
 		UpdateStockSyncProgress(market, "error", "获取股票列表失败", 0, 100, err.Error())
 		return err
 	}
+
+	limit := len(stocks)
+	if limit > 50000 {
+		limit = 50000
+	}
+	if market == "a" && limit > 10000 {
+		limit = 10000
+	}
+	stocks = stocks[:limit]
 
 	marketName := "港股"
 	if market == "a" {
@@ -553,32 +598,32 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 	}
 
 	endDate := time.Now().Format("2006-01-02")
-	startDate := "1990-01-01"
+	startDate := "2006-01-01"
 
 	// 断点续传：获取已同步的股票列表
 	var syncedSymbols map[string]bool
 	var pendingStocks []models.StockData
-	
+
 	if resume {
 		log.Printf("[%s] 断点续传模式，检查已同步的股票...", marketName)
 		UpdateStockSyncProgress(market, "syncing_kline", "检查已同步数据...", 85, 100, "断点续传准备中")
-		
+
 		syncedSymbols, err = s.klineRepo.GetSyncedSymbols(ctx, market, startDate)
 		if err != nil {
 			log.Printf("[%s] 获取已同步股票列表失败: %v，将进行全量同步", marketName, err)
 			syncedSymbols = make(map[string]bool)
 		}
-		
+
 		// 过滤出未同步的股票
 		for _, stock := range stocks {
 			if !syncedSymbols[stock.Symbol] {
 				pendingStocks = append(pendingStocks, stock)
 			}
 		}
-		
-		log.Printf("[%s] 断点续传: 总共 %d 只，已同步 %d 只，待同步 %d 只", 
+
+		log.Printf("[%s] 断点续传: 总共 %d 只，已同步 %d 只，待同步 %d 只",
 			marketName, len(stocks), len(syncedSymbols), len(pendingStocks))
-		
+
 		if len(pendingStocks) == 0 {
 			log.Printf("[%s] 所有股票K线已同步完成", marketName)
 			return nil
@@ -591,7 +636,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 	alreadySynced := len(stocks) - total
 
 	log.Printf("开始同步 %d 只%s的历史K线数据（已跳过 %d 只）", total, marketName, alreadySynced)
-	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始同步%sK线...", marketName), 85, 100, 
+	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始同步%sK线...", marketName), 85, 100,
 		fmt.Sprintf("待同步 %d 只，已跳过 %d 只", total, alreadySynced))
 
 	// 并发控制 - 全量同步用15个并发worker（适配2核2G）
@@ -634,9 +679,9 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 					// K线同步占 85-99%
 					percent := 85 + int(float64(current)/float64(total)*14)
 					msg := fmt.Sprintf("%sK线同步 %d/%d", marketName, current, total)
-					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, 
+					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100,
 						fmt.Sprintf("成功:%d 失败:%d 跳过:%d", success, failed, alreadySynced))
-					log.Printf("同步 %d/%d 只%s (成功:%d 失败:%d 跳过:%d)", 
+					log.Printf("同步 %d/%d 只%s (成功:%d 失败:%d 跳过:%d)",
 						current, total, marketName, success, failed, alreadySynced)
 				}
 				time.Sleep(15 * time.Millisecond) // 增加间隔，防止接口限流
@@ -700,8 +745,15 @@ func (s *KlineService) GetAllSymbols(ctx context.Context, market string) ([]stri
 }
 
 // CalculateRangeByAggregation 使用聚合计算区间涨幅
+// 从内存缓存计算，不再从数据库读取
 func (s *KlineService) CalculateRangeByAggregation(ctx context.Context, startDate, endDate, market string) ([]repositories.RangeAggregationResult, error) {
-	return s.klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate, market)
+	// 从内存缓存计算
+	if s.klineCache.IsInitialized() {
+		return s.klineCache.CalculateRangeByAggregation(startDate, endDate, market)
+	}
+
+	// 如果缓存未初始化，返回空结果
+	return []repositories.RangeAggregationResult{}, nil
 }
 
 // FetchStockHistory 获取历史K线数据（用于API返回）
@@ -793,17 +845,19 @@ func (s *KlineService) FetchStockHistory(symbol, market, period, adjust, startDa
 }
 
 // GetStockDetailWithIndicators 获取股票详情和技术指标
+// 从内存缓存读取，不再从数据库读取
 func (s *KlineService) GetStockDetailWithIndicators(ctx context.Context, symbol, market string) (*models.StockData, error) {
-	// 获取基础数据
-	stock, err := s.stockRepo.GetStockBySymbol(ctx, symbol, market)
+	// 获取基础数据（从实时缓存）
+	stockService := NewStockService()
+	stock, err := stockService.GetStockBySymbol(ctx, symbol, market)
 	if err != nil {
 		return nil, err
 	}
 
-	// 获取历史K线计算指标
+	// 获取历史K线计算指标（从K线缓存）
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, -3, 0).Format("2006-01-02")
-	klines, err := s.klineRepo.GetKlinesBySymbol(ctx, symbol, market, startDate, endDate)
+	klines, err := s.GetKlinesBySymbol(ctx, symbol, market, startDate, endDate)
 	if err != nil || len(klines) < 26 {
 		return stock, nil
 	}
