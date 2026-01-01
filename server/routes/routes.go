@@ -61,6 +61,8 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/db/sync-progress/sse", dbCtrl.SyncProgressSSE) // SSE 实时进度
 		v1.GET("/db/kline-debug", dbCtrl.GetKlineDebug)
 		v1.POST("/db/sync", dbCtrl.ManualSync)
+		v1.POST("/db/sync-stock", dbCtrl.SyncStockOnly)   // 仅同步股票数据
+		v1.POST("/db/sync-kline", dbCtrl.SyncKlineOnly)   // 仅同步K线数据
 		v1.POST("/db/sync-cancel", dbCtrl.CancelSync)
 		v1.POST("/db/sync-history", dbCtrl.ManualSyncHistory)
 		v1.POST("/db/reset-sync", dbCtrl.ResetAndSync)

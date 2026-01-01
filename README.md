@@ -225,3 +225,5 @@ docker compose -f docker-compose.dev.yml logs -f
 # 停止
 docker compose -f docker-compose.dev.yml down
 ```
+
+docker exec stock-mongo-dev mongodump --db stock_db --archive=/tmp/stock_db.archive

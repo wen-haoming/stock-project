@@ -190,10 +190,20 @@ func (c *DBController) syncMarketData(ctx context.Context, market string, includ
 
 	// 1. 同步实时数据
 	if err := c.stockService.SyncAndCache(ctx, market); err != nil {
+		if ctx.Err() != nil {
+			log.Printf("[syncMarketData] %s同步已取消", marketName)
+			return ctx.Err()
+		}
 		log.Printf("[syncMarketData] %s实时数据同步失败: %v", marketName, err)
 		return err
 	}
 	log.Printf("[syncMarketData] %s实时数据同步完成", marketName)
+
+	// 检查是否被取消
+	if ctx.Err() != nil {
+		log.Printf("[syncMarketData] %s同步已取消", marketName)
+		return ctx.Err()
+	}
 
 	// 2. 同步K线数据（增量）
 	if includeKline {
@@ -208,11 +218,21 @@ func (c *DBController) syncMarketData(ctx context.Context, market string, includ
 		}
 		
 		if err != nil {
+			if ctx.Err() != nil {
+				log.Printf("[syncMarketData] %sK线同步已取消", marketName)
+				return ctx.Err()
+			}
 			log.Printf("[syncMarketData] %sK线同步失败: %v", marketName, err)
 			services.SetStockSyncError(market, err)
 			return err
 		}
 		log.Printf("[syncMarketData] %sK线同步完成", marketName)
+	}
+
+	// 检查是否被取消，避免覆盖 cancelled 状态
+	if ctx.Err() != nil {
+		log.Printf("[syncMarketData] %s同步已取消", marketName)
+		return ctx.Err()
 	}
 
 	// 3. 全部完成
@@ -530,6 +550,201 @@ func (c *DBController) resetAndSyncMarket(ctx context.Context, market string) er
 	// 5. 完成
 	services.UpdateStockSyncProgress(market, "completed", "同步完成", 100, 100, fmt.Sprintf("%s数据清空并同步完成", marketName))
 	log.Printf("[resetAndSyncMarket] %s清空并同步全部完成", marketName)
+	return nil
+}
+
+// SyncStockOnly 仅同步股票数据（不同步K线）
+// POST /api/v1/db/sync-stock?market=a
+func (c *DBController) SyncStockOnly(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+
+	// 检查是否已在同步中
+	if market == "all" {
+		if services.IsSyncing("a") || services.IsSyncing("hk") {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "已有同步任务在进行中",
+			})
+			return
+		}
+	} else {
+		if services.IsSyncing(market) {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "该市场已在同步中",
+			})
+			return
+		}
+	}
+
+	// 异步执行同步任务
+	go func() {
+		bgCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		switch market {
+		case "hk":
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("hk")
+			log.Printf("[SyncStockOnly] 开始同步港股股票数据...")
+			c.syncStockData(bgCtx, "hk")
+		case "a":
+			services.SetSyncCancel("a", cancel)
+			defer services.ClearSyncCancel("a")
+			log.Printf("[SyncStockOnly] 开始同步A股股票数据...")
+			c.syncStockData(bgCtx, "a")
+		default:
+			services.SetSyncCancel("a", cancel)
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("a")
+			defer services.ClearSyncCancel("hk")
+
+			log.Printf("[SyncStockOnly] 开始同步全部股票数据...")
+			if err := c.syncStockData(bgCtx, "a"); err == nil {
+				if bgCtx.Err() != nil {
+					return
+				}
+				c.syncStockData(bgCtx, "hk")
+			}
+		}
+		log.Printf("[SyncStockOnly] 股票数据同步任务完成")
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "股票数据同步任务已启动",
+	})
+}
+
+// syncStockData 仅同步股票数据
+func (c *DBController) syncStockData(ctx context.Context, market string) error {
+	marketName := "A股"
+	if market == "hk" {
+		marketName = "港股"
+	}
+
+	log.Printf("[syncStockData] 开始同步%s股票数据", marketName)
+
+	if err := c.stockService.SyncAndCache(ctx, market); err != nil {
+		// 检查是否是因为取消导致的
+		if ctx.Err() != nil {
+			log.Printf("[syncStockData] %s股票数据同步已取消", marketName)
+			return ctx.Err()
+		}
+		log.Printf("[syncStockData] %s股票数据同步失败: %v", marketName, err)
+		return err
+	}
+
+	// 检查是否被取消，避免覆盖 cancelled 状态
+	if ctx.Err() != nil {
+		log.Printf("[syncStockData] %s股票数据同步已取消", marketName)
+		return ctx.Err()
+	}
+
+	services.UpdateStockSyncProgress(market, "completed", "股票数据同步完成", 100, 100, fmt.Sprintf("%s股票数据同步完成", marketName))
+	log.Printf("[syncStockData] %s股票数据同步完成", marketName)
+	return nil
+}
+
+// SyncKlineOnly 仅同步K线数据（不同步股票数据）
+// POST /api/v1/db/sync-kline?market=a
+func (c *DBController) SyncKlineOnly(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+
+	// 检查是否已在同步中
+	if market == "all" {
+		if services.IsSyncing("a") || services.IsSyncing("hk") {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "已有同步任务在进行中",
+			})
+			return
+		}
+	} else {
+		if services.IsSyncing(market) {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "该市场已在同步中",
+			})
+			return
+		}
+	}
+
+	// 异步执行同步任务
+	go func() {
+		bgCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		switch market {
+		case "hk":
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("hk")
+			log.Printf("[SyncKlineOnly] 开始同步港股K线数据...")
+			c.syncKlineData(bgCtx, "hk")
+		case "a":
+			services.SetSyncCancel("a", cancel)
+			defer services.ClearSyncCancel("a")
+			log.Printf("[SyncKlineOnly] 开始同步A股K线数据...")
+			c.syncKlineData(bgCtx, "a")
+		default:
+			services.SetSyncCancel("a", cancel)
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("a")
+			defer services.ClearSyncCancel("hk")
+
+			log.Printf("[SyncKlineOnly] 开始同步全部K线数据...")
+			if err := c.syncKlineData(bgCtx, "a"); err == nil {
+				if bgCtx.Err() != nil {
+					return
+				}
+				c.syncKlineData(bgCtx, "hk")
+			}
+		}
+		log.Printf("[SyncKlineOnly] K线数据同步任务完成")
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "K线数据同步任务已启动",
+	})
+}
+
+// syncKlineData 仅同步K线数据
+func (c *DBController) syncKlineData(ctx context.Context, market string) error {
+	marketName := "A股"
+	if market == "hk" {
+		marketName = "港股"
+	}
+
+	log.Printf("[syncKlineData] 开始同步%sK线数据", marketName)
+	services.UpdateStockSyncProgress(market, "syncing_kline", "正在同步"+marketName+"K线数据...", 0, 100, "准备同步")
+
+	var err error
+	if market == "a" {
+		err = c.klineService.SyncAHistoryData(ctx)
+	} else {
+		err = c.klineService.SyncHKHistoryData(ctx)
+	}
+
+	if err != nil {
+		// 检查是否是因为取消导致的
+		if ctx.Err() != nil {
+			log.Printf("[syncKlineData] %sK线同步已取消", marketName)
+			return ctx.Err()
+		}
+		log.Printf("[syncKlineData] %sK线同步失败: %v", marketName, err)
+		services.SetStockSyncError(market, err)
+		return err
+	}
+
+	// 检查是否被取消，避免覆盖 cancelled 状态
+	if ctx.Err() != nil {
+		log.Printf("[syncKlineData] %sK线同步已取消", marketName)
+		return ctx.Err()
+	}
+
+	services.UpdateStockSyncProgress(market, "completed", "K线数据同步完成", 100, 100, fmt.Sprintf("%sK线数据同步完成", marketName))
+	log.Printf("[syncKlineData] %sK线数据同步完成", marketName)
 	return nil
 }
 

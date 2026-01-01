@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"runtime"
 	"server/models"
 	"server/repositories"
 	"server/utils"
@@ -76,6 +77,11 @@ func updateSyncProgress(market, status string, current, total, success, failed i
 		syncProgress[market] = p
 	}
 
+	// 如果已经被取消，不要覆盖 cancelled 状态
+	if p.Status == "cancelled" {
+		return
+	}
+
 	if status == "syncing" && p.Status != "syncing" {
 		p.StartTime = time.Now()
 	}
@@ -104,6 +110,11 @@ func UpdateStockSyncProgress(market, status, phase string, current, total int, m
 	if p == nil {
 		p = &SyncProgress{Market: market}
 		syncProgress[market] = p
+	}
+
+	// 如果已经被取消，不要覆盖 cancelled 状态
+	if p.Status == "cancelled" {
+		return
 	}
 
 	if (status == "fetching" || status == "syncing") && p.Status == "idle" {
@@ -136,6 +147,11 @@ func SetStockSyncError(market string, err error) {
 	if p == nil {
 		p = &SyncProgress{Market: market}
 		syncProgress[market] = p
+	}
+
+	// 如果已经被取消，不要覆盖 cancelled 状态
+	if p.Status == "cancelled" {
+		return
 	}
 
 	p.Status = "error"
@@ -421,8 +437,8 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
-	// 并发控制 - 增量同步用30个并发worker
-	const workerCount = 30
+	// 并发控制 - 增量同步用20个并发worker（适配2核2G）
+	const workerCount = 20
 	var wg sync.WaitGroup
 	stockChan := make(chan models.StockData, workerCount*2)
 
@@ -434,6 +450,7 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer runtime.GC() // 主动GC，释放内存
 			for stock := range stockChan {
 				// 检查是否被取消
 				if atomic.LoadInt32(&cancelled) == 1 {
@@ -453,8 +470,8 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 				}
 				current := atomic.AddInt64(&processedCount, 1)
 
-				// 每500只或最后一批更新进度
-				if current%500 == 0 || current == int64(total) {
+				// 每500只或最后一批更新进度（取消后不再更新）
+				if atomic.LoadInt32(&cancelled) == 0 && (current%500 == 0 || current == int64(total)) {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
 					// K线同步占 85-99%
@@ -463,8 +480,7 @@ func (s *KlineService) syncIncrementalData(ctx context.Context, market string, d
 					UpdateStockSyncProgress(market, "syncing_kline", msg, percent, 100, fmt.Sprintf("成功:%d 失败:%d", success, failed))
 					log.Printf("%s增量同步 %d/%d (成功:%d 失败:%d)", marketName, current, total, success, failed)
 				}
-
-				time.Sleep(3 * time.Millisecond) // 减少延迟，加快同步
+				time.Sleep(10 * time.Millisecond) // 增加间隔，防止接口限流
 			}
 		}()
 	}
@@ -578,8 +594,8 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 	UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("开始同步%sK线...", marketName), 85, 100, 
 		fmt.Sprintf("待同步 %d 只，已跳过 %d 只", total, alreadySynced))
 
-	// 并发控制 - 全量同步用20个并发worker
-	const workerCount = 20
+	// 并发控制 - 全量同步用15个并发worker（适配2核2G）
+	const workerCount = 15
 	var wg sync.WaitGroup
 	stockChan := make(chan models.StockData, workerCount*2)
 
@@ -591,6 +607,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer runtime.GC() // 主动GC，释放内存
 			for stock := range stockChan {
 				// 检查是否被取消
 				if atomic.LoadInt32(&cancelled) == 1 {
@@ -610,8 +627,8 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 				}
 				current := atomic.AddInt64(&processedCount, 1)
 
-				// 每100只或最后一批更新进度
-				if current%100 == 0 || current == int64(total) {
+				// 每100只或最后一批更新进度（取消后不再更新）
+				if atomic.LoadInt32(&cancelled) == 0 && (current%100 == 0 || current == int64(total)) {
 					success := atomic.LoadInt64(&successCount)
 					failed := atomic.LoadInt64(&failedCount)
 					// K线同步占 85-99%
@@ -622,8 +639,7 @@ func (s *KlineService) syncFullData(ctx context.Context, market string, resume b
 					log.Printf("同步 %d/%d 只%s (成功:%d 失败:%d 跳过:%d)", 
 						current, total, marketName, success, failed, alreadySynced)
 				}
-
-				time.Sleep(5 * time.Millisecond) // 减少延迟，加快同步
+				time.Sleep(15 * time.Millisecond) // 增加间隔，防止接口限流
 			}
 		}()
 	}

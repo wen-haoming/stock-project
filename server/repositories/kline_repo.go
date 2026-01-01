@@ -47,6 +47,11 @@ func (r *KlineRepository) ensureIndexes() {
 				Keys:    bson.D{{Key: "date", Value: 1}},
 				Options: options.Index().SetBackground(true),
 			},
+			// TTL索引：自动清理90天前的旧数据，释放磁盘空间
+			{
+				Keys:    bson.D{{Key: "date", Value: 1}},
+				Options: options.Index().SetExpireAfterSeconds(90 * 24 * 3600).SetName("idx_ttl_date"),
+			},
 		}
 		
 		_, err := coll.Indexes().CreateMany(ctx, indexes)

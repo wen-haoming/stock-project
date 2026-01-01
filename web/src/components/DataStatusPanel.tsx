@@ -194,6 +194,54 @@ export default function DataStatusPanel() {
     }
   }
 
+  // 仅同步股票数据
+  const handleSyncStock = async (market: 'a' | 'hk') => {
+    lastCompletedRef.current = {}
+    
+    try {
+      const res = await axios.post(`/api/v1/db/sync-stock?market=${market}`)
+      if (res.data.code === 0) {
+        setSyncing(market)
+        message.info('股票数据同步任务已启动')
+        startPolling()
+      } else {
+        message.error(res.data.error || '启动同步失败')
+      }
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        message.warning('已有同步任务在进行中')
+        setSyncing('all')
+        startPolling()
+      } else {
+        message.error(err.response?.data?.error || '同步请求失败')
+      }
+    }
+  }
+
+  // 仅同步K线数据
+  const handleSyncKline = async (market: 'a' | 'hk') => {
+    lastCompletedRef.current = {}
+    
+    try {
+      const res = await axios.post(`/api/v1/db/sync-kline?market=${market}`)
+      if (res.data.code === 0) {
+        setSyncing(market)
+        message.info('K线数据同步任务已启动')
+        startPolling()
+      } else {
+        message.error(res.data.error || '启动同步失败')
+      }
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        message.warning('已有同步任务在进行中')
+        setSyncing('all')
+        startPolling()
+      } else {
+        message.error(err.response?.data?.error || '同步请求失败')
+      }
+    }
+  }
+
   const handleCancelSync = async () => {
     try {
       const res = await axios.post('/api/v1/db/sync-cancel?market=all')
@@ -392,16 +440,28 @@ export default function DataStatusPanel() {
                   getStatusTag(status.a_needs_update, status.a_last_update)
                 )}
               </Space>
-              <Button 
-                size="small" 
-                type="link"
-                icon={<SyncOutlined spin={syncing === 'a'} />}
-                loading={syncing === 'a'}
-                disabled={syncing !== null}
-                onClick={() => handleSync('a')}
-              >
-                同步
-              </Button>
+              <Space size={4}>
+                <Button 
+                  size="small" 
+                  type="link"
+                  icon={<SyncOutlined spin={syncing === 'a'} />}
+                  disabled={syncing !== null}
+                  onClick={() => handleSyncStock('a')}
+                  style={{ padding: '0 4px' }}
+                >
+                  股票
+                </Button>
+                <Button 
+                  size="small" 
+                  type="link"
+                  icon={<SyncOutlined spin={syncing === 'a'} />}
+                  disabled={syncing !== null}
+                  onClick={() => handleSyncKline('a')}
+                  style={{ padding: '0 4px' }}
+                >
+                  K线
+                </Button>
+              </Space>
             </div>
             {syncing === 'a' || syncing === 'all' ? (
               renderSyncProgress('a')
@@ -423,16 +483,28 @@ export default function DataStatusPanel() {
                   getStatusTag(status.hk_needs_update, status.hk_last_update)
                 )}
               </Space>
-              <Button 
-                size="small" 
-                type="link"
-                icon={<SyncOutlined spin={syncing === 'hk'} />}
-                loading={syncing === 'hk'}
-                disabled={syncing !== null}
-                onClick={() => handleSync('hk')}
-              >
-                同步
-              </Button>
+              <Space size={4}>
+                <Button 
+                  size="small" 
+                  type="link"
+                  icon={<SyncOutlined spin={syncing === 'hk'} />}
+                  disabled={syncing !== null}
+                  onClick={() => handleSyncStock('hk')}
+                  style={{ padding: '0 4px' }}
+                >
+                  股票
+                </Button>
+                <Button 
+                  size="small" 
+                  type="link"
+                  icon={<SyncOutlined spin={syncing === 'hk'} />}
+                  disabled={syncing !== null}
+                  onClick={() => handleSyncKline('hk')}
+                  style={{ padding: '0 4px' }}
+                >
+                  K线
+                </Button>
+              </Space>
             </div>
             {syncing === 'hk' || syncing === 'all' ? (
               renderSyncProgress('hk')
