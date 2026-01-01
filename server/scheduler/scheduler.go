@@ -152,7 +152,7 @@ func (s *Scheduler) preloadRealtimeCache(ctx context.Context) {
 
 	stats := s.stockService.GetRealtimeCacheStats()
 	log.Printf("实时缓存预热完成: A股 %v只, 港股 %v只", stats["aCount"], stats["hkCount"])
-	
+
 	// 预热K线缓存（异步，不阻塞启动）
 	go s.preloadKlineCache(ctx)
 }
@@ -160,12 +160,12 @@ func (s *Scheduler) preloadRealtimeCache(ctx context.Context) {
 // preloadKlineCache 预热K线缓存
 func (s *Scheduler) preloadKlineCache(ctx context.Context) {
 	log.Println("开始预热K线缓存...")
-	
+
 	// 获取所有股票代码
 	stockService := services.NewStockService()
 	aStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "a")
 	hkStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "hk")
-	
+
 	// 限制数量，避免内存过大
 	maxStocks := 1000
 	if len(aStocks) > maxStocks {
@@ -174,11 +174,11 @@ func (s *Scheduler) preloadKlineCache(ctx context.Context) {
 	if len(hkStocks) > maxStocks {
 		hkStocks = hkStocks[:maxStocks]
 	}
-	
+
 	// 获取最近90天的K线数据
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
-	
+
 	// 加载A股K线（直接从数据库读取）
 	aCount := 0
 	klineCache := repositories.GetKlineCache()
@@ -191,7 +191,7 @@ func (s *Scheduler) preloadKlineCache(ctx context.Context) {
 			aCount++
 		}
 	}
-	
+
 	// 加载港股K线（直接从数据库读取）
 	hkCount := 0
 	for _, stock := range hkStocks {
@@ -202,7 +202,7 @@ func (s *Scheduler) preloadKlineCache(ctx context.Context) {
 			hkCount++
 		}
 	}
-	
+
 	log.Printf("K线缓存预热完成: A股 %d只, 港股 %d只", aCount, hkCount)
 }
 
