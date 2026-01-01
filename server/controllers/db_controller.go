@@ -533,6 +533,49 @@ func (c *DBController) resetAndSyncMarket(ctx context.Context, market string) er
 	return nil
 }
 
+// ClearKlines 仅清空K线数据（不自动同步）
+// POST /api/v1/db/clear-klines?market=hk
+func (c *DBController) ClearKlines(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+
+	dbCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var totalDeleted int64
+	var err error
+
+	switch market {
+	case "hk":
+		totalDeleted, err = c.klineService.DeleteAllKlines(dbCtx, "hk")
+	case "a":
+		totalDeleted, err = c.klineService.DeleteAllKlines(dbCtx, "a")
+	default:
+		hkCount, hkErr := c.klineService.DeleteAllKlines(dbCtx, "hk")
+		aCount, aErr := c.klineService.DeleteAllKlines(dbCtx, "a")
+		totalDeleted = hkCount + aCount
+		if hkErr != nil {
+			err = hkErr
+		} else if aErr != nil {
+			err = aErr
+		}
+	}
+
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":  -1,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": fmt.Sprintf("已清空K线数据，共删除 %d 条", totalDeleted),
+		"deleted": totalDeleted,
+		"market":  market,
+	})
+}
+
 // GetKlineDebug 调试接口：查询单只股票的K线数据
 // GET /api/v1/db/kline-debug?symbol=09992&market=hk
 func (c *DBController) GetKlineDebug(ctx *gin.Context) {

@@ -64,6 +64,7 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/db/sync-cancel", dbCtrl.CancelSync)
 		v1.POST("/db/sync-history", dbCtrl.ManualSyncHistory)
 		v1.POST("/db/reset-sync", dbCtrl.ResetAndSync)
+		v1.POST("/db/clear-klines", dbCtrl.ClearKlines)
 
 		// 大盘行情
 		marketCtrl := controllers.NewMarketController()

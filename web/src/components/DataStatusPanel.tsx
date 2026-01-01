@@ -229,6 +229,21 @@ export default function DataStatusPanel() {
     }
   }
 
+  const handleClearKlines = async (market: 'a' | 'hk' | 'all') => {
+    const marketName = market === 'a' ? 'A股' : market === 'hk' ? '港股' : '全部'
+    try {
+      const res = await axios.post(`/api/v1/db/clear-klines?market=${market}`)
+      if (res.data.code === 0) {
+        message.success(`${marketName}K线数据已清空，共删除 ${res.data.deleted} 条`)
+        fetchStatus()
+      } else {
+        message.error(res.data.error || '清空K线失败')
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '清空K线请求失败')
+    }
+  }
+
   const formatTime = (timeStr?: string) => {
     if (!timeStr) return '从未同步'
     const time = dayjs(timeStr)
@@ -458,6 +473,22 @@ export default function DataStatusPanel() {
               >
                 同步全部数据
               </Button>
+              <Space.Compact block>
+                <Button 
+                  style={{ flex: 1 }}
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleClearKlines('a')}
+                >
+                  清空A股K线
+                </Button>
+                <Button 
+                  style={{ flex: 1 }}
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleClearKlines('hk')}
+                >
+                  清空港股K线
+                </Button>
+              </Space.Compact>
               <Button 
                 block 
                 danger
