@@ -825,3 +825,194 @@ func (c *DBController) GetKlineDebug(ctx *gin.Context) {
 		"data":   klines,
 	})
 }
+
+// GetKlineDateRange 获取K线数据的日期范围
+// GET /api/v1/db/kline-range?market=hk
+func (c *DBController) GetKlineDateRange(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+
+	dbCtx, cancel := context.WithTimeout(ctx.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	result := gin.H{}
+
+	if market == "all" || market == "a" {
+		minDate, maxDate, count, err := c.klineService.GetKlineDateRange(dbCtx, "a")
+		if err != nil {
+			log.Printf("[GetKlineDateRange] 获取A股日期范围失败: %v", err)
+		}
+		result["a"] = gin.H{
+			"minDate": minDate,
+			"maxDate": maxDate,
+			"count":   count,
+		}
+	}
+
+	if market == "all" || market == "hk" {
+		minDate, maxDate, count, err := c.klineService.GetKlineDateRange(dbCtx, "hk")
+		if err != nil {
+			log.Printf("[GetKlineDateRange] 获取港股日期范围失败: %v", err)
+		}
+		result["hk"] = gin.H{
+			"minDate": minDate,
+			"maxDate": maxDate,
+			"count":   count,
+		}
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": result,
+	})
+}
+
+// SyncKlineByDateRange 按日期范围同步K线数据
+// POST /api/v1/db/sync-kline-range?market=hk&start_date=2024-01-01&end_date=2024-12-31
+func (c *DBController) SyncKlineByDateRange(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+	startDate := ctx.Query("start_date")
+	endDate := ctx.Query("end_date")
+
+	if startDate == "" || endDate == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":  -1,
+			"error": "start_date 和 end_date 是必需的",
+		})
+		return
+	}
+
+	// 检查是否已在同步中
+	if market == "all" {
+		if services.IsSyncing("a") || services.IsSyncing("hk") {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "已有同步任务在进行中",
+			})
+			return
+		}
+	} else {
+		if services.IsSyncing(market) {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"code":  -1,
+				"error": "该市场已在同步中",
+			})
+			return
+		}
+	}
+
+	// 异步执行同步任务
+	go func() {
+		bgCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		switch market {
+		case "hk":
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("hk")
+			log.Printf("[SyncKlineByDateRange] 开始同步港股K线数据，日期范围: %s ~ %s", startDate, endDate)
+			if err := c.klineService.SyncKlinesByDateRange(bgCtx, "hk", startDate, endDate); err != nil {
+				if bgCtx.Err() == nil {
+					services.SetStockSyncError("hk", err)
+				}
+			} else if bgCtx.Err() == nil {
+				services.UpdateStockSyncProgress("hk", "completed", "K线同步完成", 100, 100, "港股K线同步完成")
+			}
+		case "a":
+			services.SetSyncCancel("a", cancel)
+			defer services.ClearSyncCancel("a")
+			log.Printf("[SyncKlineByDateRange] 开始同步A股K线数据，日期范围: %s ~ %s", startDate, endDate)
+			if err := c.klineService.SyncKlinesByDateRange(bgCtx, "a", startDate, endDate); err != nil {
+				if bgCtx.Err() == nil {
+					services.SetStockSyncError("a", err)
+				}
+			} else if bgCtx.Err() == nil {
+				services.UpdateStockSyncProgress("a", "completed", "K线同步完成", 100, 100, "A股K线同步完成")
+			}
+		default:
+			services.SetSyncCancel("a", cancel)
+			services.SetSyncCancel("hk", cancel)
+			defer services.ClearSyncCancel("a")
+			defer services.ClearSyncCancel("hk")
+
+			log.Printf("[SyncKlineByDateRange] 开始同步全部K线数据，日期范围: %s ~ %s", startDate, endDate)
+			if err := c.klineService.SyncKlinesByDateRange(bgCtx, "a", startDate, endDate); err == nil {
+				if bgCtx.Err() != nil {
+					return
+				}
+				services.UpdateStockSyncProgress("a", "completed", "K线同步完成", 100, 100, "A股K线同步完成")
+				c.klineService.SyncKlinesByDateRange(bgCtx, "hk", startDate, endDate)
+				if bgCtx.Err() == nil {
+					services.UpdateStockSyncProgress("hk", "completed", "K线同步完成", 100, 100, "港股K线同步完成")
+				}
+			}
+		}
+		log.Printf("[SyncKlineByDateRange] K线同步任务完成")
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "K线同步任务已启动",
+		"params": gin.H{
+			"market":     market,
+			"start_date": startDate,
+			"end_date":   endDate,
+		},
+	})
+}
+
+// DeleteKlineByDateRange 按日期范围删除K线数据
+// POST /api/v1/db/delete-kline-range?market=hk&start_date=2024-01-01&end_date=2024-12-31
+func (c *DBController) DeleteKlineByDateRange(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "all")
+	startDate := ctx.Query("start_date")
+	endDate := ctx.Query("end_date")
+
+	if startDate == "" || endDate == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":  -1,
+			"error": "start_date 和 end_date 是必需的",
+		})
+		return
+	}
+
+	dbCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	var totalDeleted int64
+	var err error
+
+	switch market {
+	case "hk":
+		totalDeleted, err = c.klineService.DeleteKlinesByDateRange(dbCtx, "hk", startDate, endDate)
+	case "a":
+		totalDeleted, err = c.klineService.DeleteKlinesByDateRange(dbCtx, "a", startDate, endDate)
+	default:
+		hkCount, hkErr := c.klineService.DeleteKlinesByDateRange(dbCtx, "hk", startDate, endDate)
+		aCount, aErr := c.klineService.DeleteKlinesByDateRange(dbCtx, "a", startDate, endDate)
+		totalDeleted = hkCount + aCount
+		if hkErr != nil {
+			err = hkErr
+		} else if aErr != nil {
+			err = aErr
+		}
+	}
+
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":  -1,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": fmt.Sprintf("已删除K线数据，共 %d 条", totalDeleted),
+		"deleted": totalDeleted,
+		"params": gin.H{
+			"market":     market,
+			"start_date": startDate,
+			"end_date":   endDate,
+		},
+	})
+}

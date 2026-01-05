@@ -57,13 +57,18 @@ func (c *KlineCache) Get(symbol, market, startDate, endDate string) ([]models.St
 		return nil, false
 	}
 
+	// 标准化日期格式
+	startDate = normalizeKlineDate(startDate)
+	endDate = normalizeKlineDate(endDate)
+
 	// 过滤日期范围
 	var result []models.StockKline
 	for _, kline := range klines {
-		if startDate != "" && kline.Date < startDate {
+		klineDate := normalizeKlineDate(kline.Date)
+		if startDate != "" && klineDate < startDate {
 			continue
 		}
-		if endDate != "" && kline.Date > endDate {
+		if endDate != "" && klineDate > endDate {
 			continue
 		}
 		result = append(result, *kline)
@@ -74,6 +79,10 @@ func (c *KlineCache) Get(symbol, market, startDate, endDate string) ([]models.St
 
 // Set 设置单只股票的K线数据
 func (c *KlineCache) Set(symbol, market string, klines []models.StockKline) {
+	if len(klines) == 0 {
+		return
+	}
+	
 	klineMap := c.getKlineMap(market)
 	
 	// 转换为指针切片并排序
@@ -88,12 +97,32 @@ func (c *KlineCache) Set(symbol, market string, klines []models.StockKline) {
 	})
 	
 	klineMap.Store(symbol, ptrKlines)
+	
+	// 更新初始化状态
+	c.mu.Lock()
+	c.initialized = true
+	if market == "a" {
+		// 更新A股计数（需要遍历计算，这里简化处理）
+		count := int64(0)
+		klineMap.Range(func(key, value interface{}) bool {
+			count++
+			return true
+		})
+		c.aCount = count
+	} else {
+		// 更新港股计数
+		count := int64(0)
+		klineMap.Range(func(key, value interface{}) bool {
+			count++
+			return true
+		})
+		c.hkCount = count
+	}
+	c.mu.Unlock()
 }
 
 // BatchSet 批量设置K线数据
 func (c *KlineCache) BatchSet(klines []models.StockKline, market string) {
-	klineMap := c.getKlineMap(market)
-	
 	// 按股票分组
 	symbolMap := make(map[string][]models.StockKline)
 	for _, kline := range klines {
@@ -169,6 +198,10 @@ func (c *KlineCache) Clear(market string) {
 
 // CalculateRangeByAggregation 从内存计算区间涨幅（类似数据库聚合）
 func (c *KlineCache) CalculateRangeByAggregation(startDate, endDate, market string) ([]RangeAggregationResult, error) {
+	// 标准化日期格式
+	startDate = normalizeKlineDate(startDate)
+	endDate = normalizeKlineDate(endDate)
+	
 	klineMap := c.getKlineMap(market)
 	var results []RangeAggregationResult
 	
@@ -179,7 +212,9 @@ func (c *KlineCache) CalculateRangeByAggregation(startDate, endDate, market stri
 		// 找到范围内的第一条和最后一条
 		var startKline, endKline *models.StockKline
 		for _, kline := range klines {
-			if kline.Date >= startDate && kline.Date <= endDate {
+			// 标准化K线日期格式
+			klineDate := normalizeKlineDate(kline.Date)
+			if klineDate >= startDate && klineDate <= endDate {
 				if startKline == nil {
 					startKline = kline
 				}
@@ -201,5 +236,19 @@ func (c *KlineCache) CalculateRangeByAggregation(startDate, endDate, market stri
 	})
 	
 	return results, nil
+}
+
+// normalizeKlineDate 标准化K线日期格式为 YYYY-MM-DD
+func normalizeKlineDate(date string) string {
+	// 如果已经是标准格式 (YYYY-MM-DD)，直接返回
+	if len(date) == 10 && date[4] == '-' && date[7] == '-' {
+		return date
+	}
+	// 如果是8位数字格式 (YYYYMMDD)，转换为标准格式
+	if len(date) == 8 {
+		return date[:4] + "-" + date[4:6] + "-" + date[6:]
+	}
+	// 其他格式直接返回
+	return date
 }
 

@@ -745,15 +745,36 @@ func (s *KlineService) GetAllSymbols(ctx context.Context, market string) ([]stri
 }
 
 // CalculateRangeByAggregation 使用聚合计算区间涨幅
-// 从内存缓存计算，不再从数据库读取
+// 直接从数据库查询
 func (s *KlineService) CalculateRangeByAggregation(ctx context.Context, startDate, endDate, market string) ([]repositories.RangeAggregationResult, error) {
-	// 从内存缓存计算
-	if s.klineCache.IsInitialized() {
-		return s.klineCache.CalculateRangeByAggregation(startDate, endDate, market)
+	// 标准化日期格式
+	startDate = normalizeDateForKline(startDate)
+	endDate = normalizeDateForKline(endDate)
+	
+	log.Printf("[CalculateRangeByAggregation] 查询区间: %s ~ %s, market=%s", startDate, endDate, market)
+	
+	// 直接从数据库查询
+	results, err := s.klineRepo.CalculateRangeByAggregation(ctx, startDate, endDate, market)
+	if err != nil {
+		log.Printf("[CalculateRangeByAggregation] 数据库查询失败: %v", err)
+		return nil, err
 	}
+	log.Printf("[CalculateRangeByAggregation] 查询结果: %d 条", len(results))
+	return results, nil
+}
 
-	// 如果缓存未初始化，返回空结果
-	return []repositories.RangeAggregationResult{}, nil
+// normalizeDateForKline 标准化K线日期格式
+func normalizeDateForKline(date string) string {
+	// 如果已经是标准格式 (YYYY-MM-DD)，直接返回
+	if len(date) == 10 && date[4] == '-' && date[7] == '-' {
+		return date
+	}
+	// 如果是8位数字格式 (YYYYMMDD)，转换为标准格式
+	if len(date) == 8 {
+		return date[:4] + "-" + date[4:6] + "-" + date[6:]
+	}
+	// 其他格式直接返回
+	return date
 }
 
 // FetchStockHistory 获取历史K线数据（用于API返回）
@@ -955,4 +976,117 @@ func getString2(m map[string]any, key string) string {
 // DeleteAllKlines 清空指定市场的所有K线数据
 func (s *KlineService) DeleteAllKlines(ctx context.Context, market string) (int64, error) {
 	return s.klineRepo.DeleteAllKlines(ctx, market)
+}
+
+// DeleteKlinesByDateRange 删除指定日期范围的K线数据
+func (s *KlineService) DeleteKlinesByDateRange(ctx context.Context, market, startDate, endDate string) (int64, error) {
+	// 标准化日期格式
+	startDate = normalizeDateForKline(startDate)
+	endDate = normalizeDateForKline(endDate)
+	return s.klineRepo.DeleteKlinesByDateRange(ctx, market, startDate, endDate)
+}
+
+// GetKlineDateRange 获取K线数据的日期范围
+func (s *KlineService) GetKlineDateRange(ctx context.Context, market string) (minDate, maxDate string, count int64, err error) {
+	return s.klineRepo.GetKlineDateRange(ctx, market)
+}
+
+// SyncKlinesByDateRange 按日期范围同步K线数据
+func (s *KlineService) SyncKlinesByDateRange(ctx context.Context, market, startDate, endDate string) error {
+	// 标准化日期格式
+	startDate = normalizeDateForKline(startDate)
+	endDate = normalizeDateForKline(endDate)
+
+	marketName := "A股"
+	if market == "hk" {
+		marketName = "港股"
+	}
+
+	log.Printf("[SyncKlinesByDateRange] 开始同步%s K线数据，日期范围: %s ~ %s", marketName, startDate, endDate)
+
+	// 从内存缓存获取股票列表
+	stockService := NewStockService()
+	stocks, err := stockService.GetStocksByMarketWithCache(ctx, market)
+	if err != nil {
+		log.Printf("[SyncKlinesByDateRange] 获取股票列表失败: %v", err)
+		return err
+	}
+
+	// 限制数量
+	limit := len(stocks)
+	if limit > 50000 {
+		limit = 50000
+	}
+	if market == "a" && limit > 10000 {
+		limit = 10000
+	}
+	stocks = stocks[:limit]
+
+	total := len(stocks)
+	log.Printf("[SyncKlinesByDateRange] 共 %d 只股票需要同步", total)
+
+	// 并发控制 - 使用20个并发worker
+	const workerCount = 20
+	var wg sync.WaitGroup
+	stockChan := make(chan models.StockData, workerCount*2)
+
+	var successCount, failedCount, processedCount int64
+	var cancelled int32
+
+	// 启动worker
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for stock := range stockChan {
+				if atomic.LoadInt32(&cancelled) == 1 {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					atomic.StoreInt32(&cancelled, 1)
+					continue
+				default:
+				}
+
+				// 转换日期格式为 API 需要的格式 YYYYMMDD
+				apiStartDate := strings.ReplaceAll(startDate, "-", "")
+				apiEndDate := strings.ReplaceAll(endDate, "-", "")
+
+				if err := s.FetchAndSaveKlines(ctx, stock.Symbol, market, apiStartDate, apiEndDate); err != nil {
+					atomic.AddInt64(&failedCount, 1)
+				} else {
+					atomic.AddInt64(&successCount, 1)
+				}
+
+				// 更新进度
+				current := int(atomic.AddInt64(&processedCount, 1))
+				percent := current * 100 / total
+				updateSyncProgress(market, "syncing_kline", current, total, int(successCount), int(failedCount),
+					fmt.Sprintf("正在同步%sK线 (%d/%d)", marketName, current, total))
+				UpdateStockSyncProgress(market, "syncing_kline", fmt.Sprintf("正在同步%sK线", marketName), percent, 100,
+					fmt.Sprintf("%d/%d 成功:%d 失败:%d", current, total, atomic.LoadInt64(&successCount), atomic.LoadInt64(&failedCount)))
+			}
+		}()
+	}
+
+	// 发送任务
+	for _, stock := range stocks {
+		if ctx.Err() != nil {
+			atomic.StoreInt32(&cancelled, 1)
+			break
+		}
+		stockChan <- stock
+	}
+	close(stockChan)
+
+	wg.Wait()
+
+	if atomic.LoadInt32(&cancelled) == 1 {
+		log.Printf("[SyncKlinesByDateRange] %s K线同步已取消", marketName)
+		return ctx.Err()
+	}
+
+	log.Printf("[SyncKlinesByDateRange] %s K线同步完成，成功: %d, 失败: %d", marketName, successCount, failedCount)
+	return nil
 }

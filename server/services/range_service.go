@@ -6,7 +6,6 @@ import (
 	"log"
 	"server/models"
 	"server/repositories"
-	"server/services"
 	"strconv"
 	"strings"
 )
@@ -92,12 +91,19 @@ func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery)
 	log.Printf("计算区间涨幅: %s ~ %s, market=%s", query.StartDate, query.EndDate, query.Market)
 
 	// 从内存缓存计算区间涨幅
-	klineService := services.NewKlineService()
+	klineService := NewKlineService()
 	aggResults, err := klineService.CalculateRangeByAggregation(ctx, query.StartDate, query.EndDate, query.Market)
 	if err != nil {
-		return nil, err
+		log.Printf("计算区间涨幅失败: %v", err)
+		return nil, fmt.Errorf("计算区间涨幅失败: %w", err)
 	}
 	log.Printf("聚合返回 %d 条", len(aggResults))
+
+	// 如果没有结果，返回空数组而不是错误
+	if len(aggResults) == 0 {
+		log.Printf("区间涨幅计算结果为空，可能K线缓存未初始化")
+		return []models.RangeStockData{}, nil
+	}
 
 	// 获取股票基础信息（从内存缓存）
 	symbols := make([]string, 0, len(aggResults))
@@ -105,10 +111,11 @@ func (s *RangeService) calculateRangeData(ctx context.Context, query RangeQuery)
 		symbols = append(symbols, r.Symbol)
 	}
 
-	stockService := services.NewStockService()
+	stockService := NewStockService()
 	stocks, err := stockService.GetStocksBySymbols(ctx, symbols, query.Market)
 	if err != nil {
-		return nil, err
+		log.Printf("获取股票信息失败: %v", err)
+		return nil, fmt.Errorf("获取股票信息失败: %w", err)
 	}
 
 	stockMap := make(map[string]models.StockData, len(stocks))

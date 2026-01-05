@@ -257,6 +257,53 @@ func (r *KlineRepository) DeleteAllKlines(ctx context.Context, market string) (i
 	return result.DeletedCount, nil
 }
 
+// DeleteKlinesByDateRange 删除指定日期范围的K线数据
+func (r *KlineRepository) DeleteKlinesByDateRange(ctx context.Context, market, startDate, endDate string) (int64, error) {
+	collection := r.getCollection(market)
+	filter := bson.M{
+		"date": bson.M{"$gte": startDate, "$lte": endDate},
+	}
+	result, err := collection.DeleteMany(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}
+
+// GetKlineDateRange 获取K线数据的日期范围
+func (r *KlineRepository) GetKlineDateRange(ctx context.Context, market string) (minDate, maxDate string, count int64, err error) {
+	collection := r.getCollection(market)
+
+	// 获取最早日期
+	optsMin := options.FindOne().SetSort(bson.D{{Key: "date", Value: 1}})
+	var minResult struct {
+		Date string `bson:"date"`
+	}
+	if err := collection.FindOne(ctx, bson.M{}, optsMin).Decode(&minResult); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return "", "", 0, nil
+		}
+		return "", "", 0, err
+	}
+
+	// 获取最新日期
+	optsMax := options.FindOne().SetSort(bson.D{{Key: "date", Value: -1}})
+	var maxResult struct {
+		Date string `bson:"date"`
+	}
+	if err := collection.FindOne(ctx, bson.M{}, optsMax).Decode(&maxResult); err != nil {
+		return "", "", 0, err
+	}
+
+	// 获取数量
+	count, err = collection.EstimatedDocumentCount(ctx)
+	if err != nil {
+		return "", "", 0, err
+	}
+
+	return minResult.Date, maxResult.Date, count, nil
+}
+
 // GetSyncedSymbols 获取已同步K线的股票代码集合（用于断点续传）
 // minDate: 最小日期要求，只有K线数据达到该日期的股票才算已同步
 func (r *KlineRepository) GetSyncedSymbols(ctx context.Context, market string, minDate string) (map[string]bool, error) {
@@ -290,4 +337,61 @@ func (r *KlineRepository) GetSyncedSymbols(ctx context.Context, market string, m
 	}
 	
 	return result, nil
+}
+
+// LoadAllKlinesToCache 批量加载全部K线数据到内存缓存
+// 直接从数据库读取全部数据，一次性加载到缓存
+func (r *KlineRepository) LoadAllKlinesToCache(ctx context.Context, market string, cache *KlineCache) (int, error) {
+	collection := r.getCollection(market)
+	
+	log.Printf("[LoadAllKlinesToCache] 开始加载 %s 市场全部K线数据...", market)
+	
+	// 按 symbol 和 date 排序读取全部数据
+	opts := options.Find().SetSort(bson.D{{Key: "symbol", Value: 1}, {Key: "date", Value: 1}})
+	cursor, err := collection.Find(ctx, bson.M{}, opts)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(ctx)
+	
+	// 按股票分组存入缓存
+	var currentSymbol string
+	var currentKlines []models.StockKline
+	symbolCount := 0
+	totalKlines := 0
+	
+	for cursor.Next(ctx) {
+		var kline models.StockKline
+		if err := cursor.Decode(&kline); err != nil {
+			continue
+		}
+		
+		// 如果是新股票，先保存之前的
+		if currentSymbol != "" && kline.Symbol != currentSymbol {
+			if len(currentKlines) > 0 {
+				cache.Set(currentSymbol, market, currentKlines)
+				symbolCount++
+				totalKlines += len(currentKlines)
+				
+				// 每1000只股票输出一次进度
+				if symbolCount%1000 == 0 {
+					log.Printf("[LoadAllKlinesToCache] %s 市场已加载 %d 只股票, %d 条K线", market, symbolCount, totalKlines)
+				}
+			}
+			currentKlines = nil
+		}
+		
+		currentSymbol = kline.Symbol
+		currentKlines = append(currentKlines, kline)
+	}
+	
+	// 保存最后一只股票的数据
+	if len(currentKlines) > 0 {
+		cache.Set(currentSymbol, market, currentKlines)
+		symbolCount++
+		totalKlines += len(currentKlines)
+	}
+	
+	log.Printf("[LoadAllKlinesToCache] %s 市场加载完成: %d 只股票, %d 条K线", market, symbolCount, totalKlines)
+	return symbolCount, nil
 }

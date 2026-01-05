@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"log"
-	"os"
 	"server/repositories"
 	"server/services"
 	"server/utils"
@@ -32,21 +31,17 @@ func NewScheduler() *Scheduler {
 func (s *Scheduler) Start() {
 	log.Println("调度器启动")
 
-	// 根据部署类型决定启动策略
-	deploymentType := os.Getenv("DEPLOYMENT_TYPE")
-	switch deploymentType {
-	case "first_time":
-		log.Println("检测到首次部署模式")
-		go s.firstTimeDeployment()
-	case "hotfix":
-		log.Println("检测到紧急修复模式")
-		go s.hotfixDeployment()
-	default:
-		// 默认：常规部署
-		go s.regularDeployment()
-	}
+	// 只预热缓存，不自动同步数据
+	// 数据同步改为通过 Web 界面手动触发
+	go func() {
+		ctx := context.Background()
+		log.Println("========== 服务启动初始化 ==========")
+		log.Println("[1/1] 预热实时缓存（从数据库加载已有数据）...")
+		s.preloadRealtimeCache(ctx)
+		log.Println("========== 初始化完成，如需同步数据请通过 Web 界面操作 ==========")
+	}()
 
-	// 启动定时任务
+	// 启动定时任务（保留交易时间的实时同步等）
 	go s.runScheduledTasks()
 }
 
@@ -157,53 +152,33 @@ func (s *Scheduler) preloadRealtimeCache(ctx context.Context) {
 	go s.preloadKlineCache(ctx)
 }
 
-// preloadKlineCache 预热K线缓存
+// preloadKlineCache 预热K线缓存 - 直接从数据库加载全部数据
 func (s *Scheduler) preloadKlineCache(ctx context.Context) {
-	log.Println("开始预热K线缓存...")
+	log.Println("开始预热K线缓存（全量加载）...")
 
-	// 获取所有股票代码
-	stockService := services.NewStockService()
-	aStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "a")
-	hkStocks, _ := stockService.GetStocksByMarketWithCache(ctx, "hk")
-
-	// 限制数量，避免内存过大
-	maxStocks := 1000
-	if len(aStocks) > maxStocks {
-		aStocks = aStocks[:maxStocks]
-	}
-	if len(hkStocks) > maxStocks {
-		hkStocks = hkStocks[:maxStocks]
-	}
-
-	// 获取最近90天的K线数据
-	endDate := time.Now().Format("2006-01-02")
-	startDate := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
-
-	// 加载A股K线（直接从数据库读取）
-	aCount := 0
 	klineCache := repositories.GetKlineCache()
 	klineRepo := repositories.NewKlineRepository()
-	for _, stock := range aStocks {
-		// 直接从数据库读取（绕过服务层）
-		klines, err := klineRepo.GetKlinesBySymbol(ctx, stock.Symbol, "a", startDate, endDate)
-		if err == nil && len(klines) > 0 {
-			klineCache.Set(stock.Symbol, "a", klines)
-			aCount++
-		}
+
+	// 直接从数据库加载全部A股K线
+	aCount, err := klineRepo.LoadAllKlinesToCache(ctx, "a", klineCache)
+	if err != nil {
+		log.Printf("加载A股K线缓存失败: %v", err)
 	}
 
-	// 加载港股K线（直接从数据库读取）
-	hkCount := 0
-	for _, stock := range hkStocks {
-		// 直接从数据库读取（绕过服务层）
-		klines, err := klineRepo.GetKlinesBySymbol(ctx, stock.Symbol, "hk", startDate, endDate)
-		if err == nil && len(klines) > 0 {
-			klineCache.Set(stock.Symbol, "hk", klines)
-			hkCount++
-		}
+	// 直接从数据库加载全部港股K线
+	hkCount, err := klineRepo.LoadAllKlinesToCache(ctx, "hk", klineCache)
+	if err != nil {
+		log.Printf("加载港股K线缓存失败: %v", err)
 	}
 
 	log.Printf("K线缓存预热完成: A股 %d只, 港股 %d只", aCount, hkCount)
+
+	// 验证缓存是否已初始化
+	if klineCache.IsInitialized() {
+		log.Printf("K线缓存已成功初始化")
+	} else {
+		log.Printf("警告: K线缓存初始化状态异常")
+	}
 }
 
 // syncCurrentDayData 同步当日实时数据
@@ -367,22 +342,12 @@ func (s *Scheduler) runScheduledTasks() {
 		case <-ticker.C:
 			now := utils.GetChinaTime()
 
-			// 1. 实时数据同步（内存更新）- 高频
-			if s.shouldSyncRealtime(now) {
-				go s.syncRealtimeToMemory()
-			}
-
-			// 2. 持久化同步（数据库更新）- 中频
-			if s.shouldPersistToDB(now) {
-				go s.persistMemoryToDB()
-			}
-
-			// 3. 历史K线同步 - 每天凌晨2点
+			// 历史K线同步 - 每天凌晨2点
 			if now.Hour() == 2 && now.Minute() == 0 && now.Second() == 0 {
 				go s.syncHistoryData()
 			}
 
-			// 4. 缓存清理 - 每天凌晨3点
+			// 缓存清理 - 每天凌晨3点
 			if now.Hour() == 3 && now.Minute() == 0 && now.Second() == 0 {
 				go s.cleanupOldCache()
 			}
