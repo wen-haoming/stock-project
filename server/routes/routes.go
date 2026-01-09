@@ -54,22 +54,11 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/stock/news", proxyCtrl.GetStockNews)
 		v1.GET("/stock/pdf", proxyCtrl.ProxyPDF)
 
-		// 数据库管理
+		// 数据库状态（只读）
 		dbCtrl := controllers.NewDBController()
 		v1.GET("/db/status", dbCtrl.GetStatus)
-		v1.GET("/db/sync-progress", dbCtrl.GetSyncProgress)
-		v1.GET("/db/sync-progress/sse", dbCtrl.SyncProgressSSE) // SSE 实时进度
 		v1.GET("/db/kline-debug", dbCtrl.GetKlineDebug)
-		v1.GET("/db/kline-range", dbCtrl.GetKlineDateRange)     // 获取K线日期范围
-		v1.POST("/db/sync", dbCtrl.ManualSync)
-		v1.POST("/db/sync-stock", dbCtrl.SyncStockOnly)              // 仅同步股票数据
-		v1.POST("/db/sync-kline", dbCtrl.SyncKlineOnly)              // 仅同步K线数据
-		v1.POST("/db/sync-kline-range", dbCtrl.SyncKlineByDateRange) // 按日期范围同步K线
-		v1.POST("/db/sync-cancel", dbCtrl.CancelSync)
-		v1.POST("/db/sync-history", dbCtrl.ManualSyncHistory)
-		v1.POST("/db/reset-sync", dbCtrl.ResetAndSync)
-		v1.POST("/db/clear-klines", dbCtrl.ClearKlines)
-		v1.POST("/db/delete-kline-range", dbCtrl.DeleteKlineByDateRange) // 按日期范围删除K线
+		v1.GET("/db/kline-range", dbCtrl.GetKlineDateRange)
 
 		// 大盘行情
 		marketCtrl := controllers.NewMarketController()

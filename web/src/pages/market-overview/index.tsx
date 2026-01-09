@@ -5,7 +5,7 @@ import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import IndexMobile from './IndexMobile'
-import { ExchangeKlineChart, TopGainersTable } from './components'
+import { ExchangeKlineChart } from './components'
 import { useTheme, getEChartsTheme } from '../../contexts/ThemeContext'
 
 const { useBreakpoint } = Grid
@@ -599,16 +599,6 @@ function MarketOverviewPC() {
           <Card size="small" styles={{ body: { padding: 12 } }}>
             <ExchangeKlineChart height={420} />
           </Card>
-        </Col>
-      </Row>
-
-      {/* 涨幅榜 */}
-      <Row gutter={16} style={{ marginTop: 16 }}>
-        <Col span={12}>
-          <TopGainersTable market="a" title="A股涨幅榜" height={350} />
-        </Col>
-        <Col span={12}>
-          <TopGainersTable market="hk" title="港股涨幅榜" height={350} />
         </Col>
       </Row>
 

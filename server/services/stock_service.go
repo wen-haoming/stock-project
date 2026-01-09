@@ -512,7 +512,7 @@ func (s *StockService) SyncAStockData(ctx context.Context) error {
 // ============== 新增：实时缓存相关方法 ==============
 
 // asyncUpdateRealtimeCache 异步更新实时缓存（不阻塞主请求）
-func (s *StockService) asyncUpdateRealtimeCache(ctx context.Context) {
+func (s *StockService) asyncUpdateRealtimeCache(_ context.Context) {
 	now := utils.GetChinaTime()
 
 	// 根据交易时间决定更新哪个市场
@@ -597,241 +597,39 @@ func (s *StockService) PreloadRealtimeCache(ctx context.Context, market string) 
 // 1. 从东财获取数据
 // 2. 更新实时缓存
 // 3. 写入数据库
-// 注意：此方法不会设置 completed 状态，由调用方决定何时完成
 func (s *StockService) SyncAndCache(ctx context.Context, market string) error {
 	marketName := "A股"
 	if market == "hk" {
 		marketName = "港股"
 	}
 
-	// 检查是否已在同步中
-	if IsSyncing(market) {
-		return fmt.Errorf("%s正在同步中，请稍后再试", marketName)
-	}
-
-	// 检查是否已取消
-	select {
-	case <-ctx.Done():
-		log.Printf("[SyncAndCache] %s同步已取消", marketName)
-		return ctx.Err()
-	default:
-	}
-
 	var stocks []models.StockData
 	var err error
 
-	// 阶段1: 获取数据
-	UpdateStockSyncProgress(market, "fetching", "正在获取"+marketName+"数据...", 0, 100, "连接东方财富API")
+	log.Printf("[SyncAndCache] 开始同步%s数据...", marketName)
 
 	if market == "a" {
-		stocks, err = s.FetchAStockDataWithProgressCtx(ctx)
+		stocks, err = s.FetchAStockData()
 	} else {
-		stocks, err = s.FetchHKStockDataWithProgressCtx(ctx)
+		stocks, err = s.FetchHKStockData()
 	}
 
 	if err != nil {
-		// 如果是取消导致的错误，不设置错误状态
-		if ctx.Err() != nil {
-			log.Printf("[SyncAndCache] %s同步已取消", marketName)
-			return ctx.Err()
-		}
-		SetStockSyncError(market, err)
+		log.Printf("[SyncAndCache] 获取%s数据失败: %v", marketName, err)
 		return err
 	}
 
-	// 检查是否已取消
-	select {
-	case <-ctx.Done():
-		log.Printf("[SyncAndCache] %s同步已取消（获取数据后）", marketName)
-		return ctx.Err()
-	default:
-	}
-
-	// 阶段2: 更新缓存
-	UpdateStockSyncProgress(market, "caching", "正在更新缓存...", 70, 100, fmt.Sprintf("缓存 %d 只股票", len(stocks)))
+	// 更新缓存
 	s.realtimeCache.BatchSet(stocks, market)
 
-	// 检查是否已取消
-	select {
-	case <-ctx.Done():
-		log.Printf("[SyncAndCache] %s同步已取消（缓存后）", marketName)
-		return ctx.Err()
-	default:
-	}
-
-	// 阶段3: 写入数据库
-	UpdateStockSyncProgress(market, "saving", "正在保存到数据库...", 80, 100, "批量写入中")
-
-	// 同步写入数据库
+	// 写入数据库
 	if err := s.stockRepo.UpsertStocks(ctx, stocks, market); err != nil {
-		if ctx.Err() != nil {
-			log.Printf("[SyncAndCache] %s同步已取消（写入数据库时）", marketName)
-			return ctx.Err()
-		}
-		SetStockSyncError(market, err)
 		log.Printf("[SyncAndCache] 写入数据库失败: %v", err)
 		return err
 	}
 
-	// 检查是否已取消
-	select {
-	case <-ctx.Done():
-		log.Printf("[SyncAndCache] %s同步已取消（完成前）", marketName)
-		return ctx.Err()
-	default:
-	}
-
-	// 实时数据同步完成，但不设置 completed（K线同步会继续）
-	UpdateStockSyncProgress(market, "stock_done", "实时数据同步完成", 85, 100, fmt.Sprintf("成功同步 %d 只%s股票", len(stocks), marketName))
-	log.Printf("[SyncAndCache] %s实时数据同步完成: %d 只股票", marketName, len(stocks))
-
+	log.Printf("[SyncAndCache] %s数据同步完成: %d 只股票", marketName, len(stocks))
 	return nil
-}
-
-// FetchAStockDataWithProgress 带进度的A股数据获取（无context版本，兼容旧代码）
-func (s *StockService) FetchAStockDataWithProgress() ([]models.StockData, error) {
-	return s.fetchStockDataPaginatedWithProgress("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "a")
-}
-
-// FetchHKStockDataWithProgress 带进度的港股数据获取（无context版本，兼容旧代码）
-func (s *StockService) FetchHKStockDataWithProgress() ([]models.StockData, error) {
-	return s.fetchStockDataPaginatedWithProgress("m:116,m:117", "hk")
-}
-
-// FetchAStockDataWithProgressCtx 带进度和取消支持的A股数据获取
-func (s *StockService) FetchAStockDataWithProgressCtx(ctx context.Context) ([]models.StockData, error) {
-	return s.fetchStockDataPaginatedWithProgressCtx(ctx, "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "a")
-}
-
-// FetchHKStockDataWithProgressCtx 带进度和取消支持的港股数据获取
-func (s *StockService) FetchHKStockDataWithProgressCtx(ctx context.Context) ([]models.StockData, error) {
-	return s.fetchStockDataPaginatedWithProgressCtx(ctx, "m:116,m:117", "hk")
-}
-
-// fetchStockDataPaginatedWithProgressCtx 带进度和取消支持的分页获取
-func (s *StockService) fetchStockDataPaginatedWithProgressCtx(ctx context.Context, fs, market string) ([]models.StockData, error) {
-	var allStocks []models.StockData
-	pageSize := 100
-	page := 1
-
-	// 预估总页数（A股约55页，港股约30页）
-	estimatedPages := 55
-	if market == "hk" {
-		estimatedPages = 30
-	}
-
-	for {
-		// 检查是否已取消
-		select {
-		case <-ctx.Done():
-			log.Printf("[fetchStockDataPaginatedWithProgressCtx] %s获取数据已取消，已获取 %d 只股票", market, len(allStocks))
-			return nil, ctx.Err()
-		default:
-		}
-
-		// 更新进度（获取阶段占 0-70%）
-		progress := page * 70 / estimatedPages
-		if progress > 70 {
-			progress = 70
-		}
-		UpdateStockSyncProgress(market, "fetching", fmt.Sprintf("获取第 %d 页数据...", page), progress, 100, fmt.Sprintf("已获取 %d 只股票", len(allStocks)))
-
-		params := url.Values{}
-		params.Set("pn", strconv.Itoa(page))
-		params.Set("pz", strconv.Itoa(pageSize))
-		params.Set("po", "1")
-		params.Set("np", "1")
-		params.Set("fltt", "2")
-		params.Set("invt", "2")
-		params.Set("fid", "f3")
-		params.Set("fs", fs)
-		params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100,f115")
-
-		apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
-		body, err := utils.FetchURL(apiURL)
-		if err != nil {
-			return nil, err
-		}
-
-		stocks, err := s.parseEastMoneyResponse(body, market)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(stocks) == 0 {
-			break
-		}
-
-		allStocks = append(allStocks, stocks...)
-
-		if len(stocks) < pageSize {
-			break
-		}
-
-		page++
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return allStocks, nil
-}
-
-// fetchStockDataPaginatedWithProgress 带进度的分页获取
-func (s *StockService) fetchStockDataPaginatedWithProgress(fs, market string) ([]models.StockData, error) {
-	var allStocks []models.StockData
-	pageSize := 100
-	page := 1
-
-	// 预估总页数（A股约55页，港股约30页）
-	estimatedPages := 55
-	if market == "hk" {
-		estimatedPages = 30
-	}
-
-	for {
-		// 更新进度（获取阶段占 0-70%）
-		progress := page * 70 / estimatedPages
-		if progress > 70 {
-			progress = 70
-		}
-		UpdateStockSyncProgress(market, "fetching", fmt.Sprintf("获取第 %d 页数据...", page), progress, 100, fmt.Sprintf("已获取 %d 只股票", len(allStocks)))
-
-		params := url.Values{}
-		params.Set("pn", strconv.Itoa(page))
-		params.Set("pz", strconv.Itoa(pageSize))
-		params.Set("po", "1")
-		params.Set("np", "1")
-		params.Set("fltt", "2")
-		params.Set("invt", "2")
-		params.Set("fid", "f3")
-		params.Set("fs", fs)
-		params.Set("fields", "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100,f115")
-
-		apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
-		body, err := utils.FetchURL(apiURL)
-		if err != nil {
-			return nil, err
-		}
-
-		stocks, err := s.parseEastMoneyResponse(body, market)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(stocks) == 0 {
-			break
-		}
-
-		allStocks = append(allStocks, stocks...)
-
-		if len(stocks) < pageSize {
-			break
-		}
-
-		page++
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return allStocks, nil
 }
 
 // GetRealtimeCacheStats 获取实时缓存统计信息

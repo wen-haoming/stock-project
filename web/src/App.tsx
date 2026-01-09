@@ -3,7 +3,6 @@ import { Layout, Menu, Grid, ConfigProvider, Switch, Tooltip, App as AntdApp } f
 import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import { useTheme } from './contexts/ThemeContext'
-import DataStatusPanel from './components/DataStatusPanel'
 
 const { Content, Header } = Layout
 const { useBreakpoint } = Grid
@@ -64,8 +63,6 @@ function AppContent() {
             lineHeight: '32px',
           }}
         />
-        {/* 数据状态按钮 */}
-        <DataStatusPanel />
         {/* 主题切换按钮 */}
         <Tooltip title={isDark ? '切换亮色主题' : '切换暗色主题'}>
           <Switch

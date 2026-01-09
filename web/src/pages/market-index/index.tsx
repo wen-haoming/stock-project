@@ -1,12 +1,12 @@
-import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Card, Spin, Empty, Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useRequest, useInterval } from 'ahooks'
-import { ListTable } from '@visactor/react-vtable'
 import ReactECharts from 'echarts-for-react'
 import axios from 'axios'
 import StockDetailDrawer from '../range-stats/StockDetailDrawer'
-import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
+import TopGainersTable from '../market-overview/components/TopGainersTable'
+import { useTheme } from '../../contexts/ThemeContext'
 
 const upColor = '#ec5a5a'
 const downColor = '#47b262'
@@ -57,8 +57,7 @@ const getIndexChartOption = (index) => {
 
 // 单个市场面板组件
 function MarketPanel({ market, title, onStockClick }) {
-  const vtableRef = useRef(null)
-  const { vtableTheme, theme: currentTheme } = useTheme()
+  const { theme: currentTheme } = useTheme()
 
   // 获取指数行情
   const { data: indexData = [], loading: indexLoading, run: fetchIndex } = useRequest(
@@ -76,20 +75,11 @@ function MarketPanel({ market, title, onStockClick }) {
     }
   )
 
-  // 获取涨幅榜
-  const { data: topGainers = [], loading: gainersLoading, run: fetchGainers } = useRequest(
-    async () => {
-      const res = await axios.get('/api/v1/market/top-gainers', { params: { market, limit: 20 } })
-      return res.data?.data || []
-    }
-  )
-
-  // 手动刷新所有数据
+  // 手动刷新
   const refreshAll = useCallback(() => {
     fetchIndex()
     fetchSectors()
-    fetchGainers()
-  }, [fetchIndex, fetchSectors, fetchGainers])
+  }, [fetchIndex, fetchSectors])
 
   // 交易时间轮询（30秒）
   useInterval(() => {
@@ -97,55 +87,6 @@ function MarketPanel({ market, title, onStockClick }) {
       refreshAll()
     }
   }, 30000)
-
-  // VTable 列配置
-  const columns = useMemo(() => [
-    { field: 'rank', title: '#', width: 30 },
-    { field: 'symbol', title: '代码', width: 58 },
-    { field: 'name', title: '名称', width: 65 },
-    { field: 'latestPrice', title: '现价', width: 55, fieldFormat: (r) => r.latestPrice?.toFixed(2) || '-' },
-    { field: 'changePct', title: '涨跌幅', width: 60, fieldFormat: (r) => r.changePct != null ? `${r.changePct >= 0 ? '+' : ''}${r.changePct.toFixed(2)}%` : '-' },
-    { field: 'amount', title: '成交额', width: 60, fieldFormat: (r) => r.amount ? `${(r.amount / 100000000).toFixed(1)}亿` : '-' },
-  ], [])
-
-  const tableRecords = useMemo(() => topGainers.map((item, i) => ({ ...item, rank: i + 1, market })), [topGainers, market])
-
-  // 使用主题生成 VTable 配置
-  const baseVTableTheme = useMemo(() => getVTableTheme(vtableTheme, { rowHeight: 28, headerRowHeight: 28, fontSize: 11 }), [vtableTheme])
-  
-  const vtableOption = useMemo(() => ({
-    columns,
-    records: tableRecords,
-    ...baseVTableTheme,
-    widthMode: 'adaptive',
-    autoWrapText: false,
-    hover: { highlightMode: 'row' },
-    select: { disableSelect: true },
-    theme: {
-      ...baseVTableTheme.theme,
-      defaultStyle: {
-        ...baseVTableTheme.theme.defaultStyle,
-        cursor: 'pointer',
-      },
-    },
-  }), [columns, tableRecords, baseVTableTheme])
-
-  const handleVTableReady = useCallback((instance) => {
-    vtableRef.current = instance
-    // 监听行点击事件
-    instance.on('click_cell', (args) => {
-      const { row } = args
-      if (row > 0 && tableRecords[row - 1]) {
-        onStockClick?.(tableRecords[row - 1])
-      }
-    })
-  }, [tableRecords, onStockClick])
-
-  useEffect(() => {
-    if (vtableRef.current && tableRecords.length > 0) {
-      vtableRef.current.setRecords(tableRecords)
-    }
-  }, [tableRecords])
 
   const cardBorderColor = currentTheme.custom.borderColor
 
@@ -159,7 +100,7 @@ function MarketPanel({ market, title, onStockClick }) {
           size="small" 
           icon={<ReloadOutlined />} 
           onClick={refreshAll}
-          loading={indexLoading || sectorLoading || gainersLoading}
+          loading={indexLoading || sectorLoading}
           style={{ fontSize: 12, padding: '0 4px' }}
         >
           刷新
@@ -231,20 +172,14 @@ function MarketPanel({ market, title, onStockClick }) {
       </Card>
 
       {/* 涨幅榜 */}
-      <Card
-        title={<span style={{ fontSize: 11, fontWeight: 500 }}>涨幅榜</span>}
-        size="small"
-        style={{ flex: 1 }}
-        styles={{ header: { padding: '4px 8px', minHeight: 28 }, body: { padding: 0, height: 200 } }}
-      >
-        <Spin spinning={gainersLoading} size="small">
-          {tableRecords.length > 0 ? (
-            <ListTable option={vtableOption} onReady={handleVTableReady} height={180} />
-          ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无" style={{ marginTop: 40 }} />
-          )}
-        </Spin>
-      </Card>
+      <div style={{ flex: 1 }}>
+        <TopGainersTable 
+          market={market} 
+          title={`${market === 'a' ? 'A股' : '港股'}涨幅榜`} 
+          height={280} 
+          onStockClick={onStockClick} 
+        />
+      </div>
     </div>
   )
 }
