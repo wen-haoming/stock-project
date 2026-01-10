@@ -23,11 +23,11 @@ function StockDiagnosisPanel({ stock, klineData }) {
     down: '#52c41a',
     warning: '#faad14',
     info: '#1890ff',
-    text: isDark ? '#e0e0e0' : '#333',
-    subText: isDark ? '#888' : '#999',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    cardBg: isDark ? '#1f1f1f' : '#fafafa',
-    progressTrail: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+    text: isDark ? '#e8e8e8' : '#333',
+    subText: isDark ? '#a0a0a0' : '#999',
+    border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)',
+    cardBg: isDark ? '#252525' : '#fafafa',
+    progressTrail: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.04)',
   }
 
   // 计算所有诊断指标

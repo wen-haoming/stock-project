@@ -672,7 +672,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   // Tab 栏右侧的额外内容：股票名称 + 价格 + 涨跌幅 + 自选按钮
   const tabBarExtraContent = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingRight: 16 }}>
-      <span style={{ fontSize: 14, fontWeight: 500 }}>
+      <span style={{ fontSize: 14, fontWeight: 500, color: currentTheme.custom?.textColor }}>
         {displayStock?.name} ({displayStock?.symbol})
       </span>
       <span style={{ 

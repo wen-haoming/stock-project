@@ -80,17 +80,18 @@ const StockImpactSection = ({ marketName, impact: marketImpact, isDark }) => {
 const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData, categoryColor, isMobile }) => {
   const { theme: currentTheme, isDark } = useTheme()
   const [klinePeriod, setKlinePeriod] = useState('trend')
-  const [detailData, setDetailData] = useState(null)
+  const [chartData, setChartData] = useState(null) // 图表数据
+  const [realTimeData, setRealTimeData] = useState(null) // 实时价格数据（分时）
   const [chartLoading, setChartLoading] = useState(false)
   const [timeRangeIndex, setTimeRangeIndex] = useState(1) // 默认3月
   
-  // 使用 detailData 或 initialData
-  const data = detailData || initialData
-  const isUp = data?.changePct >= 0
+  // 顶部价格始终使用实时数据（分时数据）
+  const priceData = realTimeData || initialData
+  const isUp = priceData?.changePct >= 0
   const color = isUp ? '#cf1322' : '#389e0d'
   const Icon = isUp ? RiseOutlined : FallOutlined
   const displayName = commodity?.label || commodity?.name || ''
-  const impact = commodity ? getImpactAnalysis(commodity.name, data?.changePct || 0, data?.latestPrice || 0) : null
+  const impact = commodity ? getImpactAnalysis(commodity.name, priceData?.changePct || 0, priceData?.latestPrice || 0) : null
 
   // 当前是否为分时模式
   const isTrendMode = klinePeriod === 'trend'
@@ -99,14 +100,16 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
   useEffect(() => {
     if (visible && commodity) {
       setKlinePeriod('trend')
-      setDetailData(null)
+      setChartData(null)
+      setRealTimeData(null)
       setChartLoading(true)
       setTimeRangeIndex(1)
       
-      // 加载分时数据
+      // 加载分时数据（同时用于实时价格和图表）
       fetchCommodityTrend(commodity.code, commodity.market)
         .then(result => {
-          setDetailData(result)
+          setRealTimeData(result)
+          setChartData(result)
         })
         .finally(() => {
           setChartLoading(false)
@@ -114,7 +117,7 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
     }
   }, [visible, commodity])
 
-  // 加载K线数据
+  // 加载K线数据（只更新图表数据，不更新实时价格）
   const loadKlineData = useCallback(async (period, rangeMonths = 3) => {
     if (!commodity) return
     
@@ -123,12 +126,14 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
       let result
       if (period === 'trend') {
         result = await fetchCommodityTrend(commodity.code, commodity.market)
+        // 分时模式下同时更新实时价格
+        setRealTimeData(result)
       } else {
         const klineType = KLINE_TYPE_MAP[period] || 101
         const periodMap = { 1: '1m', 3: '3m', 6: '6m', 12: '1y', 36: '3y' }
         result = await fetchCommodityKline(commodity.code, commodity.market, periodMap[rangeMonths] || '3m', klineType)
       }
-      setDetailData(result)
+      setChartData(result)
     } finally {
       setChartLoading(false)
     }
@@ -229,7 +234,7 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
       open={visible}
       styles={{ body: { padding: 16 } }}
     >
-      {/* 价格信息 */}
+      {/* 价格信息 - 始终显示实时价格和当日涨跌幅 */}
       <div style={{ 
         background: isDark ? 'rgba(255,255,255,0.04)' : '#fafafa', 
         borderRadius: 8, 
@@ -243,12 +248,13 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
             color,
             letterSpacing: '-1px'
           }}>
-            {data?.latestPrice?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            {priceData?.latestPrice?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
           </span>
           <span style={{ fontSize: 16, color, fontWeight: 500 }}>
             <Icon style={{ marginRight: 4 }} />
-            {isUp ? '+' : ''}{data?.changePct?.toFixed(2)}%
+            {isUp ? '+' : ''}{priceData?.changePct?.toFixed(2)}%
           </span>
+          <span style={{ fontSize: 12, color: isDark ? '#666' : '#999' }}>今日</span>
         </div>
         <div style={{ color: isDark ? '#888' : '#8c8c8c', fontSize: 12, marginTop: 4 }}>
           {impact?.desc}
@@ -268,8 +274,8 @@ const CommodityDetailDrawer = ({ visible, onClose, commodity, data: initialData,
         extra={klineExtra}
       >
         <Spin spinning={chartLoading}>
-          {data?.prices?.length ? (
-            <CommodityKlineChart data={data} color={color} isTrend={isTrendMode} />
+          {chartData?.prices?.length ? (
+            <CommodityKlineChart data={chartData} color={color} isTrend={isTrendMode} />
           ) : (
             <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '40px 0' }} />
           )}

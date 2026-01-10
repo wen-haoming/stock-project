@@ -1,5 +1,13 @@
 /**
  * 大宗商品配置
+ * 市场代码说明：
+ * - 113: 上期所 (SHFE)
+ * - 114: 大商所 (DCE)
+ * - 115: 郑商所 (CZCE)
+ * - 225: 广期所 (GFEX) - 碳酸锂、工业硅
+ * - 101: COMEX (黄金、白银、铜)
+ * - 102: NYMEX/ICE (原油、天然气)
+ * - 8: 中金所 (国债期货)
  */
 
 // 大宗商品配置 - 按分类
@@ -12,11 +20,11 @@ export const commodityConfig = {
   ],
   '能源化工': [
     { name: '原油', code: 'scm', market: '113', region: 'domestic' },
-    { name: '天然气', code: 'NG00Y', market: '101', region: 'international', label: 'NYMEX气' },
+    { name: '天然气', code: 'NG00Y', market: '102', region: 'international', label: 'NYMEX气' },
     { name: '动力煤', code: 'zcm', market: '115', region: 'domestic' },
     { name: '焦煤', code: 'jmm', market: '114', region: 'domestic' },
     { name: '焦炭', code: 'jm', market: '114', region: 'domestic' },
-    { name: '原油', code: 'CL00Y', market: '101', region: 'international', label: 'WTI油' },
+    { name: '原油', code: 'CL00Y', market: '102', region: 'international', label: 'WTI油' },
     { name: '燃油', code: 'fum', market: '113', region: 'domestic' },
     { name: '沥青', code: 'bum', market: '113', region: 'domestic' },
     { name: 'PTA', code: 'TAm', market: '115', region: 'domestic' },
@@ -37,8 +45,8 @@ export const commodityConfig = {
     { name: '锡', code: 'snm', market: '113', region: 'domestic' },
     { name: '铅', code: 'pbm', market: '113', region: 'domestic' },
     { name: '铜', code: 'HG00Y', market: '101', region: 'international', label: 'COMEX铜' },
-    { name: '碳酸锂', code: 'LCm', market: '114', region: 'domestic' },
-    { name: '工业硅', code: 'sim', market: '114', region: 'domestic' },
+    { name: '碳酸锂', code: 'lcm', market: '225', region: 'domestic' },
+    { name: '工业硅', code: 'sim', market: '225', region: 'domestic' },
   ],
   '黑色系': [
     { name: '螺纹钢', code: 'rbm', market: '113', region: 'domestic' },
@@ -62,19 +70,12 @@ export const commodityConfig = {
     { name: '苹果', code: 'APm', market: '115', region: 'domestic' },
     { name: '红枣', code: 'CJm', market: '115', region: 'domestic' },
     { name: '花生', code: 'PKm', market: '115', region: 'domestic' },
-    { name: '大豆', code: 'ZS00Y', market: '101', region: 'international', label: 'CBOT豆' },
-    { name: '玉米', code: 'ZC00Y', market: '101', region: 'international', label: 'CBOT玉米' },
-    { name: '棉花', code: 'CT00Y', market: '101', region: 'international', label: 'ICE棉' },
   ],
   '金融板块': [
     { name: '2年国债', code: '130130', market: '8', region: 'domestic' },
     { name: '5年国债', code: '050130', market: '8', region: 'domestic' },
     { name: '10年国债', code: '110130', market: '8', region: 'domestic' },
     { name: '30年国债', code: '140130', market: '8', region: 'domestic' },
-    { name: '美国2年国债', code: 'ZT00Y', market: '101', region: 'international', label: '美2Y国债' },
-    { name: '美国5年国债', code: 'ZF00Y', market: '101', region: 'international', label: '美5Y国债' },
-    { name: '美国10年国债', code: 'ZN00Y', market: '101', region: 'international', label: '美10Y国债' },
-    { name: '美国30年国债', code: 'ZB00Y', market: '101', region: 'international', label: '美30Y国债' },
   ],
 }
 

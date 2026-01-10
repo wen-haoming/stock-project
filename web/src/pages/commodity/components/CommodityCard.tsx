@@ -1,13 +1,10 @@
 import { memo, useState, useEffect, useRef } from 'react'
-import { Tooltip } from 'antd'
-import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { fetchCommodityTrend } from '@/api/commodity'
-import { getImpactAnalysis } from '@/constants/impactAnalysis'
 import { useTheme } from '../../../contexts/ThemeContext'
-import ImpactTag from './ImpactTag'
 
 /**
- * 商品卡片组件
+ * 商品卡片组件 - 简化版
  * @param {object} commodity - 商品配置
  * @param {string} cardWidth - 卡片宽度
  */
@@ -43,7 +40,6 @@ const CommodityCard = memo(({ commodity, isMobile, categoryColor, onClick, refre
   const color = isUp ? '#cf1322' : '#389e0d'
   const Icon = isUp ? RiseOutlined : FallOutlined
   const displayName = commodity.label || commodity.name
-  const impact = getImpactAnalysis(commodity.name, data?.changePct || 0, data?.latestPrice || 0)
 
   const handleClick = () => {
     if (onClick) {
@@ -54,7 +50,7 @@ const CommodityCard = memo(({ commodity, isMobile, categoryColor, onClick, refre
   return (
     <div style={{ 
       width: cardWidth || 'auto',
-      minWidth: isMobile ? 150 : 180,
+      minWidth: isMobile ? 120 : 140,
       background: currentTheme.custom.bgColor,
       borderRadius: 6,
       border: `1px solid ${currentTheme.custom.borderColor}`,
@@ -69,21 +65,21 @@ const CommodityCard = memo(({ commodity, isMobile, categoryColor, onClick, refre
       {/* 顶部分类色条 */}
       <div style={{ height: 2, background: categoryColor }} />
       
-      <div style={{ padding: isMobile ? '8px 10px' : '10px 12px' }}>
+      <div style={{ padding: isMobile ? '6px 8px' : '8px 10px' }}>
         {/* 标题行 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ 
-            fontSize: isMobile ? 13 : 14, 
+            fontSize: isMobile ? 12 : 13, 
             fontWeight: 600,
             color: currentTheme.custom.textColor
           }}>
             {displayName}
           </span>
           <span style={{ 
-            fontSize: 10, 
+            fontSize: 9, 
             color: commodity.region === 'domestic' ? '#d48806' : '#1677ff',
-            padding: '1px 6px',
-            borderRadius: 10,
+            padding: '0px 4px',
+            borderRadius: 8,
             background: commodity.region === 'domestic' 
               ? (isDark ? 'rgba(212,136,6,0.2)' : '#fffbe6') 
               : (isDark ? 'rgba(22,119,255,0.2)' : '#e6f4ff'),
@@ -93,106 +89,19 @@ const CommodityCard = memo(({ commodity, isMobile, categoryColor, onClick, refre
         </div>
         
         {/* 价格行 */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
           <span style={{ 
-            fontSize: isMobile ? 18 : 20, 
+            fontSize: isMobile ? 15 : 16, 
             fontWeight: 600, 
             color,
             letterSpacing: '-0.5px'
           }}>
             {data?.latestPrice?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '--'}
           </span>
-          <span style={{ fontSize: 12, color, fontWeight: 500 }}>
-            <Icon style={{ marginRight: 2, fontSize: 10 }} />
+          <span style={{ fontSize: 11, color, fontWeight: 500 }}>
+            <Icon style={{ marginRight: 2, fontSize: 9 }} />
             {isUp ? '+' : ''}{data?.changePct?.toFixed(2) || '0.00'}%
           </span>
-        </div>
-
-        {/* 分隔线 */}
-        <div style={{ height: 1, background: currentTheme.custom.borderColor, margin: '8px 0' }} />
-
-        {/* 影响分析 */}
-        <div style={{ fontSize: 11 }}>
-          <Tooltip title={impact.desc} placement="top">
-            <div style={{ 
-              color: currentTheme.custom.textColorSecondary, 
-              fontSize: 10, 
-              marginBottom: 6,
-              cursor: 'help',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4
-            }}>
-              <InfoCircleOutlined style={{ fontSize: 10 }} />
-              <span>市场影响</span>
-            </div>
-          </Tooltip>
-          
-          {/* A股 */}
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>A股</span>
-              <ImpactTag trend={impact.aStock.trend} />
-            </div>
-            <Tooltip title={impact.aStock.detail} placement="top">
-              <div style={{ 
-                color: currentTheme.custom.textColor, 
-                fontSize: 10, 
-                marginTop: 2,
-                paddingLeft: 28,
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap',
-                cursor: 'help'
-              }}>
-                {impact.aStock.stocks}
-              </div>
-            </Tooltip>
-          </div>
-
-          {/* 港股 */}
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>港股</span>
-              <ImpactTag trend={impact.hkStock.trend} />
-            </div>
-            <Tooltip title={impact.hkStock.detail} placement="top">
-              <div style={{ 
-                color: currentTheme.custom.textColor, 
-                fontSize: 10, 
-                marginTop: 2,
-                paddingLeft: 28,
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap',
-                cursor: 'help'
-              }}>
-                {impact.hkStock.stocks}
-              </div>
-            </Tooltip>
-          </div>
-
-          {/* 美股 */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: currentTheme.custom.textColorSecondary, fontSize: 10, width: 28 }}>美股</span>
-              <ImpactTag trend={impact.usStock.trend} />
-            </div>
-            <Tooltip title={impact.usStock.detail} placement="top">
-              <div style={{ 
-                color: currentTheme.custom.textColor, 
-                fontSize: 10, 
-                marginTop: 2,
-                paddingLeft: 28,
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap',
-                cursor: 'help'
-              }}>
-                {impact.usStock.stocks}
-              </div>
-            </Tooltip>
-          </div>
         </div>
       </div>
     </div>

@@ -19,10 +19,10 @@ function StockOverviewHeader({ stock, klineData }) {
   const colors = {
     up: '#f5222d',
     down: '#52c41a',
-    neutral: isDark ? '#888' : '#666',
-    text: isDark ? '#e0e0e0' : '#333',
-    subText: isDark ? '#888' : '#999',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    neutral: isDark ? '#a0a0a0' : '#666',
+    text: isDark ? '#e8e8e8' : '#333',
+    subText: isDark ? '#a0a0a0' : '#999',
+    border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)',
   }
 
   // 计算综合诊断

@@ -199,18 +199,20 @@ export const fetchCommodityTrend = async (code: string, market: string): Promise
 }
 
 /**
- * 获取商品相关新闻
+ * 获取商品相关新闻（财经快讯）
  */
 export const fetchCommodityNews = async (keyword: string): Promise<NewsItem[]> => {
   try {
-    const url = `https://searchapi.eastmoney.com/api/Info/Search?appkey=796d6e5f5765626368617432303135&pageindex=1&pagesize=10&keyword=${encodeURIComponent(keyword)}&type=1`
+    const timestamp = Date.now()
+    // 使用东方财富财经快讯接口
+    const url = `https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_news_col&fastColumn=102&sortEnd=&pageIndex=1&pageSize=20&req_trace=${timestamp}`
     const response = await axios.get(url)
-    const list = response.data?.Data?.List || []
+    const list = response.data?.data?.fastNewsList || []
     return list.map((item: any) => ({
-      title: item.Title?.replace(/<[^>]+>/g, '') || '',
-      url: item.Url || '',
-      source: item.Source || '东方财富',
-      time: item.Date || ''
+      title: item.title || '',
+      url: `https://finance.eastmoney.com/a/${item.code}.html`,
+      source: '东方财富',
+      time: item.showTime?.split(' ')[1] || item.showTime || ''
     }))
   } catch (error) {
     console.error('获取新闻失败:', error)
