@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Card, Spin, Empty, Button } from 'antd'
+import { Spin, Button, Tabs } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useRequest, useInterval } from 'ahooks'
 import ReactECharts from 'echarts-for-react'
@@ -12,13 +12,17 @@ const upColor = '#ec5a5a'
 const downColor = '#47b262'
 
 // 判断是否在交易时间
-const isTradeTime = () => {
+const isTradeTime = (market: string) => {
   const now = new Date()
   const day = now.getDay()
   if (day === 0 || day === 6) return false
   const hours = now.getHours()
   const minutes = now.getMinutes()
   const time = hours * 100 + minutes
+  
+  if (market === 'us') {
+    return time >= 2130 || time <= 500
+  }
   return time >= 915 && time <= 1610
 }
 
@@ -56,7 +60,7 @@ const getIndexChartOption = (index) => {
 }
 
 // 单个市场面板组件
-function MarketPanel({ market, title, onStockClick }) {
+function MarketPanel({ market, onStockClick }) {
   const { theme: currentTheme } = useTheme()
 
   // 获取指数行情
@@ -64,15 +68,17 @@ function MarketPanel({ market, title, onStockClick }) {
     async () => {
       const res = await axios.get('/api/v1/market/index', { params: { market } })
       return res.data?.data || []
-    }
+    },
+    { refreshDeps: [market] }
   )
 
   // 获取热门板块
   const { data: sectorData = [], loading: sectorLoading, run: fetchSectors } = useRequest(
     async () => {
-      const res = await axios.get('/api/v1/market/sectors', { params: { market, limit: 6 } })
+      const res = await axios.get('/api/v1/market/sectors', { params: { market, limit: 10 } })
       return res.data?.data || []
-    }
+    },
+    { refreshDeps: [market] }
   )
 
   // 手动刷新
@@ -83,100 +89,72 @@ function MarketPanel({ market, title, onStockClick }) {
 
   // 交易时间轮询（30秒）
   useInterval(() => {
-    if (isTradeTime()) {
+    if (isTradeTime(market)) {
       refreshAll()
     }
   }, 30000)
 
-  const cardBorderColor = currentTheme.custom.borderColor
+  const marketName = market === 'a' ? 'A股' : market === 'hk' ? '港股' : '美股'
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-      {/* 标题 + 刷新按钮 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 2px' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: currentTheme.custom.textColor }}>{title}</span>
-        <Button 
-          type="text" 
-          size="small" 
-          icon={<ReloadOutlined />} 
-          onClick={refreshAll}
-          loading={indexLoading || sectorLoading}
-          style={{ fontSize: 12, padding: '0 4px' }}
-        >
-          刷新
-        </Button>
-      </div>
-
-      {/* 指数卡片 */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', padding: '0 10px 10px' }}>
+      {/* 指数行情 - 紧凑行内展示 */}
       <Spin spinning={indexLoading} size="small">
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '8px 0', borderBottom: `1px solid ${currentTheme.custom.borderColor}` }}>
           {indexData.map((idx) => (
-            <Card
-              key={idx.symbol}
-              size="small"
-              style={{ flex: '1 1 calc(50% - 3px)', minWidth: 140, border: `1px solid ${cardBorderColor}` }}
-              styles={{ body: { padding: '10px 12px' } }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: currentTheme.custom.textColorSecondary, marginBottom: 4 }}>{idx.name}</div>
-                  <div style={{ fontSize: 20, fontWeight: 600, color: (idx.changePct || 0) >= 0 ? upColor : downColor, fontFamily: 'Consolas, monospace', lineHeight: 1.2 }}>
-                    {idx.latestPrice?.toFixed(2) || '-'}
-                  </div>
-                  <div style={{ fontSize: 11, color: (idx.changePct || 0) >= 0 ? upColor : downColor, marginTop: 4 }}>
-                    {idx.changePct != null ? `${idx.changePct >= 0 ? '+' : ''}${idx.changePct.toFixed(2)}%` : '-'}
-                    <span style={{ marginLeft: 6 }}>{idx.changeAmt != null ? `${idx.changeAmt >= 0 ? '+' : ''}${idx.changeAmt.toFixed(2)}` : ''}</span>
-                  </div>
-                </div>
-                {/* K线图区域 - 填充整个右侧 */}
-                <div style={{ width: 90, height: 50, marginLeft: 8, flexShrink: 0 }}>
-                  {idx.trendData && idx.trendData.length > 0 ? (
-                    <ReactECharts option={getIndexChartOption(idx)} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'svg' }} />
-                  ) : (
-                    <div style={{ height: '100%', width: '100%', background: currentTheme.custom.bgColorSecondary, borderRadius: 4 }} />
-                  )}
-                </div>
+            <div key={idx.symbol} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: currentTheme.custom.textColorSecondary }}>{idx.name}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: (idx.changePct || 0) >= 0 ? upColor : downColor, fontFamily: 'Consolas, monospace' }}>
+                {idx.latestPrice?.toFixed(2) || '-'}
+              </span>
+              <span style={{ fontSize: 12, color: (idx.changePct || 0) >= 0 ? upColor : downColor }}>
+                {idx.changePct != null ? `${idx.changePct >= 0 ? '+' : ''}${idx.changePct.toFixed(2)}%` : '-'}
+              </span>
+              {/* 迷你分时图 */}
+              <div style={{ width: 60, height: 24 }}>
+                {idx.trendData && idx.trendData.length > 0 && (
+                  <ReactECharts option={getIndexChartOption(idx)} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'svg' }} />
+                )}
               </div>
-            </Card>
+            </div>
           ))}
+          <Button 
+            type="text" 
+            size="small" 
+            icon={<ReloadOutlined />} 
+            onClick={refreshAll}
+            loading={indexLoading || sectorLoading}
+            style={{ fontSize: 12, marginLeft: 'auto' }}
+          />
         </div>
       </Spin>
 
-      {/* 热门板块 */}
-      <Card
-        title={<span style={{ fontSize: 11, fontWeight: 500 }}>热门板块</span>}
-        size="small"
-        styles={{ header: { padding: '4px 8px', minHeight: 28 }, body: { padding: 6 } }}
-      >
-        <Spin spinning={sectorLoading} size="small">
+      {/* 热门板块 - 紧凑展示 */}
+      <Spin spinning={sectorLoading} size="small">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '6px 0', borderBottom: `1px solid ${currentTheme.custom.borderColor}` }}>
+          <span style={{ fontSize: 12, color: currentTheme.custom.textColorSecondary, flexShrink: 0 }}>热门板块</span>
           {sectorData.length > 0 ? (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {sectorData.slice(0, 6).map((sector) => (
-                <div
-                  key={sector.name}
-                  style={{ flex: '1 1 calc(33.33% - 3px)', minWidth: 80, padding: '4px 6px', background: currentTheme.custom.bgColorSecondary, borderRadius: 3, border: `1px solid ${cardBorderColor}` }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 10, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 50 }}>{sector.name}</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: sector.changePct >= 0 ? upColor : downColor }}>
-                      {sector.changePct >= 0 ? '+' : ''}{sector.changePct?.toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            sectorData.slice(0, 10).map((sector) => (
+              <div key={sector.name} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, color: currentTheme.custom.textColor }}>{sector.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: sector.changePct >= 0 ? upColor : downColor }}>
+                  {sector.changePct >= 0 ? '+' : ''}{sector.changePct?.toFixed(2)}%
+                </span>
+              </div>
+            ))
           ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无" style={{ margin: '6px 0' }} />
+            <span style={{ fontSize: 12, color: currentTheme.custom.textColorSecondary }}>暂无</span>
           )}
-        </Spin>
-      </Card>
+        </div>
+      </Spin>
 
       {/* 涨幅榜 */}
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minHeight: 300 }}>
         <TopGainersTable 
+          key={market}
           market={market} 
-          title={`${market === 'a' ? 'A股' : '港股'}涨幅榜`} 
-          height={280} 
+          title={`${marketName}涨幅榜`} 
+          height={400} 
           onStockClick={onStockClick} 
         />
       </div>
@@ -187,6 +165,7 @@ function MarketPanel({ market, title, onStockClick }) {
 export default function MarketIndexPage() {
   const [selectedStock, setSelectedStock] = useState(null)
   const [drawerVisible, setDrawerVisible] = useState(false)
+  const [activeMarket, setActiveMarket] = useState('a')
   const { theme: currentTheme } = useTheme()
 
   const handleStockClick = useCallback((stock) => {
@@ -198,20 +177,29 @@ export default function MarketIndexPage() {
     setDrawerVisible(false)
   }, [])
 
-  return (
-    <div style={{ height: '100%', display: 'flex', gap: 10, padding: 10, background: currentTheme.custom.bgColorSecondary, overflow: 'auto' }}>
-      {/* 左侧 A股 */}
-      <MarketPanel market="a" title="A股行情" onStockClick={handleStockClick} />
-      
-      {/* 右侧 港股 */}
-      <MarketPanel market="hk" title="港股行情" onStockClick={handleStockClick} />
+  const tabItems = [
+    { key: 'a', label: 'A股行情', children: <MarketPanel market="a" onStockClick={handleStockClick} /> },
+    { key: 'hk', label: '港股行情', children: <MarketPanel market="hk" onStockClick={handleStockClick} /> },
+    { key: 'us', label: '美股行情', children: <MarketPanel market="us" onStockClick={handleStockClick} /> },
+  ]
 
-      {/* 股票详情抽屉 - 使用已有组件 */}
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: currentTheme.custom.bgColorSecondary, overflow: 'hidden' }}>
+      <Tabs
+        activeKey={activeMarket}
+        onChange={setActiveMarket}
+        items={tabItems}
+        style={{ height: '100%' }}
+        tabBarStyle={{ margin: '0 10px', marginBottom: 0 }}
+      />
+
+      {/* 股票详情抽屉 */}
       <StockDetailDrawer 
         visible={drawerVisible}
         stock={selectedStock} 
-        market={selectedStock?.market || 'hk'}
-        onClose={handleCloseDrawer} 
+        market={selectedStock?.market || activeMarket}
+        onClose={handleCloseDrawer}
+        dateRange={[null, null]} 
       />
     </div>
   )

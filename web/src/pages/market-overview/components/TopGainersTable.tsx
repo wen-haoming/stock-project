@@ -27,7 +27,20 @@ export default function TopGainersTable({ market = 'a', title = '涨幅榜', hei
     setLoading(true)
     try {
       // 使用东方财富接口获取涨幅榜
-      const marketCode = market === 'a' ? 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23' : 'm:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2'
+      let marketCode: string
+      switch (market) {
+        case 'a':
+          marketCode = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
+          break
+        case 'hk':
+          marketCode = 'm:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2'
+          break
+        case 'us':
+          marketCode = 'm:105,m:106,m:107'
+          break
+        default:
+          marketCode = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
+      }
       const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=${marketCode}&fields=f2,f3,f4,f5,f6,f7,f12,f14,f15,f16,f17,f18,f20,f21`
       
       const response = await axios.get(url)
@@ -139,10 +152,11 @@ export default function TopGainersTable({ market = 'a', title = '涨幅榜', hei
     if (field === 'name' && onStockClick) {
       const originalData = stockDataRef.current.find(item => item.symbol === record.symbol)
       if (originalData) {
-        onStockClick(originalData)
+        // 传递 market 信息
+        onStockClick({ ...originalData, market })
       }
     }
-  }, [onStockClick])
+  }, [onStockClick, market])
 
   // VTable 就绪回调
   const handleVTableReady = useCallback((instance) => {

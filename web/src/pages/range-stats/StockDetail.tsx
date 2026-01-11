@@ -537,11 +537,11 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
       <Card 
         title={null}
         size="small" 
-        style={{ marginBottom: 12 }} 
+        style={{ marginBottom: 12, background: currentTheme.custom.bgColor, borderColor: currentTheme.custom.borderColor }} 
         extra={klineExtra}
         styles={{ 
-          header: { borderBottom: 'none', paddingBottom: 0 },
-          body: { paddingTop: 8 }
+          header: { borderBottom: 'none', paddingBottom: 0, background: currentTheme.custom.bgColor },
+          body: { paddingTop: 8, background: currentTheme.custom.bgColor }
         }}
       >
         <Spin spinning={klineLoading}>
@@ -573,15 +573,19 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
       <div style={{ padding: '12px 16px' }}>
         <Card 
           ref={financeChartCardRef}
-          title="财务数据" 
+          title={<span style={{ color: currentTheme.custom.textColor }}>财务数据</span>}
           size="small" 
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, background: currentTheme.custom.bgColor, borderColor: currentTheme.custom.borderColor }}
+          styles={{ 
+            header: { background: currentTheme.custom.bgColor, borderColor: currentTheme.custom.borderColor },
+            body: { background: currentTheme.custom.bgColor }
+          }}
           extra={
             <Space size="small" wrap>
               <Select value={reportType} onChange={handleReportTypeChange} options={reportTypeOptions} size="small" style={{ width: 80 }} />
               {financeData?.length > 0 && (
                 <>
-                  <span style={{ fontSize: 11, color: '#999' }}>共{financeData.length}期</span>
+                  <span style={{ fontSize: 11, color: currentTheme.custom.textColorSecondary }}>共{financeData.length}期</span>
                   <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />
                   <Button size="small" icon={<DownloadOutlined />} onClick={handleExportFinanceExcel} />
                   <Button size="small" icon={<CameraOutlined />} onClick={handleScreenshotFinanceChart} />
@@ -596,7 +600,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
                 <Radio.Button key={m.key} value={m.key} style={{ marginBottom: 4 }}>
                   {m.label}
                   <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{m.tip}</div>}>
-                    <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11, color: '#999' }} />
+                    <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11, color: currentTheme.custom.textColorSecondary }} />
                   </Tooltip>
                 </Radio.Button>
               ))}
@@ -614,8 +618,13 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
         {financeData?.length > 0 && (
           <Card 
             ref={financeTableCardRef}
-            title="财务报表明细" 
+            title={<span style={{ color: currentTheme.custom.textColor }}>财务报表明细</span>}
             size="small"
+            style={{ background: currentTheme.custom.bgColor, borderColor: currentTheme.custom.borderColor }}
+            styles={{ 
+              header: { background: currentTheme.custom.bgColor, borderColor: currentTheme.custom.borderColor },
+              body: { background: currentTheme.custom.bgColor }
+            }}
             extra={
               <Space size="small">
                 <Button size="small" icon={<CopyOutlined />} onClick={handleCopyFinance} />

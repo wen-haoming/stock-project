@@ -64,13 +64,16 @@ interface StockInfo {
  */
 export const fetchStockTrend = async (
   symbol: string, 
-  market: 'a' | 'hk' = 'hk', 
+  market: 'a' | 'hk' | 'us' = 'hk', 
   ndays: number = 1
 ): Promise<TrendResponse> => {
   try {
     let secid: string
     if (market === 'a') {
       secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
+    } else if (market === 'us') {
+      // 美股代码格式：105/106/107.SYMBOL
+      secid = `105.${symbol}`
     } else {
       secid = `116.${symbol}`
     }
@@ -135,7 +138,7 @@ export const fetchStockTrend = async (
  */
 export const fetchStockKline = async (
   symbol: string, 
-  market: 'a' | 'hk' = 'hk', 
+  market: 'a' | 'hk' | 'us' = 'hk', 
   months: number = 2, 
   period: 'day' | 'week' | 'month' | 'quarter' | 'year' = 'day'
 ): Promise<KlineData> => {
@@ -157,6 +160,8 @@ export const fetchStockKline = async (
     let secid: string
     if (market === 'a') {
       secid = symbol.startsWith('6') ? `1.${symbol}` : `0.${symbol}`
+    } else if (market === 'us') {
+      secid = `105.${symbol}`
     } else {
       secid = `116.${symbol}`
     }
@@ -269,7 +274,7 @@ export const fetchAnnouncements = async (
 export const fetchFinanceData = async (
   symbol: string, 
   reportType: string = '', 
-  market: 'a' | 'hk' = 'hk'
+  market: 'a' | 'hk' | 'us' = 'hk'
 ): Promise<FinanceData[]> => {
   try {
     let url: string
@@ -288,6 +293,21 @@ export const fetchFinanceData = async (
         filter: `(SECURITY_CODE="${symbol}")`,
       })
       url = `https://datacenter-web.eastmoney.com/api/data/v1/get?${params.toString()}`
+    } else if (market === 'us') {
+      // 美股财务数据
+      const params = new URLSearchParams({
+        sortColumns: 'REPORT_DATE',
+        sortTypes: '-1',
+        pageSize: '50',
+        pageNumber: '1',
+        reportName: 'RPT_USF10_FN_GMAININDICATOR',
+        columns: 'ALL',
+        quoteColumns: '',
+        source: 'SECURITIES',
+        client: 'PC',
+        filter: `(SECUCODE="${symbol}")`,
+      })
+      url = `https://datacenter.eastmoney.com/securities/api/data/v1/get?${params.toString()}`
     } else {
       const params = new URLSearchParams({
         sortColumns: 'REPORT_DATE',
@@ -357,6 +377,7 @@ export const fetchFinanceData = async (
       }).reverse()
     }
     
+    // 港股和美股使用相同的解析逻辑
     return result.map(item => {
       const reportDate = item.REPORT_DATE || ''
       const date = dayjs(reportDate)
@@ -403,13 +424,15 @@ export const fetchFinanceData = async (
 export const fetchStockInfo = async (
   symbol: string, 
   name: string = '', 
-  market: 'a' | 'hk' = 'hk'
+  market: 'a' | 'hk' | 'us' = 'hk'
 ): Promise<StockInfo | null> => {
   try {
     let secid: string
     if (market === 'a') {
       const prefix = symbol.startsWith('6') ? '1' : '0'
       secid = `${prefix}.${symbol}`
+    } else if (market === 'us') {
+      secid = `105.${symbol}`
     } else {
       secid = `116.${symbol}`
     }
@@ -420,7 +443,8 @@ export const fetchStockInfo = async (
     
     if (!data) return null
     
-    const priceDiv = market === 'a' ? 100 : 1000
+    // 美股价格不需要除以100
+    const priceDiv = market === 'a' ? 100 : market === 'us' ? 1 : 1000
     
     return {
       symbol: data.f57 || symbol,

@@ -84,10 +84,15 @@ func (s *MarketService) GetIndexList(market string) ([]IndexData, error) {
 	var indices []IndexData
 	var err error
 
-	if market == "a" {
+	switch market {
+	case "a":
 		indices, err = s.fetchAIndexList()
-	} else {
+	case "hk":
 		indices, err = s.fetchHKIndexList()
+	case "us":
+		indices, err = s.fetchUSIndexList()
+	default:
+		indices, err = s.fetchAIndexList()
 	}
 
 	if err != nil {
@@ -147,6 +152,85 @@ func (s *MarketService) fetchHKIndexList() ([]IndexData, error) {
 	}
 
 	return indices, nil
+}
+
+// fetchUSIndexList 获取美股指数列表
+func (s *MarketService) fetchUSIndexList() ([]IndexData, error) {
+	// 东方财富美股指数代码
+	indexCodes := []struct {
+		secid string
+		name  string
+	}{
+		{"100.DJIA", "道琼斯"},
+		{"100.NDX", "纳斯达克100"},
+		{"100.SPX", "标普500"},
+	}
+
+	var indices []IndexData
+	for _, idx := range indexCodes {
+		data, err := s.fetchIndexData(idx.secid, idx.name)
+		if err != nil {
+			log.Printf("获取美股指数 %s 失败: %v", idx.name, err)
+			// 尝试备用方式获取
+			data, err = s.fetchUSIndexDataAlt(idx.secid, idx.name)
+			if err != nil {
+				log.Printf("备用方式获取美股指数 %s 也失败: %v", idx.name, err)
+				continue
+			}
+		}
+		indices = append(indices, *data)
+	}
+
+	return indices, nil
+}
+
+// fetchUSIndexDataAlt 备用方式获取美股指数
+func (s *MarketService) fetchUSIndexDataAlt(secid, name string) (*IndexData, error) {
+	// 使用东方财富全球指数接口
+	var code string
+	switch secid {
+	case "100.DJIA":
+		code = "int_dji"
+	case "100.NDX":
+		code = "int_nasdaq"
+	case "100.SPX":
+		code = "int_sp500"
+	default:
+		return nil, fmt.Errorf("unknown index: %s", secid)
+	}
+
+	apiURL := fmt.Sprintf("https://push2.eastmoney.com/api/qt/stock/get?secid=%s&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170", code)
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data map[string]any `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, fmt.Errorf("no data for %s", secid)
+	}
+
+	data := &IndexData{
+		Symbol:      secid,
+		Name:        name,
+		LatestPrice: getFloatValue(resp.Data, "f43") / 100,
+		ChangePct:   getFloatValue(resp.Data, "f170") / 100,
+		ChangeAmt:   getFloatValue(resp.Data, "f169") / 100,
+		Open:        getFloatValue(resp.Data, "f46") / 100,
+		High:        getFloatValue(resp.Data, "f44") / 100,
+		Low:         getFloatValue(resp.Data, "f45") / 100,
+		PreClose:    getFloatValue(resp.Data, "f60") / 100,
+		UpdatedAt:   time.Now(),
+	}
+
+	return data, nil
 }
 
 // fetchIndexData 获取单个指数数据
@@ -440,12 +524,18 @@ func (s *MarketService) GetTopGainers(market string, limit int) ([]TopGainerData
 	}
 
 	var fs string
-	if market == "a" {
+	switch market {
+	case "a":
 		// A股：沪市主板+深市主板+创业板+科创板
 		fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
-	} else {
+	case "hk":
 		// 港股：主板
 		fs = "m:116+t:3,m:117+t:3"
+	case "us":
+		// 美股：中概股+热门美股
+		fs = "m:105,m:106,m:107"
+	default:
+		fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 	}
 
 	params := url.Values{}

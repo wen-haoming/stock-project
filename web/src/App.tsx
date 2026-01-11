@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Grid, ConfigProvider, Switch, Tooltip, App as AntdApp } from 'antd'
-import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
+import { BarChartOutlined, LineChartOutlined, GoldOutlined, StarOutlined, StockOutlined, SearchOutlined, SunOutlined, MoonOutlined, FundOutlined } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import { useTheme } from './contexts/ThemeContext'
 
@@ -12,6 +12,7 @@ const menuItems = [
   { key: '/stock-picker', label: '行情选股', icon: <SearchOutlined /> },
   { key: '/market-index', label: '大盘行情', icon: <StockOutlined /> },
   { key: '/range-stats', label: '区间统计', icon: <BarChartOutlined /> },
+  { key: '/options', label: '期权涡轮', icon: <FundOutlined /> },
   { key: '/market-overview', label: '汇率走势', icon: <LineChartOutlined /> },
   { key: '/commodity', label: '大宗商品', icon: <GoldOutlined /> },
 ]

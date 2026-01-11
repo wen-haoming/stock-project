@@ -9,6 +9,7 @@ import CommodityPage from './pages/commodity/index'
 import WatchlistPage from './pages/watchlist/index'
 import MarketIndexPage from './pages/market-index/index'
 import StockPickerPage from './pages/stock-picker/index'
+import OptionsPage from './pages/options/index'
 import DetailMobilePage from './pages/range-stats/DetailMobilePage'
 import './index.css'
 
@@ -25,6 +26,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="range-stats" element={<RangeStats />} />
             <Route path="market-overview" element={<MarketOverview />} />
             <Route path="commodity" element={<CommodityPage />} />
+            <Route path="options" element={<OptionsPage />} />
           </Route>
           {/* 移动端股票详情页 - 独立路由，全屏显示 */}
           <Route path="/stock/:symbol" element={<DetailMobilePage />} />
