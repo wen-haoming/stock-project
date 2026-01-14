@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, useCallback } from 'react'
-import { Segmented, Spin } from 'antd'
+import { Segmented, Spin, Card } from 'antd'
+import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -22,10 +23,134 @@ const periodOptions = [
 const upColor = '#ef5350'
 const downColor = '#26a69a'
 
+interface ExchangeKlineChartProps {
+  height?: number
+  onStatsChange?: (stats: any) => void
+}
+
+/**
+ * 导出汇率统计卡片
+ */
+export const ExchangeStatsCard = memo(({ stats, isDark }: { stats: any; isDark: boolean }) => {
+  const formatNum = (val: any) => {
+    if (val === undefined || val === null || isNaN(val)) return '--'
+    return val
+  }
+
+  return (
+    <Card
+      size="small"
+      style={{
+        width: '100%',
+        background: isDark ? 'rgba(255, 77, 79, 0.05)' : 'rgba(255, 77, 79, 0.08)',
+        border: `1px solid ${exchangeRateConfig.usdcny.color}`,
+        borderRadius: 6,
+        minHeight: 120
+      }}
+      styles={{ body: { padding: '8px 12px' } }}
+    >
+      {!stats ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, color: '#999' }}>
+          加载中...
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#999', marginBottom: 2 }}>当前汇率</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: exchangeRateConfig.usdcny.color }}>
+              {formatNum(stats.currentPrice?.toFixed(4))}
+            </div>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: 3 }}>今日涨跌</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {parseFloat(stats.changePct) >= 0 ? (
+                  <ArrowUpOutlined style={{ color: upColor, fontSize: 11 }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: downColor, fontSize: 11 }} />
+                )}
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: parseFloat(stats.changePct) >= 0 ? upColor : downColor
+                }}>
+                  {formatNum(Math.abs(parseFloat(stats.changePct)).toFixed(3))}%
+                </span>
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: 3 }}>涨幅</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {parseFloat(stats.change) >= 0 ? (
+                  <ArrowUpOutlined style={{ color: upColor, fontSize: 11 }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: downColor, fontSize: 11 }} />
+                )}
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: parseFloat(stats.change) >= 0 ? upColor : downColor
+                }}>
+                  {formatNum((parseFloat(stats.change) >= 0 ? '+' : '') + parseFloat(stats.change).toFixed(3))}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          {stats.sevenDayData && (
+            <div style={{ marginBottom: 6, paddingBottom: 6, borderBottom: `1px solid ${exchangeRateConfig.usdcny.color}33` }}>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: 2 }}>7天</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {parseFloat(stats.sevenDayData.changePct) >= 0 ? (
+                  <ArrowUpOutlined style={{ color: upColor, fontSize: 11 }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: downColor, fontSize: 11 }} />
+                )}
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: parseFloat(stats.sevenDayData.changePct) >= 0 ? upColor : downColor
+                }}>
+                  {formatNum(Math.abs(parseFloat(stats.sevenDayData.changePct)).toFixed(3))}%
+                </span>
+              </div>
+            </div>
+          )}
+          
+          {stats.thirtyDayData && (
+            <div>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: 2 }}>30天</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {parseFloat(stats.thirtyDayData.changePct) >= 0 ? (
+                  <ArrowUpOutlined style={{ color: upColor, fontSize: 11 }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: downColor, fontSize: 11 }} />
+                )}
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: parseFloat(stats.thirtyDayData.changePct) >= 0 ? upColor : downColor
+                }}>
+                  {formatNum(Math.abs(parseFloat(stats.thirtyDayData.changePct)).toFixed(3))}%
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  )
+})
+
+ExchangeStatsCard.displayName = 'ExchangeStatsCard'
+
 /**
  * 汇率K线图组件
  */
-const ExchangeKlineChart = memo(({ height = 400 }) => {
+const ExchangeKlineChart = memo(({ height = 400, onStatsChange }: ExchangeKlineChartProps & { onStatsChange?: (stats: any) => void }) => {
   const chartRef = useRef(null)
   const chartInstanceRef = useRef(null)
   const { isDark } = useTheme()
@@ -34,9 +159,120 @@ const ExchangeKlineChart = memo(({ height = 400 }) => {
   const [period, setPeriod] = useState('day')
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
+  const [stats, setStats] = useState(null)
   const timerRef = useRef(null)
 
-  // 获取分时数据
+  // 获取股票实时数据（通过K线API获取最新数据）
+  const fetchRealtimeData = useCallback(async () => {
+    try {
+      const end = dayjs().format('YYYYMMDD')
+      const start = dayjs().subtract(5, 'day').format('YYYYMMDD')
+      
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${exchangeRateConfig.usdcny.secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
+      
+      const response = await axios.get(url)
+      const klines = response.data?.data?.klines || []
+      
+      if (klines.length < 2) return null
+      
+      // 取最新两天的数据
+      const lastDay = klines[klines.length - 1].split(',')
+      const prevDay = klines[klines.length - 2].split(',')
+      
+      const currentPrice = parseFloat(lastDay[2]) // 收盘价
+      const lastClose = parseFloat(prevDay[2]) // 前一天收盘价
+      
+      // 验证有效数据
+      if (!currentPrice || !lastClose || lastClose === 0) return null
+      
+      // 计算涨跌幅
+      const changePct = (((currentPrice - lastClose) / lastClose) * 100).toFixed(4)
+      const change = (currentPrice - lastClose).toFixed(4)
+      
+      // 检查 NaN
+      if (isNaN(parseFloat(changePct)) || isNaN(parseFloat(change))) return null
+      
+      return {
+        currentPrice,
+        change,
+        changePct,
+        lastClose,
+      }
+    } catch (error) {
+      console.error('获取实时数据失败:', error)
+      return null
+    }
+  }, [])
+
+  // 计算过去N天的涨跌幅
+  const calculatePeriodChange = useCallback(async (days) => {
+    try {
+      const start = dayjs().subtract(days, 'day').format('YYYYMMDD')
+      const end = dayjs().format('YYYYMMDD')
+      
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${exchangeRateConfig.usdcny.secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`
+      
+      const response = await axios.get(url)
+      const rawData = response.data?.data?.klines || []
+      
+      if (rawData.length < 2) return null
+      
+      const firstDay = rawData[0].split(',')
+      const lastDay = rawData[rawData.length - 1].split(',')
+      
+      const openPrice = parseFloat(firstDay[1])
+      const closePrice = parseFloat(lastDay[2])
+      const change = closePrice - openPrice
+      const changePct = ((change / openPrice) * 100).toFixed(4)
+      
+      return {
+        openPrice,
+        closePrice,
+        change: change.toFixed(4),
+        changePct
+      }
+    } catch (error) {
+      console.error(`获取${days}天数据失败:`, error)
+      return null
+    }
+  }, [])
+
+  // 加载统计数据
+  const loadStats = useCallback(async () => {
+    const realtimeData = await fetchRealtimeData()
+    if (!realtimeData) return
+    
+    // 并行获取7天和30天数据
+    const [sevenDayData, thirtyDayData] = await Promise.all([
+      calculatePeriodChange(7),
+      calculatePeriodChange(30)
+    ])
+    
+    setStats({
+      ...realtimeData,
+      sevenDayData,
+      thirtyDayData
+    })
+  }, [fetchRealtimeData, calculatePeriodChange])
+
+  // 定时更新统计数据
+  useEffect(() => {
+    loadStats()
+    
+    // 每分钟更新一次统计数据
+    const statsTimer = setInterval(loadStats, 60000)
+    
+    return () => {
+      if (statsTimer) clearInterval(statsTimer)
+    }
+  }, [loadStats])
+
+  // 当stats更新时，通知父组件
+  useEffect(() => {
+    if (onStatsChange && stats) {
+      onStatsChange(stats)
+    }
+  }, [stats, onStatsChange])
   const fetchTrendData = useCallback(async () => {
     try {
       const timestamp = Date.now()
@@ -357,7 +593,7 @@ const ExchangeKlineChart = memo(({ height = 400 }) => {
 
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 14, fontWeight: 500, color: exchangeRateConfig.usdcny.color }}>
           美元/离岸人民币 K线
         </span>

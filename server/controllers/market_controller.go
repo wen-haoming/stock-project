@@ -99,3 +99,26 @@ func (c *MarketController) GetTopGainers(ctx *gin.Context) {
 		"data": gainers,
 	})
 }
+
+// GetHeatmap 获取热力图数据
+// GET /api/v1/market/heatmap
+func (c *MarketController) GetHeatmap(ctx *gin.Context) {
+	market := ctx.DefaultQuery("market", "a")
+	limit := 100
+	if l := ctx.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	data, err := c.marketService.GetHeatmapData(market, limit)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": data,
+	})
+}

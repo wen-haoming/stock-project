@@ -66,6 +66,7 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/market/distribution", marketCtrl.GetDistribution)
 		v1.GET("/market/sectors", marketCtrl.GetHotSectors)
 		v1.GET("/market/top-gainers", marketCtrl.GetTopGainers)
+		v1.GET("/market/heatmap", marketCtrl.GetHeatmap)
 	}
 
 	return r

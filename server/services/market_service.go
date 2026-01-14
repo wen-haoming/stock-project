@@ -627,3 +627,469 @@ func getStringValue(m map[string]any, key string) string {
 	}
 	return ""
 }
+
+// HeatmapStockData 热力图股票数据
+type HeatmapStockData struct {
+	Symbol      string  `json:"symbol"`
+	Name        string  `json:"name"`
+	ChangePct   float64 `json:"changePct"`
+	LatestPrice float64 `json:"latestPrice"`
+	MarketCap   float64 `json:"marketCap"`
+	Volume      int64   `json:"volume"`
+}
+
+// HeatmapSectorData 热力图板块数据
+type HeatmapSectorData struct {
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	ChangePct float64            `json:"changePct"`
+	MarketCap float64            `json:"marketCap"`
+	Stocks    []HeatmapStockData `json:"stocks"`
+}
+
+// GetHeatmapData 获取按板块分组的热力图数据
+func (s *MarketService) GetHeatmapData(market string, limit int) ([]HeatmapSectorData, error) {
+	cacheKey := fmt.Sprintf("heatmap_v2_%s_%d", market, limit)
+	if data, ok := s.cache.Get(cacheKey); ok {
+		return data.([]HeatmapSectorData), nil
+	}
+
+	if limit <= 0 {
+		limit = 50 // 默认取50个板块
+	}
+
+	var sectors []HeatmapSectorData
+	var err error
+
+	switch market {
+	case "a":
+		sectors, err = s.fetchASectorHeatmap(limit)
+	case "hk":
+		sectors, err = s.fetchHKSectorHeatmap(limit)
+	case "us":
+		sectors, err = s.fetchUSSectorHeatmap(limit)
+	default:
+		sectors, err = s.fetchASectorHeatmap(limit)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存60秒
+	s.cache.Set(cacheKey, sectors, 60*time.Second)
+	return sectors, nil
+}
+
+// fetchASectorHeatmap 获取A股行业板块热力图
+func (s *MarketService) fetchASectorHeatmap(limit int) ([]HeatmapSectorData, error) {
+	// 1. 先获取行业板块列表（按涨跌幅排序）
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f3") // 按涨跌幅排序
+	params.Set("fs", "m:90+t:2") // A股行业板块
+	params.Set("fields", "f2,f3,f12,f14,f20,f104,f105")
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	var sectors []HeatmapSectorData
+	for _, item := range resp.Data.Diff {
+		sectorCode := getStringValue(item, "f12")
+		sectorName := getStringValue(item, "f14")
+		changePct := getFloatValue(item, "f3")
+		marketCap := getFloatValue(item, "f20")
+
+		// 获取板块内的成分股（取前20只按市值）
+		stocks, _ := s.fetchSectorStocksForHeatmap(sectorCode, 20)
+
+		sector := HeatmapSectorData{
+			Code:      sectorCode,
+			Name:      sectorName,
+			ChangePct: changePct,
+			MarketCap: marketCap,
+			Stocks:    stocks,
+		}
+		sectors = append(sectors, sector)
+	}
+
+	return sectors, nil
+}
+
+// fetchSectorStocksForHeatmap 获取板块成分股用于热力图
+func (s *MarketService) fetchSectorStocksForHeatmap(sectorCode string, limit int) ([]HeatmapStockData, error) {
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f20") // 按市值排序
+	params.Set("fs", fmt.Sprintf("b:%s+f:!200", sectorCode))
+	params.Set("fields", "f2,f3,f5,f12,f14,f20")
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	var stocks []HeatmapStockData
+	for _, item := range resp.Data.Diff {
+		stock := HeatmapStockData{
+			Symbol:      getStringValue(item, "f12"),
+			Name:        getStringValue(item, "f14"),
+			ChangePct:   getFloatValue(item, "f3"),
+			LatestPrice: getFloatValue(item, "f2"),
+			MarketCap:   getFloatValue(item, "f20"),
+			Volume:      getInt64Value(item, "f5"),
+		}
+		if stock.Symbol != "" && stock.Name != "" {
+			stocks = append(stocks, stock)
+		}
+	}
+
+	return stocks, nil
+}
+
+// fetchHKSectorHeatmap 获取港股板块热力图
+func (s *MarketService) fetchHKSectorHeatmap(limit int) ([]HeatmapSectorData, error) {
+	// 港股按恒生行业分类
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f3")
+	params.Set("fs", "m:124") // 港股行业板块
+	params.Set("fields", "f2,f3,f12,f14,f20")
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		// 如果港股板块获取失败，返回简单的港股股票列表
+		return s.fetchHKStocksAsHeatmap(limit)
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Data.Diff) == 0 {
+		return s.fetchHKStocksAsHeatmap(limit)
+	}
+
+	var sectors []HeatmapSectorData
+	for _, item := range resp.Data.Diff {
+		sectorCode := getStringValue(item, "f12")
+		sectorName := getStringValue(item, "f14")
+		changePct := getFloatValue(item, "f3")
+		marketCap := getFloatValue(item, "f20")
+
+		stocks, _ := s.fetchHKSectorStocks(sectorCode, 20)
+
+		sector := HeatmapSectorData{
+			Code:      sectorCode,
+			Name:      sectorName,
+			ChangePct: changePct,
+			MarketCap: marketCap,
+			Stocks:    stocks,
+		}
+		sectors = append(sectors, sector)
+	}
+
+	if len(sectors) == 0 {
+		return s.fetchHKStocksAsHeatmap(limit)
+	}
+
+	return sectors, nil
+}
+
+// fetchHKStocksAsHeatmap 港股股票作为热力图（备用方案）
+func (s *MarketService) fetchHKStocksAsHeatmap(limit int) ([]HeatmapSectorData, error) {
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit*10))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f20")
+	params.Set("fs", "m:116+t:3,m:117+t:3")
+	params.Set("fields", "f2,f3,f5,f12,f14,f20")
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	// 将港股按市值分成几组
+	var stocks []HeatmapStockData
+	for _, item := range resp.Data.Diff {
+		stock := HeatmapStockData{
+			Symbol:      getStringValue(item, "f12"),
+			Name:        getStringValue(item, "f14"),
+			ChangePct:   getFloatValue(item, "f3"),
+			LatestPrice: getFloatValue(item, "f2"),
+			MarketCap:   getFloatValue(item, "f20"),
+			Volume:      getInt64Value(item, "f5"),
+		}
+		if stock.Symbol != "" && stock.Name != "" && stock.MarketCap > 0 {
+			stocks = append(stocks, stock)
+		}
+	}
+
+	// 按市值分组: 大型股、中型股、小型股
+	sort.Slice(stocks, func(i, j int) bool {
+		return stocks[i].MarketCap > stocks[j].MarketCap
+	})
+
+	var sectors []HeatmapSectorData
+	if len(stocks) > 0 {
+		// 大型股（前30%）
+		largeEnd := len(stocks) * 30 / 100
+		if largeEnd > 0 {
+			largeStocks := stocks[:largeEnd]
+			var totalCap float64
+			var avgChangePct float64
+			for _, s := range largeStocks {
+				totalCap += s.MarketCap
+				avgChangePct += s.ChangePct
+			}
+			sectors = append(sectors, HeatmapSectorData{
+				Code:      "large",
+				Name:      "大型股",
+				ChangePct: avgChangePct / float64(len(largeStocks)),
+				MarketCap: totalCap,
+				Stocks:    largeStocks,
+			})
+		}
+
+		// 中型股（30%-60%）
+		midEnd := len(stocks) * 60 / 100
+		if midEnd > largeEnd {
+			midStocks := stocks[largeEnd:midEnd]
+			var totalCap float64
+			var avgChangePct float64
+			for _, s := range midStocks {
+				totalCap += s.MarketCap
+				avgChangePct += s.ChangePct
+			}
+			sectors = append(sectors, HeatmapSectorData{
+				Code:      "mid",
+				Name:      "中型股",
+				ChangePct: avgChangePct / float64(len(midStocks)),
+				MarketCap: totalCap,
+				Stocks:    midStocks,
+			})
+		}
+
+		// 小型股（后40%）
+		if len(stocks) > midEnd {
+			smallStocks := stocks[midEnd:]
+			var totalCap float64
+			var avgChangePct float64
+			for _, s := range smallStocks {
+				totalCap += s.MarketCap
+				avgChangePct += s.ChangePct
+			}
+			sectors = append(sectors, HeatmapSectorData{
+				Code:      "small",
+				Name:      "小型股",
+				ChangePct: avgChangePct / float64(len(smallStocks)),
+				MarketCap: totalCap,
+				Stocks:    smallStocks,
+			})
+		}
+	}
+
+	return sectors, nil
+}
+
+// fetchHKSectorStocks 获取港股板块成分股
+func (s *MarketService) fetchHKSectorStocks(sectorCode string, limit int) ([]HeatmapStockData, error) {
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f20")
+	params.Set("fs", fmt.Sprintf("b:%s", sectorCode))
+	params.Set("fields", "f2,f3,f5,f12,f14,f20")
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	var stocks []HeatmapStockData
+	for _, item := range resp.Data.Diff {
+		stock := HeatmapStockData{
+			Symbol:      getStringValue(item, "f12"),
+			Name:        getStringValue(item, "f14"),
+			ChangePct:   getFloatValue(item, "f3"),
+			LatestPrice: getFloatValue(item, "f2"),
+			MarketCap:   getFloatValue(item, "f20"),
+			Volume:      getInt64Value(item, "f5"),
+		}
+		if stock.Symbol != "" && stock.Name != "" {
+			stocks = append(stocks, stock)
+		}
+	}
+
+	return stocks, nil
+}
+
+// fetchUSSectorHeatmap 获取美股板块热力图
+func (s *MarketService) fetchUSSectorHeatmap(limit int) ([]HeatmapSectorData, error) {
+	// 美股按行业分类获取
+	params := url.Values{}
+	params.Set("pn", "1")
+	params.Set("pz", strconv.Itoa(limit*10))
+	params.Set("po", "1")
+	params.Set("np", "1")
+	params.Set("fltt", "2")
+	params.Set("invt", "2")
+	params.Set("fid", "f20")
+	params.Set("fs", "m:105,m:106,m:107")
+	params.Set("fields", "f2,f3,f5,f12,f14,f20,f100") // f100是行业
+
+	apiURL := "https://push2.eastmoney.com/api/qt/clist/get?" + params.Encode()
+	body, err := utils.FetchURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Diff []map[string]any `json:"diff"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	// 按行业分组
+	sectorMap := make(map[string]*HeatmapSectorData)
+	for _, item := range resp.Data.Diff {
+		sector := getStringValue(item, "f100")
+		if sector == "" {
+			sector = "其他"
+		}
+
+		stock := HeatmapStockData{
+			Symbol:      getStringValue(item, "f12"),
+			Name:        getStringValue(item, "f14"),
+			ChangePct:   getFloatValue(item, "f3"),
+			LatestPrice: getFloatValue(item, "f2"),
+			MarketCap:   getFloatValue(item, "f20"),
+			Volume:      getInt64Value(item, "f5"),
+		}
+
+		if stock.Symbol == "" || stock.Name == "" || stock.MarketCap <= 0 {
+			continue
+		}
+
+		if _, ok := sectorMap[sector]; !ok {
+			sectorMap[sector] = &HeatmapSectorData{
+				Code:   sector,
+				Name:   sector,
+				Stocks: []HeatmapStockData{},
+			}
+		}
+		sectorMap[sector].Stocks = append(sectorMap[sector].Stocks, stock)
+		sectorMap[sector].MarketCap += stock.MarketCap
+	}
+
+	// 转换为切片并计算平均涨跌幅
+	var sectors []HeatmapSectorData
+	for _, s := range sectorMap {
+		if len(s.Stocks) > 0 {
+			var totalPct float64
+			for _, stock := range s.Stocks {
+				totalPct += stock.ChangePct
+			}
+			s.ChangePct = totalPct / float64(len(s.Stocks))
+
+			// 按市值排序股票，只保留前20
+			sort.Slice(s.Stocks, func(i, j int) bool {
+				return s.Stocks[i].MarketCap > s.Stocks[j].MarketCap
+			})
+			if len(s.Stocks) > 20 {
+				s.Stocks = s.Stocks[:20]
+			}
+
+			sectors = append(sectors, *s)
+		}
+	}
+
+	// 按板块总市值排序
+	sort.Slice(sectors, func(i, j int) bool {
+		return sectors[i].MarketCap > sectors[j].MarketCap
+	})
+
+	// 只返回前N个板块
+	if len(sectors) > limit {
+		sectors = sectors[:limit]
+	}
+
+	return sectors, nil
+}

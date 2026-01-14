@@ -5,7 +5,7 @@ import { useRequest, useInterval } from 'ahooks'
 import ReactECharts from 'echarts-for-react'
 import axios from 'axios'
 import StockDetailDrawer from '../range-stats/StockDetailDrawer'
-import TopGainersTable from '../market-overview/components/TopGainersTable'
+import StockHeatmap from '../../components/StockHeatmap'
 import { useTheme } from '../../contexts/ThemeContext'
 
 const upColor = '#ec5a5a'
@@ -94,8 +94,6 @@ function MarketPanel({ market, onStockClick }) {
     }
   }, 30000)
 
-  const marketName = market === 'a' ? 'A股' : market === 'hk' ? '港股' : '美股'
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', padding: '0 10px 10px' }}>
       {/* 指数行情 - 紧凑行内展示 */}
@@ -148,13 +146,12 @@ function MarketPanel({ market, onStockClick }) {
         </div>
       </Spin>
 
-      {/* 涨幅榜 */}
-      <div style={{ flex: 1, minHeight: 300 }}>
-        <TopGainersTable 
+      {/* 股票热力图 */}
+      <div style={{ flex: 1, minHeight: 500 }}>
+        <StockHeatmap 
           key={market}
           market={market} 
-          title={`${marketName}涨幅榜`} 
-          height={400} 
+          height={550} 
           onStockClick={onStockClick} 
         />
       </div>

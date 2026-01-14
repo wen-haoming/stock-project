@@ -5,7 +5,7 @@ import * as echarts from 'echarts'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import IndexMobile from './IndexMobile'
-import { ExchangeKlineChart } from './components'
+import { ExchangeKlineChart, ExchangeStatsCard } from './components'
 import { useTheme, getEChartsTheme } from '../../contexts/ThemeContext'
 
 const { useBreakpoint } = Grid
@@ -145,6 +145,7 @@ function MarketOverviewPC() {
 
   const [dateRange, setDateRange] = useState([null, null]) // 默认无日期区间
   const [loading, setLoading] = useState(false)
+  const [exchangeStats, setExchangeStats] = useState(null)
 
   // 原始数据
   const [hsiData, setHsiData] = useState([])
@@ -594,11 +595,17 @@ function MarketOverviewPC() {
           </Card>
         </Col>
 
-        {/* 右侧：汇率K线图 */}
+        {/* 右侧：汇率K线图 + 汇率统计卡片 */}
         <Col span={10}>
-          <Card size="small" styles={{ body: { padding: 12 } }}>
-            <ExchangeKlineChart height={420} />
-          </Card>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* 汇率统计卡片 */}
+            <ExchangeStatsCard stats={exchangeStats} isDark={isDark} />
+            
+            {/* 汇率K线图 */}
+            <Card size="small" styles={{ body: { padding: 12 } }}>
+              <ExchangeKlineChart height={420} onStatsChange={setExchangeStats} />
+            </Card>
+          </div>
         </Col>
       </Row>
 
