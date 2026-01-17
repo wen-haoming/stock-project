@@ -12,6 +12,7 @@ type Config struct {
 	MongoDB  MongoDBConfig
 	Cache    CacheConfig
 	Trading  TradingConfig
+	LongPort LongPortConfig
 }
 
 // ServerConfig 服务器配置
@@ -37,16 +38,25 @@ type CacheConfig struct {
 // TradingConfig 交易时间配置
 type TradingConfig struct {
 	// A股交易时间
-	AStockMorningStart  string // 09:30
-	AStockMorningEnd    string // 11:30
+	AStockMorningStart   string // 09:30
+	AStockMorningEnd     string // 11:30
 	AStockAfternoonStart string // 13:00
-	AStockAfternoonEnd  string // 15:00
-	
+	AStockAfternoonEnd   string // 15:00
+
 	// 港股交易时间
 	HKMorningStart   string // 09:30
 	HKMorningEnd     string // 12:00
 	HKAfternoonStart string // 13:00
 	HKAfternoonEnd   string // 16:00
+}
+
+// LongPortConfig LongPort OpenAPI 配置
+type LongPortConfig struct {
+	AppKey      string
+	AppSecret   string
+	AccessToken string
+	Region      string // cn, sg, hk
+	Enabled     bool   // 是否启用 LongPort API
 }
 
 var cfg *Config
@@ -81,6 +91,13 @@ func Load() *Config {
 			HKMorningEnd:         "12:00",
 			HKAfternoonStart:     "13:00",
 			HKAfternoonEnd:       "16:00",
+		},
+		LongPort: LongPortConfig{
+			AppKey:      getEnv("LONGPORT_APP_KEY", ""),
+			AppSecret:   getEnv("LONGPORT_APP_SECRET", ""),
+			AccessToken: getEnv("LONGPORT_ACCESS_TOKEN", ""),
+			Region:      getEnv("LONGPORT_REGION", "cn"),
+			Enabled:     getEnv("LONGPORT_APP_KEY", "") != "",
 		},
 	}
 

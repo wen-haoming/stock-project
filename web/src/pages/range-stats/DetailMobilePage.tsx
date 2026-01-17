@@ -4,7 +4,8 @@ import { NavBar, Card as MobileCard, Tabs as MobileTabs, Tag as MobileTag, SpinL
 import { Card, Tabs, Tag, Empty, Spin, Button, Space, Tooltip } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
-import { fetchStockKline, fetchStockNews, fetchFinanceData, fetchStockInfo } from '@/api/stock'
+import { fetchStockNews, fetchFinanceData, fetchStockInfo } from '@/api/stock'
+import { fetchKlineData } from '@/utils/dataSourceAdapter'
 import { upColor, downColor } from '@/utils/chart'
 import { financeMetricsSimple, reportTypeOptions } from '@/constants/finance'
 
@@ -297,7 +298,7 @@ export default function DetailMobilePage() {
   const dateRange = useMemo(() => ({ start: searchParams.get('start') || '', end: searchParams.get('end') || '' }), [searchParams])
 
   const loadFinanceData = useCallback(async (sym, type) => {
-    const finance = await fetchFinanceData(sym, type, market)
+    const finance = await fetchFinanceData(sym, type, market as 'a' | 'hk' | 'us')
     setFinanceData(finance)
   }, [market])
 
@@ -317,9 +318,9 @@ export default function DetailMobilePage() {
       setLoading(true)
       try {
         const [stockInfo, kline, finance] = await Promise.all([
-          fetchStockInfo(symbol, stockName, market),
-          fetchStockKline(symbol, market),
-          fetchFinanceData(symbol, '', market),
+          fetchStockInfo(symbol, stockName, market as 'a' | 'hk' | 'us'),
+          fetchKlineData(symbol, market, 'day', 100),
+          fetchFinanceData(symbol, '', market as 'a' | 'hk' | 'us'),
         ])
         setStock(stockInfo)
         setKlineData(kline)

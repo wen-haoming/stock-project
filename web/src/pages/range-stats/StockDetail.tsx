@@ -3,7 +3,8 @@ import { Card, Table, Spin, Empty, Radio, Select, Space, Button, message, Toolti
 import { DownloadOutlined, CopyOutlined, CameraOutlined, QuestionCircleOutlined, PlusOutlined, MinusOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
-import { fetchStockKline, fetchStockTrend, fetchStockNews, fetchFinanceData, fetchAnnouncements, fetchStockInfo } from '@/api/stock'
+import { fetchStockNews, fetchFinanceData, fetchAnnouncements, fetchStockInfo } from '@/api/stock'
+import { fetchKlineData, fetchTrendData, getCurrentDataSource } from '@/utils/dataSourceAdapter'
 import { reportTypeOptions, financeMetrics, financeTableColumns } from '@/constants/finance'
 import { 
   StockKlineChart, 
@@ -13,6 +14,7 @@ import {
   StockOverviewHeader,
   StockDiagnosisPanel,
 } from './components'
+import { DataSourceBadge } from '@/components/DataSourceBadge'
 import { useTheme } from '../../contexts/ThemeContext'
 
 // 自选股存储 key（与 watchlist 页面保持一致）
@@ -151,11 +153,18 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
     try {
       let data
       if (period === 'trend') {
-        // 分时图数据
-        data = await fetchStockTrend(stock.symbol, market, 1)
-        data.isTrend = true
+        // 分时图数据 - 使用数据源适配器
+        const trendData = await fetchTrendData(stock.symbol, market)
+        data = {
+          isTrend: true,
+          data: trendData
+        }
       } else {
-        data = await fetchStockKline(stock.symbol, market, months, period)
+        // K线数据 - 使用数据源适配器
+        // 将 months 转换为 count（大约每月20个交易日）
+        const count = Math.max(months * 20, 100)
+        const klineData = await fetchKlineData(stock.symbol, market, period, count)
+        data = klineData
       }
       setKlineData(data)
     } catch (error) {
@@ -169,7 +178,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   const loadFinanceData = useCallback(async (symbol, type) => {
     setFinanceLoading(true)
     try {
-      const finance = await fetchFinanceData(symbol, type, market)
+      const finance = await fetchFinanceData(symbol, type, market as 'a' | 'hk' | 'us')
       setFinanceData(finance)
     } finally {
       setFinanceLoading(false)
@@ -295,17 +304,21 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
       const currentRangeIndex = klineRangeIndex
       
       // 加载股票信息
-      const info = await fetchStockInfo(stock.symbol, stock.name, market)
+      const info = await fetchStockInfo(stock.symbol, stock.name, market as 'a' | 'hk' | 'us')
       setStockInfo(info)
       
       // 根据当前周期加载 K线数据
       let kline
       if (currentPeriod === 'trend') {
-        kline = await fetchStockTrend(stock.symbol, market, 1)
-        kline.isTrend = true
+        const trendData = await fetchTrendData(stock.symbol, market)
+        kline = {
+          isTrend: true,
+          data: trendData
+        }
       } else {
         const months = TIME_RANGES[currentRangeIndex]?.months || 3
-        kline = await fetchStockKline(stock.symbol, market, months, currentPeriod)
+        const count = Math.max(months * 20, 100)
+        kline = await fetchKlineData(stock.symbol, market, currentPeriod, count)
       }
       setKlineData(kline)
       
@@ -483,6 +496,7 @@ function StockDetail({ stock, market = 'hk', dateRange }) {
   // K线控制栏
   const klineExtra = (
     <Space size="small">
+      <DataSourceBadge showIcon={false} style={{ fontSize: 11, padding: '0 6px', height: 20 }} />
       {klinePeriod !== 'trend' && (
         <Radio.Group 
           value={showZhixing ? 'zhixing' : 'bbi'} 

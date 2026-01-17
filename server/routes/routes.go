@@ -67,6 +67,21 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/market/sectors", marketCtrl.GetHotSectors)
 		v1.GET("/market/top-gainers", marketCtrl.GetTopGainers)
 		v1.GET("/market/heatmap", marketCtrl.GetHeatmap)
+
+		// LongPort API (新数据源)
+		lpCtrl := controllers.NewLongPortController()
+		v1.GET("/lp/status", lpCtrl.GetStatus)
+		v1.GET("/lp/quote", lpCtrl.GetQuote)
+		v1.GET("/lp/static", lpCtrl.GetStaticInfo)
+		v1.GET("/lp/kline", lpCtrl.GetCandlesticks)
+		v1.GET("/lp/history-kline", lpCtrl.GetHistoryKline)
+		v1.GET("/lp/depth", lpCtrl.GetDepth)
+		v1.GET("/lp/intraday", lpCtrl.GetIntraday)
+		v1.GET("/lp/capital-flow", lpCtrl.GetCapitalFlow)
+		v1.GET("/lp/capital-distribution", lpCtrl.GetCapitalDistribution)
+		v1.GET("/lp/trading-session", lpCtrl.GetTradingSession)
+		v1.GET("/lp/trading-days", lpCtrl.GetTradingDays)
+		v1.GET("/lp/subscribe-info", lpCtrl.SubscribeInfo)
 	}
 
 	return r

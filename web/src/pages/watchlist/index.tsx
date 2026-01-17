@@ -6,7 +6,9 @@ import { createGroup, createLine, createRect } from '@visactor/vtable/es/vrender
 import { useLocalStorageState, useRequest, useDebounceFn, useKeyPress, useClickAway, useInterval, useMemoizedFn } from 'ahooks'
 import axios from 'axios'
 import StockDetail from '../range-stats/StockDetail'
-import { fetchStockInfo, fetchStockTrend } from '../../api/stock'
+import { fetchStockInfo } from '../../api/stock'
+import { fetchTrendData } from '../../utils/dataSourceAdapter'
+import { DataSourceBadge } from '../../components/DataSourceBadge'
 import { upColor, downColor } from '../../utils/chart'
 import { useTheme, getVTableTheme } from '../../contexts/ThemeContext'
 import { StockTableToolbar, exportColumnPresets } from '../../components/StockTable'
@@ -140,11 +142,11 @@ export default function WatchlistPage() {
           }
           
           if (includeTrend) {
-            const trend = await fetchStockTrend(stock.symbol, stock.market, 1)
-            if (trend?.values?.length) {
+            const trend = await fetchTrendData(stock.symbol, stock.market)
+            if (trend?.length) {
               trendResults[key] = {
-                data: trend.values,
-                preClose: trend.preClose
+                data: trend,
+                preClose: trend[0]?.avgPrice || 0
               }
             }
           }
@@ -801,6 +803,8 @@ export default function WatchlistPage() {
           {isTradeTime() && (
             <Tag color="green" style={{ margin: 0 }}>交易中</Tag>
           )}
+          
+          <DataSourceBadge showIcon={false} style={{ fontSize: 11 }} />
           
           <StockTableToolbar
             data={tableData}
